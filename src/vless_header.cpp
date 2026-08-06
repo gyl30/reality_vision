@@ -36,18 +36,11 @@ std::vector<std::uint8_t> encode_tcp_request(
     output.push_back(0x00);
     output.insert(output.end(), config.user_id.begin(), config.user_id.end());
 
-    if (config.selected_flow == flow::xtls_rprx_vision)
-    {
-        constexpr char name[] = "xtls-rprx-vision";
-        output.push_back(18);
-        output.push_back(0x0a);
-        output.push_back(0x10);
-        output.insert(output.end(), name, name + 16);
-    }
-    else
-    {
-        output.push_back(0);
-    }
+    constexpr char flow_name[] = "xtls-rprx-vision";
+    output.push_back(18);
+    output.push_back(0x0a);
+    output.push_back(0x10);
+    output.insert(output.end(), flow_name, flow_name + 16);
 
     output.push_back(0x01);
     put_u16(config.destination_port, output);

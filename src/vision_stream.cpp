@@ -55,7 +55,7 @@ boost::asio::awaitable<std::optional<vision_stream>> vision_stream::connect(vles
         co_return std::nullopt;
     }
     stream.write_sent_user_id_ = true;
-    spdlog::info("[{}] initial empty vision padding frame sent", stream.log_);
+    spdlog::info("{} initial empty vision padding frame sent", stream.log_);
     co_return std::move(stream);
 }
 
@@ -93,7 +93,7 @@ boost::asio::awaitable<bool> vision_stream::read_frame_header(boost::system::err
     remaining_content_ = header.content_length;
     remaining_padding_ = header.padding_length;
     read_phase_ = read_phase::content;
-    spdlog::info("[{}] vision frame command {} content {} padding {}",
+    spdlog::info("{} vision frame command {} content {} padding {}",
                  log_,
                  static_cast<unsigned int>(header.frame_command),
                  header.content_length,
@@ -161,7 +161,7 @@ boost::asio::awaitable<std::size_t> vision_stream::async_read_some(std::span<std
             if (!direct_enabled_ && server_hello_filter_.direct_supported())
             {
                 direct_enabled_ = true;
-                spdlog::info("[{}] inner tls 1.3 server hello permits vision direct mode", log_);
+                spdlog::info("{} inner tls 1.3 server hello permits vision direct mode", log_);
             }
             co_return count;
         }
@@ -185,7 +185,7 @@ boost::asio::awaitable<std::size_t> vision_stream::async_read_some(std::span<std
                     co_return 0;
                 }
                 read_phase_ = read_phase::through;
-                spdlog::info("[{}] vision receive direction entered direct mode", log_);
+                spdlog::info("{} vision receive direction entered direct mode", log_);
                 break;
         }
     }
@@ -257,7 +257,7 @@ boost::asio::awaitable<void> vision_stream::async_write_all(std::span<const std:
     if (end_padding)
     {
         write_padding_ = false;
-        spdlog::info("[{}] vision send padding ended with command {}", log_, static_cast<unsigned int>(final_command));
+        spdlog::info("{} vision send padding ended with command {}", log_, static_cast<unsigned int>(final_command));
     }
 }
 
@@ -282,7 +282,7 @@ boost::asio::awaitable<void> vision_stream::async_shutdown_send(boost::system::e
         }
         write_sent_user_id_ = true;
         write_padding_ = false;
-        spdlog::info("[{}] vision send padding ended with command 1", log_);
+        spdlog::info("{} vision send padding ended with command 1", log_);
     }
     co_await lower_.async_shutdown_send(ec);
 }

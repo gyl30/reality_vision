@@ -17,9 +17,7 @@ import time
 
 SHORT_ID = "0123456789abcdef"
 USER_ID = "b831381d-6324-4d53-ad4f-8cda48b30811"
-PLAIN_USER_ID = "409b5037-e24a-4f45-b880-efac05883d5e"
 SERVER_NAME = "apple.com"
-PAYLOAD = "xray-reality-vless-vision-interoperability"
 SOCKS_USERNAME = "test_user"
 SOCKS_PASSWORD = "test_password"
 
@@ -265,7 +263,6 @@ def main() -> int:
     decoy_log_path = work_dir / "decoy.log"
     inner_tls_log_path = work_dir / "inner-tls.log"
     inner_tls12_log_path = work_dir / "inner-tls12.log"
-    plain_socks_log_path = work_dir / "plain-socks.log"
     vision_socks_log_path = work_dir / "vision-socks.log"
     private_key, public_key = generate_x25519_key_pair(args.xray)
 
@@ -295,10 +292,9 @@ def main() -> int:
     inner_tls_port = reserve_port()
     inner_tls12_port = reserve_port()
     xray_port = reserve_port()
-    plain_socks_port = reserve_port()
     vision_socks_port = reserve_port()
 
-    def client_command(user_id: str, flow: str, socks_port: int) -> list[str]:
+    def client_command(socks_port: int) -> list[str]:
         return [
             str(args.client),
             "--server",
@@ -312,9 +308,7 @@ def main() -> int:
             "--short_id",
             SHORT_ID,
             "--uuid",
-            user_id,
-            "--flow",
-            flow,
+            USER_ID,
             "--socks_port",
             str(socks_port),
             "--socks_username",
@@ -338,7 +332,6 @@ def main() -> int:
                     "settings": {
                         "clients": [
                             {"id": USER_ID, "flow": "xtls-rprx-vision"},
-                            {"id": PLAIN_USER_ID},
                         ],
                         "decryption": "none",
                     },
@@ -367,7 +360,6 @@ def main() -> int:
         inner_tls_process: subprocess.Popen[bytes] | None = None
         inner_tls12_process: subprocess.Popen[bytes] | None = None
         xray_process: subprocess.Popen[bytes] | None = None
-        plain_socks_process: subprocess.Popen[bytes] | None = None
         vision_socks_process: subprocess.Popen[bytes] | None = None
         try:
             with (
@@ -439,39 +431,9 @@ def main() -> int:
                     )
                     wait_for_listener(xray_port, xray_process)
 
-                    with plain_socks_log_path.open("wb") as plain_socks_log:
-                        plain_socks_process = subprocess.Popen(
-                            client_command(PLAIN_USER_ID, "none", plain_socks_port),
-                            stdout=plain_socks_log,
-                            stderr=subprocess.STDOUT,
-                        )
-                        wait_for_text(
-                            plain_socks_log_path,
-                            "socks5 tcp proxy listening",
-                            plain_socks_process,
-                        )
-                        socks5_echo_roundtrip(
-                            plain_socks_port,
-                            echo_port,
-                            b"xray-reality-plain-vless-interoperability",
-                        )
-                        wait_for_text(
-                            plain_socks_log_path,
-                            "[socks_1] socks5 tcp session completed",
-                            plain_socks_process,
-                        )
-                        if plain_socks_process.poll() is not None:
-                            sys.stderr.write(
-                                "\n--- Plain SOCKS5 log ---\n" + tail(plain_socks_log_path)
-                            )
-                            return plain_socks_process.returncode or 1
-                    stop_process(plain_socks_process)
-                    plain_socks_process = None
-                    sys.stdout.write(tail(plain_socks_log_path))
-
                     with vision_socks_log_path.open("wb") as vision_socks_log:
                         vision_socks_process = subprocess.Popen(
-                            client_command(USER_ID, "vision", vision_socks_port),
+                            client_command(vision_socks_port),
                             stdout=vision_socks_log,
                             stderr=subprocess.STDOUT,
                         )
@@ -488,7 +450,7 @@ def main() -> int:
                         )
                         wait_for_text(
                             vision_socks_log_path,
-                            "[socks_1] socks5 tcp session completed",
+                            "socks_1 socks5 tcp session completed",
                             vision_socks_process,
                         )
 
@@ -499,7 +461,7 @@ def main() -> int:
                         )
                         wait_for_text(
                             vision_socks_log_path,
-                            "[socks_2] socks5 tcp session completed",
+                            "socks_2 socks5 tcp session completed",
                             vision_socks_process,
                         )
 
@@ -513,14 +475,14 @@ def main() -> int:
                         )
                         wait_for_text(
                             vision_socks_log_path,
-                            "[socks_3] socks5 tcp session completed",
+                            "socks_3 socks5 tcp session completed",
                             vision_socks_process,
                         )
 
                         socks5_rejects_wrong_password(vision_socks_port)
                         wait_for_text(
                             vision_socks_log_path,
-                            "[socks_4] socks5 negotiation failed",
+                            "socks_4 socks5 negotiation failed",
                             vision_socks_process,
                         )
                         time.sleep(0.1)
@@ -534,26 +496,26 @@ def main() -> int:
 
                         socks_output = tail(vision_socks_log_path)
                         direct_markers = (
-                            "[socks_2] vision send padding ended with command 2",
-                            "[socks_2] reality send direction switched to raw",
-                            "[socks_2] vision receive direction entered direct mode",
+                            "socks_2 vision send padding ended with command 2",
+                            "socks_2 reality send direction switched to raw",
+                            "socks_2 vision receive direction entered direct mode",
                         )
                         missing_direct = [
                             marker for marker in direct_markers if marker not in socks_output
                         ]
 
                         fallback_markers = (
-                            "[socks_1] vision send padding ended with command 1",
-                            "[socks_3] vision send padding ended with command 1",
+                            "socks_1 vision send padding ended with command 1",
+                            "socks_3 vision send padding ended with command 1",
                         )
                         missing_fallback = [
                             marker for marker in fallback_markers if marker not in socks_output
                         ]
                         forbidden = (
-                            "[socks_1] reality send direction switched to raw",
-                            "[socks_1] vision receive direction entered direct mode",
-                            "[socks_3] reality send direction switched to raw",
-                            "[socks_3] vision receive direction entered direct mode",
+                            "socks_1 reality send direction switched to raw",
+                            "socks_1 vision receive direction entered direct mode",
+                            "socks_3 reality send direction switched to raw",
+                            "socks_3 vision receive direction entered direct mode",
                         )
                         present_forbidden = [
                             marker for marker in forbidden if marker in socks_output
@@ -586,7 +548,6 @@ def main() -> int:
                         sys.stdout.write(socks_output)
         finally:
             stop_process(vision_socks_process)
-            stop_process(plain_socks_process)
             stop_process(xray_process)
             stop_process(inner_tls12_process)
             stop_process(inner_tls_process)
@@ -595,7 +556,7 @@ def main() -> int:
             echo_thread.join(timeout=2)
 
     print(
-        "Xray REALITY, Plain VLESS, Vision, SOCKS5 authentication, "
+        "Xray REALITY, VLESS Vision, SOCKS5 authentication, "
         "TLS 1.2 fallback, and TLS 1.3 Direct tests passed"
     )
     return 0

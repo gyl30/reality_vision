@@ -7,6 +7,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+option(RV_BUILD_TESTS "Register tests with CTest" ON)
+set(RV_XRAY_EXECUTABLE "" CACHE FILEPATH "Path to the Xray executable for interop tests")
+
 find_package(Boost REQUIRED CONFIG COMPONENTS program_options system)
 find_package(OpenSSL REQUIRED CONFIG)
 find_package(spdlog REQUIRED)
@@ -47,4 +50,21 @@ if(MSVC)
   target_compile_options(reality_vision PRIVATE /W4 /permissive-)
 else()
   target_compile_options(reality_vision PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+if(RV_BUILD_TESTS)
+  enable_testing()
+  add_test(NAME rv_protocol_tests COMMAND reality_vision --self_test)
+
+  if(RV_XRAY_EXECUTABLE)
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    add_test(
+      NAME rv_xray_interop
+      COMMAND
+        Python3::Interpreter
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/interop/run_xray_interop.py
+        --xray ${RV_XRAY_EXECUTABLE}
+        --client $<TARGET_FILE:reality_vision>
+        --work-dir ${CMAKE_CURRENT_BINARY_DIR}/xray-interop)
+  endif()
 endif()

@@ -50,14 +50,13 @@ GREASE ECH 保持 uTLS profile 的字段形状和 239-byte ciphertext 长度。�
 
 `tests/interop/run_xray_interop.py` 启动固定 Xray binary，并执行以下互通检查：
 
-1. SOCKS5 domain CONNECT → REALITY + Plain VLESS → 普通 TCP echo server；
-2. SOCKS5 domain CONNECT → REALITY + VLESS + Vision → 普通 TCP echo server，必须以 `command=1` 回退；
-3. SOCKS5 domain CONNECT → 内层 TLS 1.2 server，必须以 `command=1` 回退且不得增加 Xray splice；
-4. SOCKS5 domain CONNECT → 内层 TLS 1.3 server，必须进入双向 Direct；
-5. SOCKS5 RFC 1929 正确凭据通过，错误密码被拒绝且日志不包含凭据。
+1. SOCKS5 domain CONNECT → REALITY + VLESS + Vision → 普通 TCP echo server，必须以 `command=1` 回退；
+2. SOCKS5 domain CONNECT → 内层 TLS 1.2 server，必须以 `command=1` 回退且不得增加 Xray splice；
+3. SOCKS5 domain CONNECT → 内层 TLS 1.3 server，必须进入双向 Direct；
+4. SOCKS5 RFC 1929 正确凭据通过，错误密码被拒绝且日志不包含凭据。
 
-第四类连接必须同时出现 TX `command=2`、TX raw switch 和 RX raw switch，否则测试失败。
-第二、第三类必须出现 `command=1`，并断言对应连接没有 raw switch；TLS 1.2 用例运行前后
+第三类连接必须同时出现 TX `command=2`、TX raw switch 和 RX raw switch，否则测试失败。
+第一、第二类必须出现 `command=1`，并断言对应连接没有 raw switch；TLS 1.2 用例运行前后
 还会比较 Xray 的 `CopyRawConn splice` 计数。所有业务连接均通过项目唯一支持的 SOCKS5
 入站完成。
 

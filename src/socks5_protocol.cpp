@@ -110,17 +110,19 @@ asio::awaitable<void> authenticate_username_password(asio::ip::tcp::socket& sock
 
 }    // namespace
 
-bool decode_connect_request(std::span<const std::uint8_t> wire, connect_request& output, boost::system::error_code& ec)
+boost::system::error_code decode_connect_request(
+    std::span<const std::uint8_t> wire,
+    connect_request& output)
 {
+    using boost::system::errc::make_error_code;
+
     if (wire.size() < 7 || wire[0] != version || wire[2] != 0)
     {
-        ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
-        return false;
+        return make_error_code(boost::system::errc::bad_message);
     }
     if (wire[1] != connect_command)
     {
-        ec = boost::system::errc::make_error_code(boost::system::errc::operation_not_supported);
-        return false;
+        return make_error_code(boost::system::errc::operation_not_supported);
     }
 
     connect_request request;
@@ -130,8 +132,7 @@ bool decode_connect_request(std::span<const std::uint8_t> wire, connect_request&
         {
             if (wire.size() != 10)
             {
-                ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
-                return false;
+                return make_error_code(boost::system::errc::bad_message);
             }
             ipv4_address address;
             std::copy_n(wire.begin() + 4, address.bytes.size(), address.bytes.begin());
@@ -143,8 +144,7 @@ bool decode_connect_request(std::span<const std::uint8_t> wire, connect_request&
             const auto length = static_cast<std::size_t>(wire[4]);
             if (length == 0 || wire.size() != 7 + length)
             {
-                ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
-                return false;
+                return make_error_code(boost::system::errc::bad_message);
             }
             request.destination = domain_address{std::string(reinterpret_cast<const char*>(wire.data() + 5), length)};
             break;
@@ -153,8 +153,7 @@ bool decode_connect_request(std::span<const std::uint8_t> wire, connect_request&
         {
             if (wire.size() != 22)
             {
-                ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
-                return false;
+                return make_error_code(boost::system::errc::bad_message);
             }
             ipv6_address address;
             std::copy_n(wire.begin() + 4, address.bytes.size(), address.bytes.begin());
@@ -162,18 +161,17 @@ bool decode_connect_request(std::span<const std::uint8_t> wire, connect_request&
             break;
         }
         default:
-            ec = boost::system::errc::make_error_code(boost::system::errc::address_family_not_supported);
-            return false;
+            return make_error_code(boost::system::errc::address_family_not_supported);
     }
 
     request.port = read_port(wire);
     if (request.port == 0)
     {
-        ec = boost::system::errc::make_error_code(boost::system::errc::invalid_argument);
-        return false;
+        return make_error_code(boost::system::errc::invalid_argument);
     }
+
     output = std::move(request);
-    return true;
+    return {};
 }
 
 std::array<std::uint8_t, 10> encode_reply(reply value) noexcept
@@ -343,7 +341,8 @@ asio::awaitable<std::optional<connect_request>> async_negotiate_connect(asio::ip
     }
 
     connect_request request;
-    if (!decode_connect_request(wire, request, ec))
+    ec = decode_connect_request(wire, request);
+    if (ec)
     {
         boost::system::error_code reply_ec;
         co_await async_send_reply(socket, reply::general_failure, reply_ec);

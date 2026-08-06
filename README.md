@@ -4,10 +4,10 @@
 
 - Boost.Asio `tcp_byte_stream`；
 - REALITY 客户端握手与受限 TLS 1.3 record layer；
-- Plain VLESS TCP；
+- VLESS TCP，并固定使用 `xtls-rprx-vision` addon；
 - XTLS-Vision padding，以及收、发方向独立切换的 Direct splice；
 - 本地 SOCKS5 TCP CONNECT 代理（支持无认证或用户名密码认证，以及域名、IPv4 和 IPv6）；
-- spdlog 会话日志；
+- 无方括号格式的 spdlog 会话日志；
 - 基于真实 Xray 进程的端到端互通测试。
 
 网络层不会把数据主动推给协议层。每一层都持有下层 stream；上层需要数据时才
@@ -22,7 +22,6 @@
 已经以自动化端到端测试验证：
 
 - Xray-core `5ca6f4b7d4dc20a881d4330e498892697627ec0c`（v26.7.28）；
-- REALITY + Plain VLESS TCP 双向传输；
 - REALITY + VLESS + XTLS-Vision 普通 padding 帧双向传输；
 - 内层 OpenSSL TLS 1.3 会话触发 Vision `command=2`；
 - 外层 REALITY 的 TX/RX 分别从 TLS record mode 切换到 raw mode；
@@ -40,7 +39,7 @@
 - `TLS_AES_256_GCM_SHA384`；
 - `TLS_CHACHA20_POLY1305_SHA256`；
 - REALITY Ed25519 leaf certificate、HMAC-SHA512、CertificateVerify 和 Finished 校验；
-- Plain VLESS TCP 与 `xtls-rprx-vision`；
+- VLESS TCP，固定使用 `xtls-rprx-vision`；
 - SOCKS5 `CONNECT` 与 RFC 1929 用户名密码认证，每个本地连接独立建立一条远端协议栈；
 - Vision 对内层 TLS 1.3 `0x1301..0x1304` 的 Direct 判定；
 - 非 TLS TCP 和内层 TLS 1.2 通过 Vision `command=1` 回退并继续透明传输；
@@ -125,9 +124,8 @@ CMake 只创建一个 `reality_vision` executable，所有实现源文件直接�
 - `RV_XRAY_EXECUTABLE=/path/to/xray`：启用真实 Xray 互通测试。
 
 协议自测已经编入同一个二进制，也可以直接运行 `./build/reality_vision --self_test`。
-Xray 互通测试覆盖 SOCKS5 非 TLS、TLS 1.2 fallback、TLS 1.3 Direct、Plain VLESS 和
-Vision framing，并验证 SOCKS5 正确密码与错误密码；还需要 Python 3 和系统的 OpenSSL
-命令行工具。
+Xray 互通测试覆盖 SOCKS5 非 TLS、TLS 1.2 fallback、TLS 1.3 Direct 和 Vision framing，
+并验证 SOCKS5 正确密码与错误密码；还需要 Python 3 和系统的 OpenSSL 命令行工具。
 
 ## 作为 SOCKS5 TCP 代理运行
 
@@ -140,7 +138,6 @@ Vision framing，并验证 SOCKS5 正确密码与错误密码；还需要 Python
   --server_public_key 'uL4rG3uX_6B359RLXYFNTmSWnrBSLVv1PIG6NUWjMVk' \
   --short_id 0123456789abcdef \
   --uuid b831381d-6324-4d53-ad4f-8cda48b30811 \
-  --flow vision \
   --socks_port 1080 \
   --socks_username test_user \
   --socks_password test_password
@@ -217,9 +214,9 @@ if (ec)
 }
 ```
 
-一个连接允许一个读协程和一个写协程同时运行；不允许两个并发读或两个并发写。同方向
-并发会设置 `boost::system::errc::operation_in_progress`。如果 `io_context` 由多个线程运行，
-调用方应让同一连接的操作位于同一个 strand 上。
+一个连接允许一个读协程和一个写协程同时运行；不支持两个并发读或两个并发写。当前实现
+不在 stream 内部排队或检测同方向并发，调用方必须遵守这一约束。如果 `io_context` 由多个
+线程运行，调用方应让同一连接的操作位于同一个 strand 上。
 
 所有 Asio 操作使用 `redirect_error(use_awaitable, ec)`，因此预期的 socket 错误不会被
 `use_awaitable` 转换成 `system_error`。调用方必须在每次 `co_await` 后检查 `ec`。

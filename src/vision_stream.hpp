@@ -54,8 +54,6 @@ class vision_stream
     bool write_sent_user_id_{false};
     bool write_seen_tls_{false};
     bool direct_enabled_{false};
-    bool read_in_progress_{false};
-    bool write_in_progress_{false};
     server_hello_filter server_hello_filter_;
     std::string log_;
 };

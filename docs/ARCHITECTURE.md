@@ -46,8 +46,8 @@ SOCKS5 服务只负责监听、认证协商和解析 TCP CONNECT 目标。认证
 配置均为不拥有运行时资源的 typed value：
 
 - `reality::client_config`：SNI、REALITY public key、short ID、client version、指纹枚举；
-- `vless::client_config`：UUID、目标地址、端口和 flow；
-- 日志上下文使用连接 ID 字符串；spdlog 直接使用默认控制台 logger。
+- `vless::client_config`：UUID、目标地址和端口；Vision addon 固定写入请求头；
+- 日志上下文使用连接 ID 字符串；spdlog pattern 不输出方括号。
 
 配置解析、Base64/UUID 文本转换和业务路由位于可执行程序边缘；协议类只接收已经验证过
 长度的二进制值。它们只是源代码层次上的模块，CMake 会把所有实现直接编入同一个
@@ -105,7 +105,7 @@ VLESS request header 使用：
 
 - version `0`；
 - 16-byte UUID；
-- 可选 addon `xtls-rprx-vision`；
+- 固定 addon `xtls-rprx-vision`；
 - TCP command；
 - big-endian port；
 - IPv4/domain/IPv6 address。
@@ -138,9 +138,9 @@ Vision 首帧含 16-byte UUID，后续帧使用 5-byte header：
 SOCKS5 server 可同时服务多个连接；每条连接内部仍遵循一个读协程和一个写协程。一个方向
 遇到 EOF 时只 half-close 对端的发送方向，等待另一个方向排空后再关闭整个会话。
 
-同方向并发不会抛出业务异常，而是通过输出参数设置
-`boost::system::errc::operation_in_progress`。这些对象不是线程安全容器；当一个
-`io_context` 由多个线程运行时，调用方必须使用同一个 strand 串行化该连接的 handler。
+stream 不在内部排队或检测同方向并发。调用方必须保证同一时刻最多有一个读操作和一个
+写操作；这些对象也不是线程安全容器。当一个 `io_context` 由多个线程运行时，调用方必须
+使用同一个 strand 串行化该连接的 handler。
 
 传给 awaitable 写函数的 `std::span` 在 awaitable 完成前必须保持有效。所有需要跨
 `co_await` 保存的协议帧都会先复制到本地 `std::vector`。

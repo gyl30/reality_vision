@@ -496,7 +496,7 @@ boost::asio::awaitable<std::optional<handshake_result>> perform_client_handshake
     if (ec) co_return std::nullopt;
     co_await stream.async_write_all(hello_record, ec);
     if (ec) co_return std::nullopt;
-    spdlog::info("[{}] reality client hello sent firefox 120 profile", log);
+    spdlog::info("{} reality client hello sent firefox 120 profile", log);
 
     core::byte_queue plain_handshake(maximum_handshake_message);
     auto server_hello_message = co_await read_plain_handshake(stream, plain_handshake, ec);
@@ -506,7 +506,7 @@ boost::asio::awaitable<std::optional<handshake_result>> perform_client_handshake
     if (!crypto::constant_time_equal(server_hello.session_id, hello->session_id))
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::permission_denied);
-        spdlog::error("[{}] REALITY server did not echo the authenticated session ID", log);
+        spdlog::error("{} REALITY server did not echo the authenticated session ID", log);
         co_return std::nullopt;
     }
     transcript.insert(transcript.end(), server_hello_message.raw.begin(), server_hello_message.raw.end());
@@ -616,7 +616,7 @@ boost::asio::awaitable<std::optional<handshake_result>> perform_client_handshake
     crypto::cleanse(handshake->server_secret);
     crypto::cleanse(handshake->master_secret);
     crypto::cleanse(hello->reality_auth_key);
-    spdlog::info("[{}] reality tls 1.3 handshake completed", log);
+    spdlog::info("{} reality tls 1.3 handshake completed", log);
     co_return handshake_result{std::move(application->server), std::move(application->client)};
 }
 

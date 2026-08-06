@@ -177,7 +177,6 @@ void test_vless_header()
     config.user_id.fill(0x11);
     config.destination = rv::vless::domain_address{"example.com"};
     config.destination_port = 443;
-    config.selected_flow = rv::vless::flow::xtls_rprx_vision;
     const auto request = rv::vless::encode_tcp_request(config, ec);
     expect(!ec && !request.empty(), "VLESS request encoding failed");
 
@@ -229,12 +228,14 @@ void test_socks5_decode()
     boost::system::error_code ec;
     constexpr std::array<std::uint8_t, 10> wire{5, 1, 0, 1, 127, 0, 0, 1, 0x01, 0xbb};
     rv::socks5::connect_request request;
-    expect(rv::socks5::decode_connect_request(wire, request, ec) && !ec, "SOCKS5 decode failed");
+    ec = rv::socks5::decode_connect_request(wire, request);
+    expect(!ec, "SOCKS5 decode failed");
     expect(request.port == 443, "SOCKS5 port mismatch");
 
     auto malformed = wire;
     malformed[0] = 4;
-    expect(!rv::socks5::decode_connect_request(malformed, request, ec), "SOCKS5 accepted wrong version");
+    ec = rv::socks5::decode_connect_request(malformed, request);
+    expect(static_cast<bool>(ec), "SOCKS5 accepted wrong version");
     expect_error(ec, boost::system::errc::bad_message, "SOCKS5 malformed request returned wrong error");
 }
 

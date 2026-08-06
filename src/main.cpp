@@ -18,6 +18,7 @@
 #include <boost/asio/use_future.hpp>
 #include <boost/asio/write.hpp>
 #include <boost/system/error_code.hpp>
+#include <boost/system/errc.hpp>
 #include <spdlog/spdlog.h>
 
 #include <array>
@@ -44,6 +45,7 @@ boost::asio::awaitable<void> copy_local_to_remote(boost::asio::ip::tcp::socket& 
         const auto count = co_await local.async_read_some(boost::asio::buffer(buffer), boost::asio::redirect_error(boost::asio::use_awaitable, ec));
         if (ec == boost::asio::error::eof || (!ec && count == 0))
         {
+            ec.clear();
             co_await remote.async_shutdown_send(ec);
             if (ec)
             {
@@ -102,6 +104,7 @@ boost::asio::awaitable<void> relay_bidirectional(boost::asio::ip::tcp::socket& l
                                                  boost::system::error_code& ec)
 {
     using namespace boost::asio::experimental::awaitable_operators;    // NOLINT
+    ec.clear();
     boost::system::error_code uplink_ec;
     boost::system::error_code downlink_ec;
     co_await (copy_local_to_remote(local, remote, uplink_ec) && copy_remote_to_local(remote, local, downlink_ec));
@@ -170,7 +173,6 @@ boost::asio::awaitable<std::optional<rv::vless::vless_stream>> connect_vless(con
     vless_config.user_id = settings.user_id;
     vless_config.destination = std::move(destination);
     vless_config.destination_port = destination_port;
-    vless_config.selected_flow = rv::vless::flow::xtls_rprx_vision;
     co_return co_await rv::vless::vless_stream::connect(std::move(*reality), std::move(vless_config), log, ec);
 }
 
@@ -195,26 +197,42 @@ boost::asio::awaitable<void> run_socks_connection(boost::asio::ip::tcp::socket l
 {
     boost::system::error_code ec;
     const auto request = co_await rv::socks5::async_negotiate_connect(local, settings.socks_credentials, ec);
-    if (ec)
+    if (ec || !request)
     {
+        if (!ec)
+        {
+            ec = boost::system::errc::make_error_code(boost::system::errc::state_not_recoverable);
+        }
         spdlog::warn("{} socks5 negotiation failed: {}", id, ec.message());
         co_return;
     }
     spdlog::info("{} socks5 connect {}", id, rv::socks5::format_destination(*request));
 
     auto vless = co_await connect_vless(settings, to_vless_address(request->destination), request->port, id, ec);
-    if (ec)
+    if (ec || !vless)
     {
-        co_await rv::socks5::async_send_reply(local, reply_for_error(ec), ec);
-        spdlog::warn("{} upstream connection failed: {}", id, ec.message());
+        if (!ec)
+        {
+            ec = boost::system::errc::make_error_code(boost::system::errc::state_not_recoverable);
+        }
+        const auto upstream_ec = ec;
+        boost::system::error_code reply_ec;
+        co_await rv::socks5::async_send_reply(local, reply_for_error(upstream_ec), reply_ec);
+        spdlog::warn("{} upstream connection failed: {}", id, upstream_ec.message());
         co_return;
     }
 
     auto vision = co_await rv::vision::vision_stream::connect(std::move(*vless), settings.user_id, id, ec);
-    if (ec)
+    if (ec || !vision)
     {
-        co_await rv::socks5::async_send_reply(local, rv::socks5::reply::general_failure, ec);
-        spdlog::warn("{} Vision setup failed: {}", id, ec.message());
+        if (!ec)
+        {
+            ec = boost::system::errc::make_error_code(boost::system::errc::state_not_recoverable);
+        }
+        const auto vision_ec = ec;
+        boost::system::error_code reply_ec;
+        co_await rv::socks5::async_send_reply(local, rv::socks5::reply::general_failure, reply_ec);
+        spdlog::warn("{} vision setup failed: {}", id, vision_ec.message());
         co_return;
     }
 
@@ -297,6 +315,8 @@ boost::asio::awaitable<void> run_socks_server(rv::app::config settings, boost::s
 
 int main(int argc, char* argv[])
 {
+    spdlog::set_pattern("%Y-%m-%d %H:%M:%S.%e %^%l%$ %v");
+
     try
     {
         const auto parsed = rv::app::parse_config(argc, argv);

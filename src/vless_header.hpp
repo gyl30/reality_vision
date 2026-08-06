@@ -17,14 +17,11 @@ struct ipv6_address { std::array<std::uint8_t, 16> bytes{}; };
 struct domain_address { std::string name; };
 using address = std::variant<ipv4_address, domain_address, ipv6_address>;
 
-enum class flow { none, xtls_rprx_vision };
-
 struct client_config
 {
     std::array<std::uint8_t, 16> user_id{};
     address destination;
     std::uint16_t destination_port{};
-    flow selected_flow{flow::none};
 };
 
 [[nodiscard]] std::vector<std::uint8_t> encode_tcp_request(

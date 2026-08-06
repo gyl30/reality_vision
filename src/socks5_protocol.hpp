@@ -44,10 +44,9 @@ enum class reply : std::uint8_t
     address_type_not_supported = 0x08,
 };
 
-[[nodiscard]] bool decode_connect_request(
+[[nodiscard]] boost::system::error_code decode_connect_request(
     std::span<const std::uint8_t> wire,
-    connect_request& output,
-    boost::system::error_code& ec);
+    connect_request& output);
 [[nodiscard]] std::array<std::uint8_t, 10> encode_reply(reply value) noexcept;
 [[nodiscard]] std::string format_destination(const connect_request& request);
 

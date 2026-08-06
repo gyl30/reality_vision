@@ -237,7 +237,7 @@ boost::asio::awaitable<void> reality_stream::async_shutdown_send(boost::system::
 
 bool reality_stream::switch_receive_to_raw(boost::system::error_code& ec)
 {
-    if (receive_mode_ != receive_mode::tls || !plaintext_.empty() || !post_handshake_.empty() || read_in_progress_)
+    if (receive_mode_ != receive_mode::tls || !plaintext_.empty() || !post_handshake_.empty())
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::operation_not_permitted);
         return false;

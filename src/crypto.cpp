@@ -28,6 +28,13 @@ namespace rv::crypto
 namespace
 {
 
+void discard_crypto_errors() noexcept
+{
+    while (ERR_get_error() != 0)
+    {
+    }
+}
+
 void set_crypto_error(
     boost::system::error_code& ec,
     boost::system::errc::errc_t value,
@@ -355,7 +362,8 @@ std::vector<std::uint8_t> aead::open(
     if (EVP_AEAD_CTX_open(impl_->context.get(), output.data(), &written, output.size(), nonce.data(), nonce.size(), ciphertext.data(), ciphertext.size(),
                           additional_data.data(), additional_data.size()) != 1)
     {
-        set_crypto_error(ec, boost::system::errc::bad_message, "AEAD authentication failed");
+        discard_crypto_errors();
+        ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
         return {};
     }
     output.resize(written);

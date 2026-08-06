@@ -64,8 +64,6 @@ class reality_stream
     receive_mode receive_mode_{receive_mode::tls};
     send_mode send_mode_{send_mode::tls};
     std::size_t useless_records_{0};
-    bool read_in_progress_{false};
-    bool write_in_progress_{false};
     std::string id_;
 };
 
