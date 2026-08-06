@@ -50,7 +50,6 @@ boost::asio::awaitable<std::optional<reality_stream>> reality_stream::connect(ne
                                                                               std::string log,
                                                                               boost::system::error_code& ec)
 {
-    ec.clear();
     auto result = co_await perform_client_handshake(lower, config, log, ec);
     if (ec || !result)
     {
@@ -59,8 +58,8 @@ boost::asio::awaitable<std::optional<reality_stream>> reality_stream::connect(ne
     co_return reality_stream(std::move(lower), std::move(result->read_key), std::move(result->write_key), std::move(log));
 }
 
-reality_stream::reality_stream(net::tcp_byte_stream lower, record_key read_key, record_key write_key, std::string log)
-    : lower_(std::move(lower)), read_key_(std::move(read_key)), write_key_(std::move(write_key)), log_(std::move(log))
+reality_stream::reality_stream(net::tcp_byte_stream lower, record_key read_key, record_key write_key, std::string id)
+    : lower_(std::move(lower)), read_key_(std::move(read_key)), write_key_(std::move(write_key)), id_(std::move(id))
 {
 }
 
@@ -80,7 +79,7 @@ boost::asio::awaitable<std::size_t> reality_stream::async_read_some(std::span<st
         if (ec == boost::asio::error::eof)
         {
             receive_mode_ = receive_mode::closed;
-            ec.clear();
+            ec = {};
             co_return 0;
         }
         co_return count;
@@ -238,14 +237,13 @@ boost::asio::awaitable<void> reality_stream::async_shutdown_send(boost::system::
 
 bool reality_stream::switch_receive_to_raw(boost::system::error_code& ec)
 {
-    ec.clear();
     if (receive_mode_ != receive_mode::tls || !plaintext_.empty() || !post_handshake_.empty() || read_in_progress_)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::operation_not_permitted);
         return false;
     }
     receive_mode_ = receive_mode::raw;
-    spdlog::info("[{}] reality receive direction switched to raw", log_);
+    spdlog::info("{} reality receive direction switched to raw", id_);
     return true;
 }
 
@@ -266,7 +264,7 @@ boost::asio::awaitable<void> reality_stream::async_write_final_tls_and_switch(st
         co_return;
     }
     send_mode_ = send_mode::raw;
-    spdlog::info("[{}] reality send direction switched to raw", log_);
+    spdlog::info("{} reality send direction switched to raw", id_);
 }
 
 bool reality_stream::process_post_handshake(boost::system::error_code& ec)

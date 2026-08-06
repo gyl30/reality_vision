@@ -26,7 +26,6 @@ std::optional<config> parse_config(const int argc, char* argv[])
     std::string server_public_key;
     std::string short_id_hex;
     std::string uuid;
-    std::string flow;
     std::string socks_username;
     std::string socks_password;
 
@@ -38,7 +37,6 @@ std::optional<config> parse_config(const int argc, char* argv[])
         "server_public_key", boost::program_options::value<std::string>(&server_public_key)->required(), "reality server public key")(
         "short_id", boost::program_options::value<std::string>(&short_id_hex)->required(), "reality short id")(
         "uuid", boost::program_options::value<std::string>(&uuid)->required(), "vless uuid")(
-        "flow", boost::program_options::value<std::string>(&flow)->default_value("vision"), "vision or none")(
         "socks_port", boost::program_options::value<std::uint16_t>(&result.socks_port)->required(), "socks5 listen port")(
         "socks_username", boost::program_options::value<std::string>(&socks_username), "socks5 username")(
         "socks_password", boost::program_options::value<std::string>(&socks_password), "socks5 password");
@@ -71,20 +69,6 @@ std::optional<config> parse_config(const int argc, char* argv[])
         return std::nullopt;
     }
 
-    if (flow == "vision")
-    {
-        result.vision = true;
-    }
-    else if (flow == "none")
-    {
-        result.vision = false;
-    }
-    else
-    {
-        std::cerr << "--flow must be vision or none\n";
-        return std::nullopt;
-    }
-
     if (result.socks_port == 0)
     {
         std::cerr << "--socks_port must be between 1 and 65535\n";
@@ -106,8 +90,8 @@ std::optional<config> parse_config(const int argc, char* argv[])
             return std::nullopt;
         }
         result.socks_credentials = rv::socks5::credentials{
-            std::move(socks_username),
-            std::move(socks_password),
+            .username = std::move(socks_username),
+            .password = std::move(socks_password),
         };
     }
 
@@ -135,12 +119,12 @@ std::optional<config> parse_config(const int argc, char* argv[])
         return std::nullopt;
     }
 
-    std::copy(public_key.begin(), public_key.end(), result.server_public_key.begin());
-    std::copy(short_id.begin(), short_id.end(), result.short_id.begin());
+    std::ranges::copy(public_key, result.server_public_key.begin());
+    std::ranges::copy(short_id, result.short_id.begin());
     try
     {
         const auto parsed_uuid = boost::uuids::string_generator{}(uuid);
-        std::copy(parsed_uuid.begin(), parsed_uuid.end(), result.user_id.begin());
+        std::ranges::copy(parsed_uuid, result.user_id.begin());
     }
     catch (const std::runtime_error&)
     {

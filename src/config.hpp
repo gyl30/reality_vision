@@ -21,7 +21,6 @@ struct config
     std::array<std::uint8_t, 8> short_id{};
     std::array<std::uint8_t, 16> user_id{};
 
-    bool vision{true};
     std::uint16_t socks_port = 0;
     std::optional<rv::socks5::credentials> socks_credentials;
 };

@@ -18,44 +18,42 @@
 namespace rv::reality
 {
 
-enum class receive_mode { tls, raw, closed };
-enum class send_mode { tls, draining, raw, closed };
+enum class receive_mode : uint8_t
+{
+    tls,
+    raw,
+    closed
+};
+enum class send_mode : uint8_t
+{
+    tls,
+    draining,
+    raw,
+    closed
+};
 
 class reality_stream
 {
-public:
-    [[nodiscard]] static boost::asio::awaitable<std::optional<reality_stream>> connect(
-        net::tcp_byte_stream lower,
-        client_config config,
-        std::string log,
-        boost::system::error_code& ec);
+   public:
+    [[nodiscard]] static boost::asio::awaitable<std::optional<reality_stream>> connect(net::tcp_byte_stream lower,
+                                                                                       client_config config,
+                                                                                       std::string log,
+                                                                                       boost::system::error_code& ec);
 
-    reality_stream(const reality_stream&) = delete;
-    reality_stream& operator=(const reality_stream&) = delete;
-    reality_stream(reality_stream&&) noexcept = default;
-    reality_stream& operator=(reality_stream&&) noexcept = default;
-
-    [[nodiscard]] boost::asio::awaitable<std::size_t> async_read_some(
-        std::span<std::uint8_t> output, boost::system::error_code& ec);
-    [[nodiscard]] boost::asio::awaitable<void> async_write_all(
-        std::span<const std::uint8_t> input, boost::system::error_code& ec);
+    [[nodiscard]] boost::asio::awaitable<std::size_t> async_read_some(std::span<std::uint8_t> output, boost::system::error_code& ec);
+    [[nodiscard]] boost::asio::awaitable<void> async_write_all(std::span<const std::uint8_t> input, boost::system::error_code& ec);
     [[nodiscard]] boost::asio::awaitable<void> async_shutdown_send(boost::system::error_code& ec);
 
     [[nodiscard]] bool switch_receive_to_raw(boost::system::error_code& ec);
-    [[nodiscard]] boost::asio::awaitable<void> async_write_final_tls_and_switch(
-        std::span<const std::uint8_t> final_plaintext, boost::system::error_code& ec);
+    [[nodiscard]] boost::asio::awaitable<void> async_write_final_tls_and_switch(std::span<const std::uint8_t> final_plaintext,
+                                                                                boost::system::error_code& ec);
 
     void shutdown() noexcept;
 
-private:
-    reality_stream(
-        net::tcp_byte_stream lower,
-        record_key read_key,
-        record_key write_key,
-        std::string log);
+   private:
+    reality_stream(net::tcp_byte_stream lower, record_key read_key, record_key write_key, std::string id);
 
-    [[nodiscard]] boost::asio::awaitable<void> write_tls(
-        std::span<const std::uint8_t> input, boost::system::error_code& ec);
+    [[nodiscard]] boost::asio::awaitable<void> write_tls(std::span<const std::uint8_t> input, boost::system::error_code& ec);
     [[nodiscard]] bool process_post_handshake(boost::system::error_code& ec);
 
     net::tcp_byte_stream lower_;
@@ -68,9 +66,9 @@ private:
     std::size_t useless_records_{0};
     bool read_in_progress_{false};
     bool write_in_progress_{false};
-    std::string log_;
+    std::string id_;
 };
 
-} // namespace rv::reality
+}    // namespace rv::reality
 
 #endif

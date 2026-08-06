@@ -18,39 +18,31 @@ namespace rv::vless
 
 class vless_stream
 {
-public:
-    [[nodiscard]] static boost::asio::awaitable<std::optional<vless_stream>> connect(
-        reality::reality_stream lower,
-        client_config config,
-        std::string id,
-        boost::system::error_code& ec);
+   public:
+    [[nodiscard]] static boost::asio::awaitable<std::optional<vless_stream>> connect(reality::reality_stream lower,
+                                                                                     client_config config,
+                                                                                     std::string id,
+                                                                                     boost::system::error_code& ec);
 
-    vless_stream(const vless_stream&) = delete;
-    vless_stream& operator=(const vless_stream&) = delete;
-    vless_stream(vless_stream&&) noexcept = default;
-    vless_stream& operator=(vless_stream&&) noexcept = default;
-
-    [[nodiscard]] boost::asio::awaitable<std::size_t> async_read_some(
-        std::span<std::uint8_t> output, boost::system::error_code& ec);
-    [[nodiscard]] boost::asio::awaitable<void> async_write_all(
-        std::span<const std::uint8_t> input, boost::system::error_code& ec);
+    [[nodiscard]] boost::asio::awaitable<std::size_t> async_read_some(std::span<std::uint8_t> output, boost::system::error_code& ec);
+    [[nodiscard]] boost::asio::awaitable<void> async_write_all(std::span<const std::uint8_t> input, boost::system::error_code& ec);
     [[nodiscard]] boost::asio::awaitable<void> async_shutdown_send(boost::system::error_code& ec);
 
     [[nodiscard]] bool switch_receive_to_raw(boost::system::error_code& ec);
-    [[nodiscard]] boost::asio::awaitable<void> async_write_final_tls_and_switch(
-        std::span<const std::uint8_t> final_plaintext, boost::system::error_code& ec);
+    [[nodiscard]] boost::asio::awaitable<void> async_write_final_tls_and_switch(std::span<const std::uint8_t> final_plaintext,
+                                                                                boost::system::error_code& ec);
 
     void shutdown() noexcept;
 
-private:
+   private:
     vless_stream(reality::reality_stream lower, std::string log);
     [[nodiscard]] boost::asio::awaitable<void> read_response_header(boost::system::error_code& ec);
 
     reality::reality_stream lower_;
     bool response_pending_{true};
-    std::string log_;
+    std::string id_;
 };
 
-} // namespace rv::vless
+}    // namespace rv::vless
 
 #endif

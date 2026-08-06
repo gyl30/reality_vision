@@ -23,7 +23,7 @@ std::uint32_t uniform_below(std::uint32_t bound, boost::system::error_code& ec)
     {
         return 0;
     }
-    const auto threshold = static_cast<std::uint32_t>(-bound) % bound;
+    const auto threshold = (-bound) % bound;
     for (;;)
     {
         std::array<std::uint8_t, 4> bytes{};
@@ -81,7 +81,6 @@ bool decode_header(std::span<const std::uint8_t> header,
                    frame_header& output,
                    boost::system::error_code& ec)
 {
-    ec.clear();
     const auto required = contains_user_id ? full_header_size : short_header_size;
     if (header.size() != required)
     {
@@ -102,9 +101,11 @@ bool decode_header(std::span<const std::uint8_t> header,
     }
 
     output = {
-        static_cast<command>(command_value),
-        static_cast<std::uint16_t>(static_cast<std::uint16_t>(header[offset + 1]) << 8U | static_cast<std::uint16_t>(header[offset + 2])),
-        static_cast<std::uint16_t>(static_cast<std::uint16_t>(header[offset + 3]) << 8U | static_cast<std::uint16_t>(header[offset + 4])),
+        .frame_command = static_cast<command>(command_value),
+        .content_length =
+            static_cast<std::uint16_t>(static_cast<std::uint16_t>(header[offset + 1]) << 8U | static_cast<std::uint16_t>(header[offset + 2])),
+        .padding_length =
+            static_cast<std::uint16_t>(static_cast<std::uint16_t>(header[offset + 3]) << 8U | static_cast<std::uint16_t>(header[offset + 4])),
     };
     if (required + static_cast<std::size_t>(output.content_length) + static_cast<std::size_t>(output.padding_length) > xray_buffer_size)
     {
@@ -120,7 +121,6 @@ std::vector<std::uint8_t> encode_frame(command frame_command,
                                        bool long_padding,
                                        boost::system::error_code& ec)
 {
-    ec.clear();
     const auto header_size = user_id ? full_header_size : short_header_size;
     if (content.size() > xray_buffer_size - header_size || content.size() > std::numeric_limits<std::uint16_t>::max())
     {
@@ -192,7 +192,7 @@ void server_hello_filter::observe(std::span<const std::uint8_t> input)
     {
         return;
     }
-    if (input.size() > 64U * 1024U - buffer_.size())
+    if (input.size() > (64UL * 1024U) - buffer_.size())
     {
         done_ = true;
         return;
@@ -223,7 +223,7 @@ void server_hello_filter::evaluate()
             return;
         }
         record_length_ = 5 + (static_cast<std::size_t>(buffer_[3]) << 8U | static_cast<std::size_t>(buffer_[4]));
-        if (*record_length_ > 64U * 1024U)
+        if (*record_length_ > 64UL * 1024U)
         {
             done_ = true;
             return;

@@ -17,34 +17,23 @@ namespace rv::net
 
 class tcp_byte_stream
 {
-public:
+   public:
     explicit tcp_byte_stream(boost::asio::ip::tcp::socket socket, std::string id);
 
-    tcp_byte_stream(const tcp_byte_stream&) = delete;
-    tcp_byte_stream& operator=(const tcp_byte_stream&) = delete;
-    tcp_byte_stream(tcp_byte_stream&&) noexcept = default;
-    tcp_byte_stream& operator=(tcp_byte_stream&&) noexcept = default;
-
     [[nodiscard]] static boost::asio::awaitable<std::optional<tcp_byte_stream>> connect(
-        boost::asio::any_io_executor executor,
-        std::string host,
-        std::string service,
-        std::string id,
-        boost::system::error_code& ec);
+        boost::asio::any_io_executor executor, std::string host, std::string service, std::string id, boost::system::error_code& ec);
 
-    [[nodiscard]] boost::asio::awaitable<std::size_t> async_read_some(
-        std::span<std::uint8_t> output, boost::system::error_code& ec);
-    [[nodiscard]] boost::asio::awaitable<void> async_write_all(
-        std::span<const std::uint8_t> input, boost::system::error_code& ec);
+    [[nodiscard]] boost::asio::awaitable<std::size_t> async_read_some(std::span<std::uint8_t> output, boost::system::error_code& ec);
+    [[nodiscard]] boost::asio::awaitable<void> async_write_all(std::span<const std::uint8_t> input, boost::system::error_code& ec);
 
     void shutdown_send(boost::system::error_code& ec) noexcept;
     void shutdown() noexcept;
 
-private:
+   private:
     std::string id_;
     boost::asio::ip::tcp::socket socket_;
 };
 
-} // namespace rv::net
+}    // namespace rv::net
 
 #endif

@@ -1,5 +1,6 @@
 #include "socks5_protocol.hpp"
 
+#include <algorithm>
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/ip/address_v6.hpp>
 #include <boost/asio/read.hpp>
@@ -37,21 +38,11 @@ constexpr std::uint8_t ipv6_type = 0x04;
 
 asio::awaitable<void> read_exact(asio::ip::tcp::socket& socket, std::span<std::uint8_t> output, boost::system::error_code& ec)
 {
-    ec.clear();
-    if (output.empty())
-    {
-        co_return;
-    }
     co_await asio::async_read(socket, asio::buffer(output.data(), output.size()), asio::redirect_error(asio::use_awaitable, ec));
 }
 
 asio::awaitable<void> write_all(asio::ip::tcp::socket& socket, std::span<const std::uint8_t> input, boost::system::error_code& ec)
 {
-    ec.clear();
-    if (input.empty())
-    {
-        co_return;
-    }
     co_await asio::async_write(socket, asio::buffer(input.data(), input.size()), asio::redirect_error(asio::use_awaitable, ec));
 }
 
@@ -121,7 +112,6 @@ asio::awaitable<void> authenticate_username_password(asio::ip::tcp::socket& sock
 
 bool decode_connect_request(std::span<const std::uint8_t> wire, connect_request& output, boost::system::error_code& ec)
 {
-    ec.clear();
     if (wire.size() < 7 || wire[0] != version || wire[2] != 0)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
@@ -235,10 +225,9 @@ asio::awaitable<void> async_send_reply(asio::ip::tcp::socket& socket, reply valu
 }
 
 asio::awaitable<std::optional<connect_request>> async_negotiate_connect(asio::ip::tcp::socket& socket,
-                                                                        const std::optional<credentials>& authentication,
+                                                                        const std::optional<credentials>& auth,
                                                                         boost::system::error_code& ec)
 {
-    ec.clear();
     std::array<std::uint8_t, 2> greeting{};
     co_await read_exact(socket, greeting, ec);
     if (ec)
@@ -258,8 +247,8 @@ asio::awaitable<std::optional<connect_request>> async_negotiate_connect(asio::ip
         co_return std::nullopt;
     }
 
-    const auto selected_method = authentication ? username_password_authentication : no_authentication;
-    const bool supports_selected_method = std::find(methods.begin(), methods.end(), selected_method) != methods.end();
+    const auto selected_method = auth ? username_password_authentication : no_authentication;
+    const bool supports_selected_method = std::ranges::find(methods, selected_method) != methods.end();
     const std::array<std::uint8_t, 2> selection{
         version,
         supports_selected_method ? selected_method : no_acceptable_method,
@@ -274,9 +263,9 @@ asio::awaitable<std::optional<connect_request>> async_negotiate_connect(asio::ip
         ec = boost::system::errc::make_error_code(boost::system::errc::operation_not_supported);
         co_return std::nullopt;
     }
-    if (authentication)
+    if (auth)
     {
-        co_await authenticate_username_password(socket, *authentication, ec);
+        co_await authenticate_username_password(socket, *auth, ec);
         if (ec)
         {
             co_return std::nullopt;

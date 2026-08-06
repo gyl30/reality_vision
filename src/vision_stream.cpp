@@ -43,7 +43,6 @@ boost::asio::awaitable<std::optional<vision_stream>> vision_stream::connect(vles
                                                                             std::string log,
                                                                             boost::system::error_code& ec)
 {
-    ec.clear();
     vision_stream stream(std::move(lower), user_id, std::move(log));
     const auto initial_frame = encode_frame(command::continue_padding, std::span<const std::uint8_t, user_id_size>(stream.user_id_), {}, true, ec);
     if (ec)

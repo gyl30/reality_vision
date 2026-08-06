@@ -20,7 +20,6 @@
 #include <boost/system/error_code.hpp>
 #include <spdlog/spdlog.h>
 
-#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <exception>
@@ -35,17 +34,16 @@
 namespace
 {
 
-template <typename stream_type>
-boost::asio::awaitable<void> copy_local_to_remote(boost::asio::ip::tcp::socket& local, stream_type& remote, boost::system::error_code& ec)
+boost::asio::awaitable<void> copy_local_to_remote(boost::asio::ip::tcp::socket& local,
+                                                  rv::vision::vision_stream& remote,
+                                                  boost::system::error_code& ec)
 {
-    ec.clear();
-    std::array<std::uint8_t, 16U * 1024U> buffer{};
+    std::array<std::uint8_t, 16UL * 1024U> buffer{};
     for (;;)
     {
         const auto count = co_await local.async_read_some(boost::asio::buffer(buffer), boost::asio::redirect_error(boost::asio::use_awaitable, ec));
         if (ec == boost::asio::error::eof || (!ec && count == 0))
         {
-            ec.clear();
             co_await remote.async_shutdown_send(ec);
             if (ec)
             {
@@ -68,11 +66,11 @@ boost::asio::awaitable<void> copy_local_to_remote(boost::asio::ip::tcp::socket& 
     }
 }
 
-template <typename stream_type>
-boost::asio::awaitable<void> copy_remote_to_local(stream_type& remote, boost::asio::ip::tcp::socket& local, boost::system::error_code& ec)
+boost::asio::awaitable<void> copy_remote_to_local(rv::vision::vision_stream& remote,
+                                                  boost::asio::ip::tcp::socket& local,
+                                                  boost::system::error_code& ec)
 {
-    ec.clear();
-    std::array<std::uint8_t, 16U * 1024U> buffer{};
+    std::array<std::uint8_t, 16UL * 1024U> buffer{};
     for (;;)
     {
         const auto count = co_await remote.async_read_some(buffer, ec);
@@ -99,11 +97,11 @@ boost::asio::awaitable<void> copy_remote_to_local(stream_type& remote, boost::as
     }
 }
 
-template <typename stream_type>
-boost::asio::awaitable<void> relay_bidirectional(boost::asio::ip::tcp::socket& local, stream_type& remote, boost::system::error_code& ec)
+boost::asio::awaitable<void> relay_bidirectional(boost::asio::ip::tcp::socket& local,
+                                                 rv::vision::vision_stream& remote,
+                                                 boost::system::error_code& ec)
 {
-    using namespace boost::asio::experimental::awaitable_operators;
-
+    using namespace boost::asio::experimental::awaitable_operators;    // NOLINT
     boost::system::error_code uplink_ec;
     boost::system::error_code downlink_ec;
     co_await (copy_local_to_remote(local, remote, uplink_ec) && copy_remote_to_local(remote, local, downlink_ec));
@@ -113,7 +111,6 @@ boost::asio::awaitable<void> relay_bidirectional(boost::asio::ip::tcp::socket& l
     local.close(ignored);
     remote.shutdown();
 
-    ec.clear();
     if (uplink_ec && uplink_ec != boost::asio::error::operation_aborted)
     {
         ec = uplink_ec;
@@ -152,7 +149,6 @@ boost::asio::awaitable<std::optional<rv::vless::vless_stream>> connect_vless(con
                                                                              const std::string& log,
                                                                              boost::system::error_code& ec)
 {
-    ec.clear();
     const auto executor = co_await boost::asio::this_coro::executor;
     auto tcp = co_await rv::net::tcp_byte_stream::connect(executor, settings.server, std::to_string(settings.port), log, ec);
     if (ec || !tcp)
@@ -174,7 +170,7 @@ boost::asio::awaitable<std::optional<rv::vless::vless_stream>> connect_vless(con
     vless_config.user_id = settings.user_id;
     vless_config.destination = std::move(destination);
     vless_config.destination_port = destination_port;
-    vless_config.selected_flow = settings.vision ? rv::vless::flow::xtls_rprx_vision : rv::vless::flow::none;
+    vless_config.selected_flow = rv::vless::flow::xtls_rprx_vision;
     co_return co_await rv::vless::vless_stream::connect(std::move(*reality), std::move(vless_config), log, ec);
 }
 
@@ -195,70 +191,50 @@ rv::socks5::reply reply_for_error(const boost::system::error_code& ec)
     return rv::socks5::reply::general_failure;
 }
 
-boost::asio::awaitable<void> run_socks_connection(boost::asio::ip::tcp::socket local, rv::app::config settings, std::string log)
+boost::asio::awaitable<void> run_socks_connection(boost::asio::ip::tcp::socket local, rv::app::config settings, std::string id)
 {
     boost::system::error_code ec;
     const auto request = co_await rv::socks5::async_negotiate_connect(local, settings.socks_credentials, ec);
-    if (ec || !request)
+    if (ec)
     {
-        if (ec)
-        {
-            spdlog::warn("[{}] socks5 negotiation failed: {}", log, ec.message());
-        }
+        spdlog::warn("{} socks5 negotiation failed: {}", id, ec.message());
         co_return;
     }
-    spdlog::info("[{}] socks5 connect {}", log, rv::socks5::format_destination(*request));
+    spdlog::info("{} socks5 connect {}", id, rv::socks5::format_destination(*request));
 
-    auto vless = co_await connect_vless(settings, to_vless_address(request->destination), request->port, log, ec);
-    if (ec || !vless)
+    auto vless = co_await connect_vless(settings, to_vless_address(request->destination), request->port, id, ec);
+    if (ec)
     {
-        const auto connect_ec = ec;
-        boost::system::error_code reply_ec;
-        co_await rv::socks5::async_send_reply(local, reply_for_error(connect_ec), reply_ec);
-        spdlog::warn("[{}] upstream connection failed: {}", log, connect_ec.message());
+        co_await rv::socks5::async_send_reply(local, reply_for_error(ec), ec);
+        spdlog::warn("{} upstream connection failed: {}", id, ec.message());
         co_return;
     }
 
-    if (settings.vision)
+    auto vision = co_await rv::vision::vision_stream::connect(std::move(*vless), settings.user_id, id, ec);
+    if (ec)
     {
-        auto vision = co_await rv::vision::vision_stream::connect(std::move(*vless), settings.user_id, log, ec);
-        if (ec || !vision)
-        {
-            const auto connect_ec = ec;
-            boost::system::error_code reply_ec;
-            co_await rv::socks5::async_send_reply(local, rv::socks5::reply::general_failure, reply_ec);
-            spdlog::warn("[{}] Vision setup failed: {}", log, connect_ec.message());
-            co_return;
-        }
+        co_await rv::socks5::async_send_reply(local, rv::socks5::reply::general_failure, ec);
+        spdlog::warn("{} Vision setup failed: {}", id, ec.message());
+        co_return;
+    }
 
-        co_await rv::socks5::async_send_reply(local, rv::socks5::reply::succeeded, ec);
-        if (ec)
-        {
-            co_return;
-        }
-        co_await relay_bidirectional(local, *vision, ec);
-    }
-    else
+    co_await rv::socks5::async_send_reply(local, rv::socks5::reply::succeeded, ec);
+    if (ec)
     {
-        co_await rv::socks5::async_send_reply(local, rv::socks5::reply::succeeded, ec);
-        if (ec)
-        {
-            co_return;
-        }
-        co_await relay_bidirectional(local, *vless, ec);
+        co_return;
     }
+    co_await relay_bidirectional(local, *vision, ec);
 
     if (ec)
     {
-        spdlog::warn("[{}] socks5 relay failed: {}", log, ec.message());
+        spdlog::warn("{} socks5 relay failed: {}", id, ec.message());
         co_return;
     }
-    spdlog::info("[{}] socks5 tcp session completed", log);
+    spdlog::info("{} socks5 tcp session completed", id);
 }
 
 boost::asio::awaitable<void> run_socks_server(rv::app::config settings, boost::system::error_code& ec)
 {
-    ec.clear();
     const auto executor = co_await boost::asio::this_coro::executor;
     boost::asio::ip::tcp::acceptor acceptor(executor);
     acceptor.open(boost::asio::ip::tcp::v4(), ec);
@@ -295,7 +271,7 @@ boost::asio::awaitable<void> run_socks_server(rv::app::config settings, boost::s
         std::string id{"socks_" + std::to_string(next_connection_id++)};
         boost::asio::co_spawn(executor,
                               run_socks_connection(std::move(local), settings, id),
-                              [id](std::exception_ptr exception)
+                              [id](const std::exception_ptr& exception)
                               {
                                   if (!exception)
                                   {
@@ -307,11 +283,11 @@ boost::asio::awaitable<void> run_socks_server(rv::app::config settings, boost::s
                                   }
                                   catch (const std::exception& error)
                                   {
-                                      spdlog::error("[{}] unexpected session exception: {}", id, error.what());
+                                      spdlog::error("{} unexpected session exception: {}", id, error.what());
                                   }
                                   catch (...)
                                   {
-                                      spdlog::error("[{}] unexpected non-standard session exception", id);
+                                      spdlog::error("{} unexpected non-standard session exception", id);
                                   }
                               });
     }
@@ -328,7 +304,7 @@ int main(int argc, char* argv[])
         {
             return 0;
         }
-        const auto settings = *parsed;
+        const auto& settings = *parsed;
         if (settings.self_test)
         {
             return rv::testing::run_protocol_tests();

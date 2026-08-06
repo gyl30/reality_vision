@@ -19,28 +19,24 @@ namespace rv::vision
 
 class vision_stream
 {
-public:
-    [[nodiscard]] static boost::asio::awaitable<std::optional<vision_stream>> connect(
-        vless::vless_stream lower,
-        std::array<std::uint8_t, user_id_size> user_id,
-        std::string log,
-        boost::system::error_code& ec);
-
-    vision_stream(const vision_stream&) = delete;
-    vision_stream& operator=(const vision_stream&) = delete;
-    vision_stream(vision_stream&&) noexcept = default;
-    vision_stream& operator=(vision_stream&&) noexcept = default;
-
-    [[nodiscard]] boost::asio::awaitable<std::size_t> async_read_some(
-        std::span<std::uint8_t> output, boost::system::error_code& ec);
-    [[nodiscard]] boost::asio::awaitable<void> async_write_all(
-        std::span<const std::uint8_t> input, boost::system::error_code& ec);
+   public:
+    [[nodiscard]] static boost::asio::awaitable<std::optional<vision_stream>> connect(vless::vless_stream lower,
+                                                                                      std::array<std::uint8_t, user_id_size> user_id,
+                                                                                      std::string log,
+                                                                                      boost::system::error_code& ec);
+    [[nodiscard]] boost::asio::awaitable<std::size_t> async_read_some(std::span<std::uint8_t> output, boost::system::error_code& ec);
+    [[nodiscard]] boost::asio::awaitable<void> async_write_all(std::span<const std::uint8_t> input, boost::system::error_code& ec);
     [[nodiscard]] boost::asio::awaitable<void> async_shutdown_send(boost::system::error_code& ec);
-
     void shutdown() noexcept;
 
-private:
-    enum class read_phase { header, content, padding, through };
+   private:
+    enum class read_phase : uint8_t
+    {
+        header,
+        content,
+        padding,
+        through
+    };
 
     vision_stream(vless::vless_stream lower, std::array<std::uint8_t, user_id_size> user_id, std::string log);
 
@@ -64,6 +60,6 @@ private:
     std::string log_;
 };
 
-} // namespace rv::vision
+}    // namespace rv::vision
 
 #endif
