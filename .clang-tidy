@@ -1,0 +1,33 @@
+---
+# Keep bugprone-reserved-identifier enabled globally.
+# Test wrappers using __wrap_/__real_ must use local NOLINT suppression.
+Checks: '-*,
+  bugprone-*,
+  google-*,
+  performance-*,
+  clang-analyzer-*,
+  concurrency-*,
+  modernize-*,
+  clang-diagnostic-*,
+  misc-*,
+  readability-*,
+  -readability-magic-numbers,
+  -readability-identifier-length,
+  -readability-else-after-return,
+  -readability-redundant-access-specifiers,
+  -modernize-avoid-bind,
+  -modernize-avoid-c-arrays,
+  -modernize-use-trailing-return-type,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-exception-escape,
+  -concurrency-mt-unsafe,
+  -clang-analyzer-core.CallAndMessage,
+  -clang-analyzer-core.NullDereference,
+  -clang-analyzer-optin.cplusplus.UninitializedObject,
+  -misc-include-cleaner,
+  -misc-use-anonymous-namespace,
+  -misc-non-private-member-variables-in-classes
+  '
+
+HeaderFilterRegex: '.*'
+ExcludeHeaderFilterRegex: '.*(/third/|/build/).*'

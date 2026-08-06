@@ -1,0 +1,21 @@
+---
+Language:        Cpp
+BasedOnStyle:  Google
+InsertBraces: true
+FixNamespaceComments: true
+AllowShortBlocksOnASingleLine: false
+AllowShortIfStatementsOnASingleLine: false
+SortIncludes:    false
+IndentWidth:     4
+PointerAlignment: Left
+DerivePointerAlignment: false
+BreakBeforeBraces: Allman
+SortUsingDeclarations: false
+AllowAllArgumentsOnNextLine: true
+SpacesBeforeTrailingComments: 4
+BinPackParameters: false
+BinPackArguments: false
+BraceWrapping:
+  AfterCaseLabel:  true
+
+ColumnLimit: 150
