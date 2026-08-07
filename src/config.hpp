@@ -22,6 +22,8 @@ struct config
     std::array<std::uint8_t, 16> vless_user_id{};
 
     std::uint16_t socks_listen_port = 0;
+    std::uint16_t redirect_listen_port = 0;
+    std::uint16_t tproxy_listen_port = 0;
     std::optional<rv::socks5::credentials> socks_credentials;
 };
 

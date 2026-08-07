@@ -5,6 +5,7 @@
 #include "socks5_protocol.hpp"
 #include "sniffer.hpp"
 #include "tcp_byte_stream.hpp"
+#include "transparent.hpp"
 #include "vision_stream.hpp"
 #include "vless_header.hpp"
 #include "vless_stream.hpp"
@@ -17,20 +18,20 @@
 #include <boost/asio/steady_timer.hpp>
 #include <boost/asio/this_coro.hpp>
 #include <boost/asio/use_awaitable.hpp>
-#include <boost/asio/use_future.hpp>
 #include <boost/asio/write.hpp>
 #include <boost/system/error_code.hpp>
 #include <boost/system/errc.hpp>
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstdint>
 #include <exception>
-#include <future>
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <utility>
 #include <variant>
@@ -41,7 +42,27 @@ namespace
 
 using tcp = boost::asio::ip::tcp;
 
-boost::asio::awaitable<void> relay_client_to_upstream(tcp::socket& client_socket, rv::vision::vision_stream& upstream, boost::system::error_code& ec)
+enum class transparent_mode : std::uint8_t
+{
+    redirect,
+    tproxy,
+};
+
+struct proxy_target
+{
+    rv::vless::address destination;
+    std::uint16_t port{};
+};
+
+struct initial_client_data
+{
+    std::vector<std::uint8_t> bytes;
+    std::optional<std::string> domain;
+};
+
+boost::asio::awaitable<void> relay_client_to_upstream(tcp::socket& client_socket,
+                                                       rv::vision::vision_stream& upstream,
+                                                       boost::system::error_code& ec)
 {
     std::array<std::uint8_t, 16UL * 1024U> buffer{};
     for (;;)
@@ -73,7 +94,9 @@ boost::asio::awaitable<void> relay_client_to_upstream(tcp::socket& client_socket
     }
 }
 
-boost::asio::awaitable<void> relay_upstream_to_client(rv::vision::vision_stream& upstream, tcp::socket& client_socket, boost::system::error_code& ec)
+boost::asio::awaitable<void> relay_upstream_to_client(rv::vision::vision_stream& upstream,
+                                                       tcp::socket& client_socket,
+                                                       boost::system::error_code& ec)
 {
     std::array<std::uint8_t, 16UL * 1024U> buffer{};
     for (;;)
@@ -102,7 +125,9 @@ boost::asio::awaitable<void> relay_upstream_to_client(rv::vision::vision_stream&
     }
 }
 
-boost::asio::awaitable<void> relay_bidirectional(tcp::socket& client_socket, rv::vision::vision_stream& upstream, boost::system::error_code& ec)
+boost::asio::awaitable<void> relay_bidirectional(tcp::socket& client_socket,
+                                                  rv::vision::vision_stream& upstream,
+                                                  boost::system::error_code& ec)
 {
     using namespace boost::asio::experimental::awaitable_operators;    // NOLINT
 
@@ -147,6 +172,27 @@ rv::vless::address to_vless_address(const rv::socks5::address& address)
         address);
 }
 
+proxy_target make_proxy_target(const rv::socks5::connect_request& request)
+{
+    return proxy_target{
+        .destination = to_vless_address(request.destination),
+        .port = request.port,
+    };
+}
+
+proxy_target make_proxy_target(const tcp::endpoint& endpoint)
+{
+    return proxy_target{
+        .destination = rv::vless::ipv4_address{endpoint.address().to_v4().to_bytes()},
+        .port = endpoint.port(),
+    };
+}
+
+std::string format_endpoint(const tcp::endpoint& endpoint)
+{
+    return endpoint.address().to_string() + ":" + std::to_string(endpoint.port());
+}
+
 boost::asio::awaitable<std::optional<rv::reality::reality_stream>> connect_reality(const rv::app::config& configuration,
                                                                                    const std::string& session_id,
                                                                                    boost::system::error_code& ec)
@@ -168,14 +214,14 @@ boost::asio::awaitable<std::optional<rv::reality::reality_stream>> connect_reali
 
 boost::asio::awaitable<std::optional<rv::vision::vision_stream>> connect_vision(rv::reality::reality_stream reality,
                                                                                 const rv::app::config& configuration,
-                                                                                const rv::socks5::connect_request& request,
+                                                                                const proxy_target& target,
                                                                                 const std::string& session_id,
                                                                                 boost::system::error_code& ec)
 {
     rv::vless::client_config vless_configuration;
     vless_configuration.user_id = configuration.vless_user_id;
-    vless_configuration.destination = to_vless_address(request.destination);
-    vless_configuration.destination_port = request.port;
+    vless_configuration.destination = target.destination;
+    vless_configuration.destination_port = target.port;
     auto vless_stream = co_await rv::vless::vless_stream::connect(std::move(reality), std::move(vless_configuration), session_id, ec);
     if (ec)
     {
@@ -185,25 +231,19 @@ boost::asio::awaitable<std::optional<rv::vision::vision_stream>> connect_vision(
     co_return co_await rv::vision::vision_stream::connect(std::move(*vless_stream), configuration.vless_user_id, session_id, ec);
 }
 
-struct initial_client_data
-{
-    std::vector<std::uint8_t> bytes;
-    std::optional<std::string> domain;
-};
-
 boost::asio::awaitable<std::optional<std::size_t>> read_some_until(tcp::socket& client_socket,
-                                                                   std::span<std::uint8_t> output,
-                                                                   const std::chrono::steady_clock::time_point deadline,
-                                                                   boost::system::error_code& ec)
+                                                                    std::span<std::uint8_t> output,
+                                                                    const std::chrono::steady_clock::time_point deadline,
+                                                                    boost::system::error_code& ec)
 {
     using namespace boost::asio::experimental::awaitable_operators;    // NOLINT
 
     boost::asio::steady_timer timer(client_socket.get_executor());
     timer.expires_at(deadline);
     boost::system::error_code timer_ec;
-    const auto outcome =
-        co_await (client_socket.async_read_some(boost::asio::buffer(output), boost::asio::redirect_error(boost::asio::use_awaitable, ec)) ||
-                  timer.async_wait(boost::asio::redirect_error(boost::asio::use_awaitable, timer_ec)));
+    const auto outcome = co_await (
+        client_socket.async_read_some(boost::asio::buffer(output), boost::asio::redirect_error(boost::asio::use_awaitable, ec)) ||
+        timer.async_wait(boost::asio::redirect_error(boost::asio::use_awaitable, timer_ec)));
 
     if (outcome.index() == 1)
     {
@@ -256,6 +296,17 @@ boost::asio::awaitable<initial_client_data> sniff_initial_client_data(tcp::socke
     return !std::holds_alternative<rv::socks5::domain_address>(request.destination);
 }
 
+void apply_sniffed_destination(proxy_target& target, const initial_client_data& initial_data, const std::string& session_id)
+{
+    if (!initial_data.domain)
+    {
+        return;
+    }
+
+    target.destination = rv::vless::domain_address{*initial_data.domain};
+    spdlog::info("{} sniffed destination {}:{}", session_id, *initial_data.domain, target.port);
+}
+
 rv::socks5::reply map_error_to_socks_reply(const boost::system::error_code& ec)
 {
     if (ec == boost::asio::error::connection_refused)
@@ -299,7 +350,7 @@ boost::asio::awaitable<void> run_socks_session(tcp::socket client_socket, rv::ap
         co_return;
     }
 
-    auto effective_request = *request;
+    auto target = make_proxy_target(*request);
     initial_client_data initial_data;
     std::optional<rv::vision::vision_stream> upstream;
 
@@ -323,13 +374,8 @@ boost::asio::awaitable<void> run_socks_session(tcp::socket client_socket, rv::ap
             co_return;
         }
 
-        if (initial_data.domain)
-        {
-            effective_request.destination = rv::socks5::domain_address{*initial_data.domain};
-            spdlog::info("{} sniffed destination {}:{}", session_id, *initial_data.domain, effective_request.port);
-        }
-
-        upstream = co_await connect_vision(std::move(*reality), configuration, effective_request, session_id, ec);
+        apply_sniffed_destination(target, initial_data, session_id);
+        upstream = co_await connect_vision(std::move(*reality), configuration, target, session_id, ec);
         if (ec)
         {
             spdlog::warn("{} upstream connection failed after socks5 success: {}", session_id, ec.message());
@@ -338,7 +384,7 @@ boost::asio::awaitable<void> run_socks_session(tcp::socket client_socket, rv::ap
     }
     else
     {
-        upstream = co_await connect_vision(std::move(*reality), configuration, effective_request, session_id, ec);
+        upstream = co_await connect_vision(std::move(*reality), configuration, target, session_id, ec);
         if (ec)
         {
             const auto upstream_ec = ec;
@@ -374,6 +420,83 @@ boost::asio::awaitable<void> run_socks_session(tcp::socket client_socket, rv::ap
     spdlog::info("{} socks5 tcp session completed", session_id);
 }
 
+void get_transparent_destination(tcp::socket& client_socket,
+                                 const transparent_mode mode,
+                                 tcp::endpoint& destination,
+                                 boost::system::error_code& ec)
+{
+    if (mode == transparent_mode::redirect)
+    {
+        ec = rv::transparent::get_redirect_original_destination(client_socket, destination);
+        return;
+    }
+
+    destination = client_socket.local_endpoint(ec);
+}
+
+boost::asio::awaitable<void> run_transparent_session(tcp::socket client_socket,
+                                                      rv::app::config configuration,
+                                                      std::string session_id,
+                                                      const transparent_mode mode)
+{
+    boost::system::error_code ec;
+    tcp::endpoint original_destination;
+    get_transparent_destination(client_socket, mode, original_destination, ec);
+    if (ec)
+    {
+        spdlog::warn("{} original destination lookup failed: {}", session_id, ec.message());
+        co_return;
+    }
+
+    spdlog::info("{} transparent connect {}", session_id, format_endpoint(original_destination));
+    auto reality = co_await connect_reality(configuration, session_id, ec);
+    if (ec)
+    {
+        spdlog::warn("{} upstream connection failed: {}", session_id, ec.message());
+        co_return;
+    }
+
+    auto initial_data = co_await sniff_initial_client_data(client_socket, ec);
+    if (ec == boost::asio::error::eof)
+    {
+        ec.clear();
+        co_return;
+    }
+    if (ec)
+    {
+        spdlog::warn("{} destination sniff failed: {}", session_id, ec.message());
+        co_return;
+    }
+
+    auto target = make_proxy_target(original_destination);
+    apply_sniffed_destination(target, initial_data, session_id);
+    auto upstream = co_await connect_vision(std::move(*reality), configuration, target, session_id, ec);
+    if (ec)
+    {
+        spdlog::warn("{} upstream connection failed: {}", session_id, ec.message());
+        co_return;
+    }
+
+    if (!initial_data.bytes.empty())
+    {
+        co_await upstream->write(initial_data.bytes, ec);
+        if (ec)
+        {
+            spdlog::warn("{} transparent relay failed: {}", session_id, ec.message());
+            co_return;
+        }
+    }
+
+    co_await relay_bidirectional(client_socket, *upstream, ec);
+    if (ec)
+    {
+        spdlog::warn("{} transparent relay failed: {}", session_id, ec.message());
+        co_return;
+    }
+
+    spdlog::info("{} transparent tcp session completed", session_id);
+}
+
 void log_session_exception(const std::string& session_id, const std::exception_ptr& exception)
 {
     if (!exception)
@@ -395,7 +518,10 @@ void log_session_exception(const std::string& session_id, const std::exception_p
     }
 }
 
-tcp::acceptor create_socks_acceptor(boost::asio::any_io_executor executor, const std::uint16_t port, boost::system::error_code& ec)
+tcp::acceptor create_acceptor(boost::asio::any_io_executor executor,
+                              const tcp::endpoint& endpoint,
+                              const bool enable_transparent,
+                              boost::system::error_code& ec)
 {
     tcp::acceptor acceptor(executor);
     acceptor.open(tcp::v4(), ec);
@@ -410,31 +536,32 @@ tcp::acceptor create_socks_acceptor(boost::asio::any_io_executor executor, const
         return acceptor;
     }
 
-    acceptor.bind(tcp::endpoint(boost::asio::ip::address_v4::loopback(), port), ec);
+    if (enable_transparent)
+    {
+        ec = rv::transparent::enable_ipv4_transparent(acceptor);
+        if (ec)
+        {
+            return acceptor;
+        }
+    }
+
+    acceptor.bind(endpoint, ec);
     if (ec)
     {
         return acceptor;
     }
 
     acceptor.listen(boost::asio::socket_base::max_listen_connections, ec);
-    if (ec)
-    {
-        return acceptor;
-    }
-
     return acceptor;
 }
 
-boost::asio::awaitable<void> run_socks_server(rv::app::config configuration, boost::system::error_code& ec)
+boost::asio::awaitable<void> run_socks_server(tcp::acceptor acceptor,
+                                               rv::app::config configuration,
+                                               boost::system::error_code& ec)
 {
     const auto executor = co_await boost::asio::this_coro::executor;
-    auto acceptor = create_socks_acceptor(executor, configuration.socks_listen_port, ec);
-    if (ec)
-    {
-        co_return;
-    }
+    spdlog::info("socks5 tcp proxy listening on 127.0.0.1:{}", acceptor.local_endpoint().port());
 
-    spdlog::info("socks5 tcp proxy listening on 127.0.0.1:{}", configuration.socks_listen_port);
     std::uint64_t next_session_number = 1;
     for (;;)
     {
@@ -448,6 +575,57 @@ boost::asio::awaitable<void> run_socks_server(rv::app::config configuration, boo
         boost::asio::co_spawn(executor,
                               run_socks_session(std::move(client_socket), configuration, session_id),
                               [session_id](const std::exception_ptr& exception) { log_session_exception(session_id, exception); });
+    }
+}
+
+[[nodiscard]] std::string_view transparent_mode_name(const transparent_mode mode) noexcept
+{
+    return mode == transparent_mode::redirect ? "redirect" : "tproxy";
+}
+
+boost::asio::awaitable<void> run_transparent_server(tcp::acceptor acceptor,
+                                                     rv::app::config configuration,
+                                                     const transparent_mode mode,
+                                                     boost::system::error_code& ec)
+{
+    const auto executor = co_await boost::asio::this_coro::executor;
+    const auto name = transparent_mode_name(mode);
+    spdlog::info("{} tcp proxy listening on 0.0.0.0:{}", name, acceptor.local_endpoint().port());
+
+    std::uint64_t next_session_number = 1;
+    for (;;)
+    {
+        auto client_socket = co_await acceptor.async_accept(boost::asio::redirect_error(boost::asio::use_awaitable, ec));
+        if (ec)
+        {
+            co_return;
+        }
+
+        std::string session_id{std::string(name) + "_" + std::to_string(next_session_number++)};
+        boost::asio::co_spawn(executor,
+                              run_transparent_session(std::move(client_socket), configuration, session_id, mode),
+                              [session_id](const std::exception_ptr& exception) { log_session_exception(session_id, exception); });
+    }
+}
+
+void log_server_exception(const std::string& server_name, const std::exception_ptr& exception)
+{
+    if (!exception)
+    {
+        return;
+    }
+
+    try
+    {
+        std::rethrow_exception(exception);
+    }
+    catch (const std::exception& error)
+    {
+        spdlog::error("{} server unexpected exception: {}", server_name, error.what());
+    }
+    catch (...)
+    {
+        spdlog::error("{} server unexpected non-standard exception", server_name);
     }
 }
 
@@ -471,16 +649,90 @@ int main(int argc, char* argv[])
 
         boost::asio::io_context context(1);
         boost::system::error_code ec;
-        auto server = boost::asio::co_spawn(context, run_socks_server(*configuration, ec), boost::asio::use_future);
-        context.run();
-        server.get();
+        std::optional<tcp::acceptor> socks_acceptor;
+        std::optional<tcp::acceptor> redirect_acceptor;
+        std::optional<tcp::acceptor> tproxy_acceptor;
 
-        if (ec)
+        if (configuration->socks_listen_port != 0)
         {
-            spdlog::error("reality vision failed: {}", ec.message());
-            return 1;
+            socks_acceptor.emplace(create_acceptor(
+                context.get_executor(), tcp::endpoint(boost::asio::ip::address_v4::loopback(), configuration->socks_listen_port), false, ec));
+            if (ec)
+            {
+                spdlog::error("failed to create socks5 listener: {}", ec.message());
+                return 1;
+            }
         }
-        return 0;
+        if (configuration->redirect_listen_port != 0)
+        {
+            redirect_acceptor.emplace(create_acceptor(
+                context.get_executor(), tcp::endpoint(tcp::v4(), configuration->redirect_listen_port), false, ec));
+            if (ec)
+            {
+                spdlog::error("failed to create redirect listener: {}", ec.message());
+                return 1;
+            }
+        }
+        if (configuration->tproxy_listen_port != 0)
+        {
+            tproxy_acceptor.emplace(
+                create_acceptor(context.get_executor(), tcp::endpoint(tcp::v4(), configuration->tproxy_listen_port), true, ec));
+            if (ec)
+            {
+                spdlog::error("failed to create tproxy listener: {}", ec.message());
+                return 1;
+            }
+        }
+
+        boost::system::error_code socks_server_ec;
+        boost::system::error_code redirect_server_ec;
+        boost::system::error_code tproxy_server_ec;
+        bool server_failed = false;
+
+        const auto spawn_server = [&](auto server, const std::string& server_name, boost::system::error_code& server_ec)
+        {
+            auto* const server_error = &server_ec;
+            boost::asio::co_spawn(
+                context,
+                std::move(server),
+                [&context, server_error, &server_failed, server_name](const std::exception_ptr& exception)
+                {
+                    server_failed = true;
+                    if (exception)
+                    {
+                        log_server_exception(server_name, exception);
+                    }
+                    else if (*server_error)
+                    {
+                        spdlog::error("{} server failed: {}", server_name, server_error->message());
+                    }
+                    else
+                    {
+                        spdlog::error("{} server stopped unexpectedly", server_name);
+                    }
+                    context.stop();
+                });
+        };
+
+        if (socks_acceptor)
+        {
+            spawn_server(run_socks_server(std::move(*socks_acceptor), *configuration, socks_server_ec), "socks5", socks_server_ec);
+        }
+        if (redirect_acceptor)
+        {
+            spawn_server(run_transparent_server(std::move(*redirect_acceptor), *configuration, transparent_mode::redirect, redirect_server_ec),
+                         "redirect",
+                         redirect_server_ec);
+        }
+        if (tproxy_acceptor)
+        {
+            spawn_server(run_transparent_server(std::move(*tproxy_acceptor), *configuration, transparent_mode::tproxy, tproxy_server_ec),
+                         "tproxy",
+                         tproxy_server_ec);
+        }
+
+        context.run();
+        return server_failed ? 1 : 0;
     }
     catch (const std::exception& error)
     {

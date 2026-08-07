@@ -30,6 +30,7 @@ add_executable(
   src/socks5_protocol.cpp
   src/sniffer.cpp
   src/tcp_byte_stream.cpp
+  src/transparent.cpp
   src/vision_codec.cpp
   src/vision_stream.cpp
   src/vless_header.cpp

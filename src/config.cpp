@@ -29,9 +29,9 @@ bool validate_listen_and_server_ports(const config& configuration)
         std::cerr << "--port must be between 1 and 65535\n";
         return false;
     }
-    if (configuration.socks_listen_port == 0)
+    if (configuration.socks_listen_port == 0 && configuration.redirect_listen_port == 0 && configuration.tproxy_listen_port == 0)
     {
-        std::cerr << "--socks_port must be between 1 and 65535\n";
+        std::cerr << "at least one of --socks_port, --redirect_port, or --tproxy_port must be configured\n";
         return false;
     }
     return true;
@@ -49,6 +49,11 @@ bool parse_socks_credentials(const po::variables_map& options, std::string usern
     if (!has_username)
     {
         return true;
+    }
+    if (configuration.socks_listen_port == 0)
+    {
+        std::cerr << "--socks_username and --socks_password require --socks_port\n";
+        return false;
     }
     if (username.empty() || password.empty() || username.size() > 255 || password.size() > 255)
     {
@@ -136,7 +141,9 @@ std::optional<config> parse_config(const int argc, char* argv[])
         "server_public_key", po::value<std::string>(&server_public_key)->required(), "reality server public key")(
         "short_id", po::value<std::string>(&short_id)->required(), "reality short id")(
         "uuid", po::value<std::string>(&uuid)->required(), "vless uuid")(
-        "socks_port", po::value<std::uint16_t>(&configuration.socks_listen_port)->required(), "socks5 listen port")(
+        "socks_port", po::value<std::uint16_t>(&configuration.socks_listen_port), "socks5 listen port")(
+        "redirect_port", po::value<std::uint16_t>(&configuration.redirect_listen_port), "TCP REDIRECT listen port")(
+        "tproxy_port", po::value<std::uint16_t>(&configuration.tproxy_listen_port), "TCP TPROXY listen port")(
         "socks_username", po::value<std::string>(&socks_username), "socks5 username")(
         "socks_password", po::value<std::string>(&socks_password), "socks5 password");
 

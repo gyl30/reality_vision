@@ -22,6 +22,11 @@ SOCKS5 服务负责监听、认证协商和解析 TCP CONNECT 目标。认证未
 请求携带 IPv4/IPv6 时，应用层可用 `sniffer` 从客户端首包的 TLS SNI 或 HTTP Host 恢复域名。
 SOCKS5 协议模块本身仍不依赖 REALITY、VLESS、Vision 或 sniffer。
 
+Linux IPv4 TCP 透明入站与 SOCKS5 并列。REDIRECT accepted socket 通过 `SO_ORIGINAL_DST` 恢复 NAT 前目标；
+TPROXY listener 在 bind 前设置 `IP_TRANSPARENT`，accepted socket 的 local endpoint 保留原目标。透明入口恢复出的
+IP:port 与 SOCKS IP request 之后共用同一套 sniffer、VLESS target 构造和 relay；iptables/nftables、fwmark 与 policy
+routing 保持在程序外部。
+
 域名目标的连接建立顺序为：
 
 1. `tcp_byte_stream::connect()` 解析地址并建立 TCP；
@@ -32,7 +37,8 @@ SOCKS5 协议模块本身仍不依赖 REALITY、VLESS、Vision 或 sniffer。
 
 IP 目标为了让客户端先产生 ClientHello/HTTP request，会在第 2 步后返回 SOCKS success，
 最多缓存客户端首个 16 KiB / 200 ms。探测到域名后再执行第 3、4 步，并把缓存字节原样写入
-`vision_stream`；探测失败、超时或达到上限时保持原 IP。TLS sniffer 只解析首个完整
+`vision_stream`；探测失败、超时或达到上限时保持原 IP。透明入口没有 SOCKS handshake，因此 accept 后先恢复
+original destination 并建立 REALITY，再执行同样的首包探测和第 3、4 步。TLS sniffer 只解析首个完整
 ClientHello handshake record；跨 TLS record 的 ClientHello 直接按探测失败处理，不影响原始数据转发。
 
 ## 2. 核心数据结构
@@ -49,6 +55,7 @@ ClientHello handshake record；跨 TLS record 的 ClientHello 直接按探测失
 | `socks5::connect_request` | address variant + port | 表示 SOCKS5 TCP CONNECT 目标，不包含远端协议状态 |
 | `socks5::credentials` | username + password | 可选的本地代理认证配置，不写入日志 |
 | `sniff::result` | need_more / no_match / found + domain | 对累计首包做 TLS SNI / HTTP Host 纯解析，不持有 socket |
+| `transparent` helper | Linux socket options / original destination | 设置 IPv4 `IP_TRANSPARENT`，读取 REDIRECT `SO_ORIGINAL_DST` |
 
 配置均为不拥有运行时资源的 typed value：
 
@@ -144,7 +151,7 @@ REALITY raw。接收方向只在对端 Direct frame 的 content 与 padding 都�
 - 一个活动的写协程；
 - 读写可以同时活动。
 
-SOCKS5 server 可同时服务多个连接；每条连接内部仍遵循一个读协程和一个写协程。一个方向
+SOCKS5、REDIRECT 和 TPROXY listener 可以同时运行并服务多个连接；每条连接内部仍遵循一个读协程和一个写协程。一个方向
 遇到 EOF 时只 half-close 对端的发送方向，等待另一个方向排空后再关闭整个会话。
 
 stream 不在内部排队或检测同方向并发。调用方必须保证同一时刻最多有一个读操作和一个

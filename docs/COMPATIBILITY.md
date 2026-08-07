@@ -79,3 +79,16 @@ ctest --test-dir build --output-on-failure
 - Vision 发送方向使用增量 TLS record tracker，跨多次写调用保存部分 record header、剩余
   payload 长度和 ClientHello 判定状态。TLS record 被 TCP 拆分、多个 record 合并到同一次写入，
   或加密 record 从某次写入中间结束时，都能在准确的 record 边界结束 padding 或切换 Direct。
+
+## 透明入站兼容范围
+
+透明代理当前只实现 Linux IPv4 TCP：
+
+- REDIRECT：依赖 netfilter conntrack 的 `SO_ORIGINAL_DST`；
+- TPROXY：listener 在 `bind()` 前设置 `SOL_IP/IP_TRANSPARENT`，目标从 accepted socket local endpoint 取得；
+- iptables/nftables、TPROXY fwmark/policy routing、进程自身绕行规则由部署环境负责；
+- UDP、IPv6 REDIRECT/TPROXY、DNS redirect 和 QUIC 不属于当前 C++ 入站实现。
+
+REDIRECT 与 TPROXY 得到 IP 目标后都会复用 destination sniffer；SNI/HTTP Host 命中时 VLESS 改用域名，
+否则保持原 IP。真实透明转发测试需要 root/netfilter/capability，因此不放入默认 CTest 的 Xray interop；默认互通测试
+继续覆盖无特权 SOCKS5 路径和相同的 sniffer/VLESS/Vision 核心逻辑。

@@ -40,7 +40,8 @@ class byte_reader
         {
             return false;
         }
-        value = static_cast<std::uint16_t>((static_cast<std::uint16_t>(input_[position_]) << 8U) | static_cast<std::uint16_t>(input_[position_ + 1]));
+        value = static_cast<std::uint16_t>((static_cast<std::uint16_t>(input_[position_]) << 8U) |
+                                           static_cast<std::uint16_t>(input_[position_ + 1]));
         position_ += 2;
         return true;
     }
@@ -73,7 +74,10 @@ class byte_reader
     std::size_t position_{0};
 };
 
-[[nodiscard]] result make_result(const status state, std::string domain = {}) { return {.state = state, .domain = std::move(domain)}; }
+[[nodiscard]] result make_result(const status state, std::string domain = {})
+{
+    return {.state = state, .domain = std::move(domain)};
+}
 
 [[nodiscard]] std::size_t read_u24(const std::span<const std::uint8_t> input, const std::size_t offset) noexcept
 {
@@ -89,7 +93,11 @@ class byte_reader
     }
 
     return std::ranges::all_of(
-        input, [](const std::uint8_t value) { return value > 0x20 && value < 0x7f && value != ':' && value != '/' && value != '\\'; });
+        input,
+        [](const std::uint8_t value)
+        {
+            return value > 0x20 && value < 0x7f && value != ':' && value != '/' && value != '\\';
+        });
 }
 
 [[nodiscard]] std::optional<std::string> parse_server_name(const std::span<const std::uint8_t> extension)
