@@ -238,10 +238,10 @@ TPROXY 使用独立 listener：
 ```
 
 程序在 TCP acceptor 和 UDP socket `bind()` 前设置 `IP_TRANSPARENT`；UDP listener 还启用 `IP_RECVORIGDSTADDR`。
-运行进程需要相应 Linux capability，例如测试时给专用二进制授予 `cap_net_admin,cap_net_raw`。系统侧仍需 fwmark 与 policy routing，例如：
+运行进程需要相应 Linux capability。TPROXY listener 需要 `cap_net_admin` 或 `cap_net_raw`；UDP 下行为保持原目标源端口，会将 reply socket 绑定到 original destination，因此代理 DNS/53、NTP/123 等特权端口时还需要 `cap_net_bind_service`。测试时可直接授予：
 
 ```sh
-sudo setcap cap_net_admin,cap_net_raw=ep ./build/reality_vision
+sudo setcap cap_net_admin,cap_net_raw,cap_net_bind_service=ep ./build/reality_vision
 ip rule add fwmark 1 table 100
 ip route replace local 0.0.0.0/0 dev lo table 100
 iptables -t mangle -A PREROUTING -p tcp \

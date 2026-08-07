@@ -127,7 +127,6 @@ boost::asio::awaitable<std::optional<std::vector<std::uint8_t>>> vless_udp_strea
     }
 
     const auto length = static_cast<std::size_t>(length_bytes[0]) << 8U | static_cast<std::size_t>(length_bytes[1]);
-    spdlog::info("{} vless udp datagram length {}", session_id_, length);
     if (length == 0)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
@@ -140,7 +139,6 @@ boost::asio::awaitable<std::optional<std::vector<std::uint8_t>>> vless_udp_strea
     {
         co_return std::nullopt;
     }
-    spdlog::info("{} vless udp datagram received {}", session_id_, payload.size());
     co_return payload;
 }
 

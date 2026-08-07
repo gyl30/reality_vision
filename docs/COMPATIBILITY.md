@@ -88,7 +88,7 @@ ctest --test-dir build --output-on-failure
 - TCP REDIRECT：依赖 netfilter conntrack 的 `SO_ORIGINAL_DST`；
 - TCP TPROXY：listener 在 `bind()` 前设置 `SOL_IP/IP_TRANSPARENT`，目标从 accepted socket local endpoint 取得；
 - UDP TPROXY：同一 `--tproxy_port` 建立 UDP listener，设置 `IP_TRANSPARENT` 与 `IP_RECVORIGDSTADDR`，通过 `recvmsg()` 获取每包原目标；
-- UDP downlink 使用绑定 original destination 的透明 socket，保持返回客户端时的源 IP:port；
+- UDP downlink 使用绑定 original destination 的透明 socket，保持返回客户端时的源 IP:port；绑定 DNS/53、NTP/123 等低于 1024 的原目标端口时进程需要 `CAP_NET_BIND_SERVICE`；
 - TPROXY UDP flow 按 `(client endpoint, original destination)` 复用，120 秒 idle timeout；
 - iptables/nftables、TPROXY fwmark/policy routing、进程自身绕行规则由部署环境负责；
 - 通用 UDP REDIRECT、IPv6 REDIRECT/TPROXY、DNS 专用 redirect 和 UDP/443/QUIC 不属于当前阶段。

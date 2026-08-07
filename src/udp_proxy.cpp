@@ -180,7 +180,7 @@ asio::awaitable<void> run_socks_downlink(std::shared_ptr<socks_udp_state> state,
         auto payload = co_await flow->upstream.read_datagram(ec);
         if (ec || !payload)
         {
-            if (ec)
+            if (ec && ec != asio::error::operation_aborted)
             {
                 spdlog::warn("{} socks5 udp downlink read failed: {}", flow->session_id, ec.message());
             }
@@ -189,10 +189,6 @@ asio::awaitable<void> run_socks_downlink(std::shared_ptr<socks_udp_state> state,
         }
         if (state->closed || !state->client_endpoint)
         {
-            spdlog::warn("{} socks5 udp downlink stopped state_closed {} client_endpoint {}",
-                         flow->session_id,
-                         state->closed,
-                         state->client_endpoint.has_value());
             co_return;
         }
 
@@ -206,20 +202,18 @@ asio::awaitable<void> run_socks_downlink(std::shared_ptr<socks_udp_state> state,
             co_return;
         }
 
-        spdlog::info("{} socks5 udp downlink sending {} to {}",
-                     flow->session_id,
-                     packet.size(),
-                     format_endpoint(*state->client_endpoint));
         co_await state->relay_socket.async_send_to(
             asio::buffer(packet), *state->client_endpoint, asio::redirect_error(asio::use_awaitable, ec));
         if (ec)
         {
-            spdlog::warn("{} socks5 udp downlink send failed: {}", flow->session_id, ec.message());
+            if (ec != asio::error::operation_aborted)
+            {
+                spdlog::warn("{} socks5 udp downlink send failed: {}", flow->session_id, ec.message());
+            }
             flow->closed = true;
             flow->upstream.shutdown();
             co_return;
         }
-        spdlog::info("{} socks5 udp downlink sent", flow->session_id);
     }
 }
 
@@ -443,6 +437,10 @@ asio::awaitable<void> run_tproxy_downlink(std::shared_ptr<tproxy_udp_flow> flow)
         auto payload = co_await flow->upstream.read_datagram(ec);
         if (ec || !payload)
         {
+            if (ec && ec != asio::error::operation_aborted)
+            {
+                spdlog::warn("{} tproxy udp downlink read failed: {}", flow->session_id, ec.message());
+            }
             flow->closed = true;
             co_return;
         }
@@ -452,6 +450,10 @@ asio::awaitable<void> run_tproxy_downlink(std::shared_ptr<tproxy_udp_flow> flow)
             asio::buffer(*payload), flow->client, asio::redirect_error(asio::use_awaitable, ec));
         if (ec)
         {
+            if (ec != asio::error::operation_aborted)
+            {
+                spdlog::warn("{} tproxy udp downlink send failed: {}", flow->session_id, ec.message());
+            }
             flow->closed = true;
             flow->upstream.shutdown();
             co_return;
@@ -481,12 +483,22 @@ asio::awaitable<std::shared_ptr<tproxy_udp_flow>> get_tproxy_flow(const std::sha
     auto reply_socket = create_transparent_reply_socket(executor, destination, ec);
     if (ec)
     {
+        spdlog::warn("{} tproxy udp reply socket failed for {} -> {}: {}",
+                     session_id,
+                     format_endpoint(client),
+                     format_endpoint(destination),
+                     ec.message());
         co_return nullptr;
     }
 
     auto upstream = co_await connect_udp_upstream(configuration, make_proxy_target(destination), session_id, ec);
     if (ec)
     {
+        spdlog::warn("{} tproxy udp upstream connection failed for {} -> {}: {}",
+                     session_id,
+                     format_endpoint(client),
+                     format_endpoint(destination),
+                     ec.message());
         co_return nullptr;
     }
 
@@ -608,10 +620,6 @@ asio::awaitable<void> run_socks_association(tcp::socket control_socket,
                                   session_id,
                                   relay_ec));
 
-    spdlog::warn("{} socks5 udp association race completed control_ec {} relay_ec {}",
-                 session_id,
-                 control_ec.message(),
-                 relay_ec.message());
     shutdown_socks_state(state);
     boost::system::error_code ignored;
     control_socket.close(ignored);
@@ -705,10 +713,6 @@ asio::awaitable<void> run_tproxy_server(udp::socket socket, app::config configur
         auto flow = co_await get_tproxy_flow(state, configuration, client, destination, ec);
         if (ec)
         {
-            spdlog::warn("tproxy udp upstream connection failed for {} -> {}: {}",
-                         format_endpoint(client),
-                         format_endpoint(destination),
-                         ec.message());
             ec.clear();
             continue;
         }
