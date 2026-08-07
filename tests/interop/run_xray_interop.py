@@ -52,6 +52,23 @@ def recv_exact(sock: socket.socket, size: int) -> bytes:
     return bytes(output)
 
 
+def encode_socks5_address(target_host: str) -> bytes:
+    try:
+        return b"\x01" + socket.inet_pton(socket.AF_INET, target_host)
+    except OSError:
+        pass
+
+    try:
+        return b"\x04" + socket.inet_pton(socket.AF_INET6, target_host)
+    except OSError:
+        pass
+
+    host = target_host.encode("ascii")
+    if not host or len(host) > 255:
+        raise ValueError("SOCKS5 test target domain length is invalid")
+    return b"\x03" + bytes([len(host)]) + host
+
+
 def open_socks5_connection(
     proxy_port: int,
     target_host: str,
@@ -59,9 +76,6 @@ def open_socks5_connection(
     username: str | None = None,
     password: str | None = None,
 ) -> socket.socket:
-    host = target_host.encode("ascii")
-    if not host or len(host) > 255:
-        raise ValueError("SOCKS5 test target domain length is invalid")
     sock = socket.create_connection(("127.0.0.1", proxy_port), timeout=5)
     try:
         sock.settimeout(10)
@@ -88,9 +102,8 @@ def open_socks5_connection(
                 raise RuntimeError("SOCKS5 username and password authentication failed")
 
         request = (
-            b"\x05\x01\x00\x03"
-            + bytes([len(host)])
-            + host
+            b"\x05\x01\x00"
+            + encode_socks5_address(target_host)
             + target_port.to_bytes(2, "big")
         )
         sock.sendall(request)
@@ -129,6 +142,8 @@ def socks5_tls_request(
     proxy_port: int,
     target_port: int,
     tls_version: ssl.TLSVersion,
+    target_host: str = "localhost",
+    server_hostname: str = SERVER_NAME,
 ) -> None:
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     context.check_hostname = False
@@ -137,14 +152,14 @@ def socks5_tls_request(
     context.maximum_version = tls_version
     raw = open_socks5_connection(
         proxy_port,
-        "localhost",
+        target_host,
         target_port,
         SOCKS_USERNAME,
         SOCKS_PASSWORD,
     )
-    with context.wrap_socket(raw, server_hostname=SERVER_NAME) as tls:
+    with context.wrap_socket(raw, server_hostname=server_hostname) as tls:
         negotiated_version = tls.version()
-        tls.sendall(f"GET / HTTP/1.0\r\nHost: {SERVER_NAME}\r\n\r\n".encode())
+        tls.sendall(f"GET / HTTP/1.0\r\nHost: {server_hostname}\r\n\r\n".encode())
         response = bytearray()
         while True:
             data = tls.recv(65536)
@@ -478,11 +493,27 @@ def main() -> int:
                             "socks_3 socks5 tcp session completed",
                             vision_socks_process,
                         )
+                        splice_count_after_tls12 = xray_log_path.read_bytes().count(
+                            b"CopyRawConn splice"
+                        )
+
+                        socks5_tls_request(
+                            vision_socks_port,
+                            inner_tls_port,
+                            ssl.TLSVersion.TLSv1_3,
+                            target_host="127.0.0.1",
+                            server_hostname="localhost",
+                        )
+                        wait_for_text(
+                            vision_socks_log_path,
+                            "socks_4 socks5 tcp session completed",
+                            vision_socks_process,
+                        )
 
                         socks5_rejects_wrong_password(vision_socks_port)
                         wait_for_text(
                             vision_socks_log_path,
-                            "socks_4 socks5 negotiation failed",
+                            "socks_5 socks5 negotiation failed",
                             vision_socks_process,
                         )
                         time.sleep(0.1)
@@ -499,6 +530,10 @@ def main() -> int:
                             "socks_2 vision send padding ended with command 2",
                             "socks_2 reality send direction switched to raw",
                             "socks_2 vision receive direction entered direct mode",
+                            f"socks_4 sniffed destination localhost:{inner_tls_port}",
+                            "socks_4 vision send padding ended with command 2",
+                            "socks_4 reality send direction switched to raw",
+                            "socks_4 vision receive direction entered direct mode",
                         )
                         missing_direct = [
                             marker for marker in direct_markers if marker not in socks_output
@@ -520,10 +555,6 @@ def main() -> int:
                         present_forbidden = [
                             marker for marker in forbidden if marker in socks_output
                         ]
-                        splice_count_after_tls12 = xray_log_path.read_bytes().count(
-                            b"CopyRawConn splice"
-                        )
-
                         if (
                             missing_direct
                             or missing_fallback
@@ -556,7 +587,7 @@ def main() -> int:
             echo_thread.join(timeout=2)
 
     print(
-        "Xray REALITY, VLESS Vision, SOCKS5 authentication, "
+        "Xray REALITY, VLESS Vision, SOCKS5 authentication, destination sniffing, "
         "TLS 1.2 fallback, and TLS 1.3 Direct tests passed"
     )
     return 0

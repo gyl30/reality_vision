@@ -1,0 +1,377 @@
+#include "sniffer.hpp"
+
+#include <algorithm>
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <span>
+#include <string>
+#include <string_view>
+#include <utility>
+
+namespace rv::sniff
+{
+namespace
+{
+
+constexpr std::size_t tls_record_header_size = 5;
+constexpr std::size_t tls_handshake_header_size = 4;
+constexpr std::size_t maximum_tls_record_payload = 1U << 14U;
+
+class byte_reader
+{
+   public:
+    explicit byte_reader(const std::span<const std::uint8_t> input) : input_(input) {}
+
+    [[nodiscard]] bool take_u8(std::uint8_t& value) noexcept
+    {
+        if (remaining() < 1)
+        {
+            return false;
+        }
+        value = input_[position_++];
+        return true;
+    }
+
+    [[nodiscard]] bool take_u16(std::uint16_t& value) noexcept
+    {
+        if (remaining() < 2)
+        {
+            return false;
+        }
+        value = static_cast<std::uint16_t>((static_cast<std::uint16_t>(input_[position_]) << 8U) | static_cast<std::uint16_t>(input_[position_ + 1]));
+        position_ += 2;
+        return true;
+    }
+
+    [[nodiscard]] bool skip(const std::size_t size) noexcept
+    {
+        if (remaining() < size)
+        {
+            return false;
+        }
+        position_ += size;
+        return true;
+    }
+
+    [[nodiscard]] std::optional<std::span<const std::uint8_t>> take(const std::size_t size) noexcept
+    {
+        if (remaining() < size)
+        {
+            return std::nullopt;
+        }
+        const auto output = input_.subspan(position_, size);
+        position_ += size;
+        return output;
+    }
+
+    [[nodiscard]] std::size_t remaining() const noexcept { return input_.size() - position_; }
+
+   private:
+    std::span<const std::uint8_t> input_;
+    std::size_t position_{0};
+};
+
+[[nodiscard]] result make_result(const status state, std::string domain = {}) { return {.state = state, .domain = std::move(domain)}; }
+
+[[nodiscard]] std::size_t read_u24(const std::span<const std::uint8_t> input, const std::size_t offset) noexcept
+{
+    return (static_cast<std::size_t>(input[offset]) << 16U) | (static_cast<std::size_t>(input[offset + 1]) << 8U) |
+           static_cast<std::size_t>(input[offset + 2]);
+}
+
+[[nodiscard]] bool is_valid_domain(const std::span<const std::uint8_t> input) noexcept
+{
+    if (input.empty() || input.size() > 255)
+    {
+        return false;
+    }
+
+    return std::ranges::all_of(
+        input, [](const std::uint8_t value) { return value > 0x20 && value < 0x7f && value != ':' && value != '/' && value != '\\'; });
+}
+
+[[nodiscard]] std::optional<std::string> parse_server_name(const std::span<const std::uint8_t> extension)
+{
+    byte_reader reader(extension);
+    std::uint16_t list_size = 0;
+    if (!reader.take_u16(list_size) || reader.remaining() != list_size)
+    {
+        return std::nullopt;
+    }
+
+    while (reader.remaining() != 0)
+    {
+        std::uint8_t name_type = 0;
+        std::uint16_t name_size = 0;
+        if (!reader.take_u8(name_type) || !reader.take_u16(name_size))
+        {
+            return std::nullopt;
+        }
+        const auto name = reader.take(name_size);
+        if (!name)
+        {
+            return std::nullopt;
+        }
+        if (name_type == 0 && is_valid_domain(*name))
+        {
+            return std::string(reinterpret_cast<const char*>(name->data()), name->size());
+        }
+    }
+
+    return std::nullopt;
+}
+
+[[nodiscard]] std::optional<std::string> find_server_name(const std::span<const std::uint8_t> extensions)
+{
+    byte_reader reader(extensions);
+    while (reader.remaining() != 0)
+    {
+        std::uint16_t type = 0;
+        std::uint16_t size = 0;
+        if (!reader.take_u16(type) || !reader.take_u16(size))
+        {
+            return std::nullopt;
+        }
+        const auto extension = reader.take(size);
+        if (!extension)
+        {
+            return std::nullopt;
+        }
+        if (type == 0)
+        {
+            return parse_server_name(*extension);
+        }
+    }
+    return std::nullopt;
+}
+
+[[nodiscard]] std::optional<std::string> parse_client_hello(const std::span<const std::uint8_t> handshake)
+{
+    if (handshake.size() < tls_handshake_header_size || handshake[0] != 0x01)
+    {
+        return std::nullopt;
+    }
+
+    const auto body_size = read_u24(handshake, 1);
+    if (handshake.size() < tls_handshake_header_size + body_size)
+    {
+        return std::nullopt;
+    }
+
+    byte_reader reader(handshake.subspan(tls_handshake_header_size, body_size));
+    if (!reader.skip(2 + 32))
+    {
+        return std::nullopt;
+    }
+
+    std::uint8_t session_id_size = 0;
+    if (!reader.take_u8(session_id_size) || !reader.skip(session_id_size))
+    {
+        return std::nullopt;
+    }
+
+    std::uint16_t cipher_suites_size = 0;
+    if (!reader.take_u16(cipher_suites_size) || !reader.skip(cipher_suites_size))
+    {
+        return std::nullopt;
+    }
+
+    std::uint8_t compression_methods_size = 0;
+    if (!reader.take_u8(compression_methods_size) || !reader.skip(compression_methods_size))
+    {
+        return std::nullopt;
+    }
+
+    std::uint16_t extensions_size = 0;
+    if (!reader.take_u16(extensions_size))
+    {
+        return std::nullopt;
+    }
+    const auto extensions = reader.take(extensions_size);
+    if (!extensions)
+    {
+        return std::nullopt;
+    }
+    return find_server_name(*extensions);
+}
+
+[[nodiscard]] result sniff_tls(const std::span<const std::uint8_t> input)
+{
+    if (input.size() < tls_record_header_size)
+    {
+        return make_result(status::need_more);
+    }
+    if (input[0] != 0x16 || input[1] != 0x03 || input[2] > 0x03)
+    {
+        return make_result(status::no_match);
+    }
+
+    const auto payload_size = static_cast<std::size_t>((static_cast<std::uint16_t>(input[3]) << 8U) | input[4]);
+    if (payload_size == 0 || payload_size > maximum_tls_record_payload)
+    {
+        return make_result(status::no_match);
+    }
+    if (input.size() < tls_record_header_size + payload_size)
+    {
+        return make_result(status::need_more);
+    }
+
+    const auto domain = parse_client_hello(input.subspan(tls_record_header_size, payload_size));
+    if (!domain)
+    {
+        return make_result(status::no_match);
+    }
+    return make_result(status::found, *domain);
+}
+
+[[nodiscard]] bool is_http_method_prefix(const std::string_view input, bool& complete) noexcept
+{
+    constexpr std::array<std::string_view, 9> methods{"GET ", "HEAD ", "POST ", "PUT ", "DELETE ", "OPTIONS ", "PATCH ", "CONNECT ", "TRACE "};
+
+    complete = false;
+    for (const auto method : methods)
+    {
+        const auto compared_size = std::min(input.size(), method.size());
+        if (input.substr(0, compared_size) != method.substr(0, compared_size))
+        {
+            continue;
+        }
+        complete = input.size() >= method.size();
+        return true;
+    }
+    return false;
+}
+
+[[nodiscard]] bool equals_ascii_case_insensitive(const std::string_view lhs, const std::string_view rhs) noexcept
+{
+    if (lhs.size() != rhs.size())
+    {
+        return false;
+    }
+
+    for (std::size_t index = 0; index != lhs.size(); ++index)
+    {
+        auto left = static_cast<unsigned char>(lhs[index]);
+        auto right = static_cast<unsigned char>(rhs[index]);
+        if (left >= 'A' && left <= 'Z')
+        {
+            left = static_cast<unsigned char>(left - 'A' + 'a');
+        }
+        if (right >= 'A' && right <= 'Z')
+        {
+            right = static_cast<unsigned char>(right - 'A' + 'a');
+        }
+        if (left != right)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] std::string_view trim_http_whitespace(std::string_view input) noexcept
+{
+    while (!input.empty() && (input.front() == ' ' || input.front() == '\t'))
+    {
+        input.remove_prefix(1);
+    }
+    while (!input.empty() && (input.back() == ' ' || input.back() == '\t'))
+    {
+        input.remove_suffix(1);
+    }
+    return input;
+}
+
+[[nodiscard]] std::optional<std::string> parse_http_host(std::string_view host)
+{
+    host = trim_http_whitespace(host);
+    if (host.empty() || host.front() == '[')
+    {
+        return std::nullopt;
+    }
+
+    const auto colon = host.rfind(':');
+    if (colon != std::string_view::npos && host.find(':') == colon)
+    {
+        const auto port = host.substr(colon + 1);
+        if (!port.empty() && std::ranges::all_of(port, [](const char value) { return value >= '0' && value <= '9'; }))
+        {
+            host = host.substr(0, colon);
+        }
+    }
+    if (host.find(':') != std::string_view::npos)
+    {
+        return std::nullopt;
+    }
+
+    const auto bytes = std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(host.data()), host.size());
+    if (!is_valid_domain(bytes))
+    {
+        return std::nullopt;
+    }
+    return std::string(host);
+}
+
+[[nodiscard]] result sniff_http(const std::span<const std::uint8_t> input)
+{
+    using namespace std::string_view_literals;
+
+    const std::string_view text(reinterpret_cast<const char*>(input.data()), input.size());
+    bool method_complete = false;
+    if (!is_http_method_prefix(text, method_complete))
+    {
+        return make_result(status::no_match);
+    }
+    if (!method_complete)
+    {
+        return make_result(status::need_more);
+    }
+
+    const auto request_line_end = text.find("\r\n");
+    if (request_line_end == std::string_view::npos)
+    {
+        return make_result(status::need_more);
+    }
+
+    std::size_t offset = request_line_end + 2;
+    for (;;)
+    {
+        const auto line_end = text.find("\r\n", offset);
+        if (line_end == std::string_view::npos)
+        {
+            return make_result(status::need_more);
+        }
+        const auto line = text.substr(offset, line_end - offset);
+        if (line.empty())
+        {
+            return make_result(status::no_match);
+        }
+
+        const auto colon = line.find(':');
+        if (colon != std::string_view::npos && equals_ascii_case_insensitive(trim_http_whitespace(line.substr(0, colon)), "host"sv))
+        {
+            const auto domain = parse_http_host(line.substr(colon + 1));
+            return domain ? make_result(status::found, *domain) : make_result(status::no_match);
+        }
+        offset = line_end + 2;
+    }
+}
+
+}    // namespace
+
+result inspect_destination(const std::span<const std::uint8_t> input)
+{
+    if (input.empty())
+    {
+        return make_result(status::need_more);
+    }
+    if (input[0] == 0x16)
+    {
+        return sniff_tls(input);
+    }
+    return sniff_http(input);
+}
+
+}    // namespace rv::sniff

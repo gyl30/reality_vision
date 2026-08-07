@@ -7,6 +7,7 @@
 #include "reality_client_hello.hpp"
 #include "reality_record.hpp"
 #include "socks5_protocol.hpp"
+#include "sniffer.hpp"
 #include "vision_codec.hpp"
 #include "vless_header.hpp"
 
@@ -167,6 +168,89 @@ void test_vless_header()
     expect_error(ec, boost::system::errc::invalid_argument, "VLESS invalid domain returned wrong error");
 }
 
+void put_test_u16(const std::size_t value, std::vector<std::uint8_t>& output)
+{
+    output.push_back(static_cast<std::uint8_t>(value >> 8U));
+    output.push_back(static_cast<std::uint8_t>(value));
+}
+
+void put_test_u24(const std::size_t value, std::vector<std::uint8_t>& output)
+{
+    output.push_back(static_cast<std::uint8_t>(value >> 16U));
+    output.push_back(static_cast<std::uint8_t>(value >> 8U));
+    output.push_back(static_cast<std::uint8_t>(value));
+}
+
+void append_test_tls_record(const std::span<const std::uint8_t> payload, std::vector<std::uint8_t>& output)
+{
+    output.push_back(0x16);
+    output.push_back(0x03);
+    output.push_back(0x01);
+    put_test_u16(payload.size(), output);
+    output.insert(output.end(), payload.begin(), payload.end());
+}
+
+std::vector<std::uint8_t> make_test_tls_client_hello(const std::string_view domain)
+{
+    std::vector<std::uint8_t> server_name;
+    put_test_u16(1 + 2 + domain.size(), server_name);
+    server_name.push_back(0x00);
+    put_test_u16(domain.size(), server_name);
+    server_name.insert(server_name.end(), domain.begin(), domain.end());
+
+    std::vector<std::uint8_t> extensions;
+    put_test_u16(0x0000, extensions);
+    put_test_u16(server_name.size(), extensions);
+    extensions.insert(extensions.end(), server_name.begin(), server_name.end());
+
+    std::vector<std::uint8_t> body;
+    body.push_back(0x03);
+    body.push_back(0x03);
+    body.insert(body.end(), 32, 0x11);
+    body.push_back(0x00);
+    put_test_u16(2, body);
+    body.push_back(0x13);
+    body.push_back(0x01);
+    body.push_back(1);
+    body.push_back(0x00);
+    put_test_u16(extensions.size(), body);
+    body.insert(body.end(), extensions.begin(), extensions.end());
+
+    std::vector<std::uint8_t> handshake;
+    handshake.push_back(0x01);
+    put_test_u24(body.size(), handshake);
+    handshake.insert(handshake.end(), body.begin(), body.end());
+
+    std::vector<std::uint8_t> wire;
+    append_test_tls_record(handshake, wire);
+    return wire;
+}
+
+void test_destination_sniffer()
+{
+    constexpr std::string_view http_request = "GET / HTTP/1.1\r\nHoSt: example.com:443\r\nUser-Agent: test\r\n\r\n";
+    auto result = rv::sniff::inspect_destination(std::span(reinterpret_cast<const std::uint8_t*>(http_request.data()), 2));
+    expect(result.state == rv::sniff::status::need_more, "destination sniffer rejected a fragmented HTTP method");
+
+    result = rv::sniff::inspect_destination(
+        std::span(reinterpret_cast<const std::uint8_t*>(http_request.data()), http_request.size()));
+    expect(result.state == rv::sniff::status::found && result.domain == "example.com", "destination sniffer missed HTTP Host");
+
+    const auto tls_client_hello = make_test_tls_client_hello("example.com");
+    for (std::size_t size = 1; size != tls_client_hello.size(); ++size)
+    {
+        result = rv::sniff::inspect_destination(std::span(tls_client_hello).first(size));
+        expect(result.state == rv::sniff::status::need_more, "destination sniffer rejected fragmented TLS ClientHello");
+    }
+    result = rv::sniff::inspect_destination(tls_client_hello);
+    expect(result.state == rv::sniff::status::found && result.domain == "example.com", "destination sniffer missed TLS SNI");
+
+    constexpr std::string_view ssh_banner = "SSH-2.0-test\r\n";
+    result = rv::sniff::inspect_destination(
+        std::span(reinterpret_cast<const std::uint8_t*>(ssh_banner.data()), ssh_banner.size()));
+    expect(result.state == rv::sniff::status::no_match, "destination sniffer accepted an unrelated protocol");
+}
+
 void test_vision_codec()
 {
     boost::system::error_code ec;
@@ -256,6 +340,7 @@ int run_protocol_tests()
         std::pair{"TLS records", &test_record_roundtrip},
         std::pair{"ClientHello", &test_client_hello},
         std::pair{"VLESS header", &test_vless_header},
+        std::pair{"destination sniffer", &test_destination_sniffer},
         std::pair{"Vision codec", &test_vision_codec},
         std::pair{"SOCKS5 decode", &test_socks5_decode},
     };

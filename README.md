@@ -7,6 +7,7 @@
 - VLESS TCP request 与固定的 `xtls-rprx-vision` addon；
 - XTLS-Vision padding，以及收、发方向独立切换的 Direct splice；
 - 本地 SOCKS5 TCP CONNECT 代理（支持无认证或用户名密码认证，以及域名、IPv4 和 IPv6）；
+- IPv4/IPv6 SOCKS 目标的轻量 destination sniffer（TLS SNI / HTTP Host）；
 - spdlog 会话日志；
 - 基于真实 Xray 进程的端到端互通测试。
 
@@ -43,7 +44,8 @@
 - SOCKS5 `CONNECT` 与 RFC 1929 用户名密码认证，每个本地连接独立建立一条远端协议栈；
 - Vision 对内层 TLS 1.3 `0x1301..0x1304` 的 Direct 判定；
 - 非 TLS TCP 和内层 TLS 1.2 通过 Vision `command=1` 回退并继续透明传输；
-- IPv4、IPv6 和 domain 类型的 VLESS 目标地址。
+- IPv4、IPv6 和 domain 类型的 VLESS 目标地址；
+- SOCKS 请求为 IP 时可从 TLS ClientHello SNI 或 HTTP/1.x Host 恢复域名，探测失败保持原目标。
 
 当前有意不支持：HelloRetryRequest、0-RTT、session resumption、KeyUpdate、
 X25519MLKEM768、ML-DSA 附加校验和 Xray 的 spider fallback。REALITY 身份校验失败时
@@ -62,6 +64,7 @@ src/
   vless_*                       VLESS 协议实现
   vision_*                      XTLS-Vision 实现
   socks5_protocol.*             SOCKS5 协议实现
+  sniffer.*                     TLS SNI / HTTP Host 目标探测
   tcp_byte_stream.*             TCP 字节流
   crypto.*                      BoringSSL 封装
   protocol_tests.*              内置协议自测
@@ -124,7 +127,7 @@ CMake 只创建一个 `reality_vision` executable，所有实现源文件直接�
 - `RV_XRAY_EXECUTABLE=/path/to/xray`：启用真实 Xray 互通测试。
 
 协议自测已经编入同一个二进制，也可以直接运行 `./build/reality_vision --self_test`。
-Xray 互通测试覆盖 SOCKS5 非 TLS、TLS 1.2 fallback、TLS 1.3 Direct 和 Vision
+Xray 互通测试覆盖 SOCKS5 非 TLS、TLS 1.2 fallback、TLS 1.3 Direct、IP 目标 TLS SNI sniff 和 Vision
 framing，并验证 SOCKS5 正确密码与错误密码；还需要 Python 3 和系统的 OpenSSL 命令行工具。
 
 ## 作为 SOCKS5 TCP 代理运行
@@ -143,11 +146,15 @@ framing，并验证 SOCKS5 正确密码与错误密码；还需要 Python 3 和�
   --socks_password test_password
 ```
 
-这条命令监听 `127.0.0.1:1080`。使用 `socks5h` 让域名通过 SOCKS5 交给 Xray 解析：
+这条命令监听 `127.0.0.1:1080`。使用 `socks5h` 时 SOCKS 请求直接携带域名，不需要额外探测：
 
 ```sh
 curl --proxy socks5h://test_user:test_password@127.0.0.1:1080 https://apple.com/ -v
 ```
+
+如果 SOCKS 请求携带 IPv4/IPv6，代理会在 REALITY 建立后先返回 SOCKS success，再最多缓存客户端首个 16 KiB / 200 ms。
+若从 TLS ClientHello SNI 或 HTTP/1.x `Host` 找到域名，则 VLESS 使用该域名和原端口；
+否则保持原 IP。缓存字节随后原样写入 Vision。
 
 验证非 TLS 和 TLS 1.2 fallback：
 

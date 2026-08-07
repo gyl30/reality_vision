@@ -17,17 +17,23 @@ flowchart TD
 `read(output)` 时，下层才读取足够的数据来产生结果。这样可以把背压自然地
 交给协程调用链。
 
-SOCKS5 服务只负责监听、认证协商和解析 TCP CONNECT 目标。认证未配置时选择无认证，
-配置凭据时选择 RFC 1929 用户名密码认证。每接受一个请求，应用层才
-根据目标创建一套独立的上述 stream 链；SOCKS5 模块本身不依赖 REALITY、VLESS 或 Vision。
+SOCKS5 服务负责监听、认证协商和解析 TCP CONNECT 目标。认证未配置时选择无认证，
+配置凭据时选择 RFC 1929 用户名密码认证。SOCKS 请求直接携带 domain 时保持原有目标；
+请求携带 IPv4/IPv6 时，应用层可用 `sniffer` 从客户端首包的 TLS SNI 或 HTTP Host 恢复域名。
+SOCKS5 协议模块本身仍不依赖 REALITY、VLESS、Vision 或 sniffer。
 
-连接建立顺序为：
+域名目标的连接建立顺序为：
 
 1. `tcp_byte_stream::connect()` 解析地址并建立 TCP；
 2. `reality_stream::connect()` 完成 REALITY/TLS 1.3 handshake；
 3. `vless_stream::connect()` 发送 VLESS request header；
 4. `vision_stream::connect()` 发送带 UUID 的初始 padding frame；
-5. 返回最上层 stream，由业务协程决定何时继续读写。
+5. 返回 SOCKS success，再进入双向 relay。
+
+IP 目标为了让客户端先产生 ClientHello/HTTP request，会在第 2 步后返回 SOCKS success，
+最多缓存客户端首个 16 KiB / 200 ms。探测到域名后再执行第 3、4 步，并把缓存字节原样写入
+`vision_stream`；探测失败、超时或达到上限时保持原 IP。TLS sniffer 只解析首个完整
+ClientHello handshake record；跨 TLS record 的 ClientHello 直接按探测失败处理，不影响原始数据转发。
 
 ## 2. 核心数据结构
 
@@ -42,6 +48,7 @@ SOCKS5 服务只负责监听、认证协商和解析 TCP CONNECT 目标。认证
 | `vision::vision_stream` | receive phase、frame counters、padding/direct flags | Vision 编解码与两个方向的 Direct 决策 |
 | `socks5::connect_request` | address variant + port | 表示 SOCKS5 TCP CONNECT 目标，不包含远端协议状态 |
 | `socks5::credentials` | username + password | 可选的本地代理认证配置，不写入日志 |
+| `sniff::result` | need_more / no_match / found + domain | 对累计首包做 TLS SNI / HTTP Host 纯解析，不持有 socket |
 
 配置均为不拥有运行时资源的 typed value：
 

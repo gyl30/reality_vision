@@ -28,6 +28,7 @@ add_executable(
   src/reality_record.cpp
   src/reality_stream.cpp
   src/socks5_protocol.cpp
+  src/sniffer.cpp
   src/tcp_byte_stream.cpp
   src/vision_codec.cpp
   src/vision_stream.cpp
