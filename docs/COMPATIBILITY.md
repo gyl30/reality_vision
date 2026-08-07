@@ -53,12 +53,13 @@ GREASE ECH 保持 uTLS profile 的字段形状和 239-byte ciphertext 长度。�
 1. SOCKS5 domain CONNECT → REALITY + VLESS + Vision → 普通 TCP echo server，必须以 `command=1` 回退；
 2. SOCKS5 domain CONNECT → 内层 TLS 1.2 server，必须以 `command=1` 回退且不得增加 Xray splice；
 3. SOCKS5 domain CONNECT → 内层 TLS 1.3 server，必须进入双向 Direct；
-4. SOCKS5 RFC 1929 正确凭据通过，错误密码被拒绝且日志不包含凭据。
+4. SOCKS5 IP CONNECT → TLS 1.3 server，验证 SNI sniff 后仍进入 Direct；
+5. SOCKS5 RFC 1929 正确凭据通过，错误密码被拒绝且日志不包含凭据；
+6. SOCKS5 UDP ASSOCIATE → VLESS UDP（empty flow）→ UDP echo server，验证 datagram request/response framing，且该 flow 日志不得出现 Vision。
 
-第三类连接必须同时出现 TX `command=2`、TX raw switch 和 RX raw switch，否则测试失败。
-第一、第二类必须出现 `command=1`，并断言对应连接没有 raw switch；TLS 1.2 用例运行前后
-还会比较 Xray 的 `CopyRawConn splice` 计数。所有业务连接均通过项目唯一支持的 SOCKS5
-入站完成。
+TLS 1.3 Direct 用例必须同时出现 TX `command=2`、TX raw switch 和 RX raw switch，否则测试失败。普通 TCP/TLS 1.2 必须出现
+`command=1` 并断言没有 raw switch；TLS 1.2 用例运行前后还会比较 Xray 的 `CopyRawConn splice` 计数。UDP 用例通过 SOCKS5
+association 生命周期关闭上游 flow，不依赖 transparent/netfilter 权限。
 
 运行方式：
 
@@ -82,13 +83,20 @@ ctest --test-dir build --output-on-failure
 
 ## 透明入站兼容范围
 
-透明代理当前只实现 Linux IPv4 TCP：
+透明代理当前实现 Linux IPv4：
 
-- REDIRECT：依赖 netfilter conntrack 的 `SO_ORIGINAL_DST`；
-- TPROXY：listener 在 `bind()` 前设置 `SOL_IP/IP_TRANSPARENT`，目标从 accepted socket local endpoint 取得；
+- TCP REDIRECT：依赖 netfilter conntrack 的 `SO_ORIGINAL_DST`；
+- TCP TPROXY：listener 在 `bind()` 前设置 `SOL_IP/IP_TRANSPARENT`，目标从 accepted socket local endpoint 取得；
+- UDP TPROXY：同一 `--tproxy_port` 建立 UDP listener，设置 `IP_TRANSPARENT` 与 `IP_RECVORIGDSTADDR`，通过 `recvmsg()` 获取每包原目标；
+- UDP downlink 使用绑定 original destination 的透明 socket，保持返回客户端时的源 IP:port；
+- TPROXY UDP flow 按 `(client endpoint, original destination)` 复用，120 秒 idle timeout；
 - iptables/nftables、TPROXY fwmark/policy routing、进程自身绕行规则由部署环境负责；
-- UDP、IPv6 REDIRECT/TPROXY、DNS redirect 和 QUIC 不属于当前 C++ 入站实现。
+- 通用 UDP REDIRECT、IPv6 REDIRECT/TPROXY、DNS 专用 redirect 和 UDP/443/QUIC 不属于当前阶段。
 
-REDIRECT 与 TPROXY 得到 IP 目标后都会复用 destination sniffer；SNI/HTTP Host 命中时 VLESS 改用域名，
-否则保持原 IP。真实透明转发测试需要 root/netfilter/capability，因此不放入默认 CTest 的 Xray interop；默认互通测试
-继续覆盖无特权 SOCKS5 路径和相同的 sniffer/VLESS/Vision 核心逻辑。
+TCP REDIRECT/TPROXY 得到 IP 目标后复用 destination sniffer；SNI/HTTP Host 命中时 VLESS 改用域名，否则保持原 IP。UDP 不 sniff，
+直接使用 SOCKS5 UDP header 或 TPROXY original destination；VLESS UDP 使用 command `0x02`、empty flow 和 2-byte datagram length，
+不会创建 Vision stream。真实 transparent UDP 测试需要 root/netfilter/capability，因此不放入默认 CTest；默认 interop 通过无特权
+SOCKS5 UDP ASSOCIATE 覆盖相同的 VLESS UDP/REALITY 协议路径。
+
+Docker bridge 上的 TPROXY 还取决于宿主机 `br_netfilter` 路径；该环境问题与应用是否正确设置 `IP_TRANSPARENT` 是两件事，
+部署时应单独验证。UDP/443 当前应由系统规则排除或拒绝，等后续 QUIC 阶段再启用。

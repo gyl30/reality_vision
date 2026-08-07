@@ -6,6 +6,7 @@
 #include "sniffer.hpp"
 #include "tcp_byte_stream.hpp"
 #include "transparent.hpp"
+#include "udp_proxy.hpp"
 #include "vision_stream.hpp"
 #include "vless_header.hpp"
 #include "vless_stream.hpp"
@@ -41,6 +42,7 @@ namespace
 {
 
 using tcp = boost::asio::ip::tcp;
+using udp = boost::asio::ip::udp;
 
 enum class transparent_mode : std::uint8_t
 {
@@ -172,7 +174,7 @@ rv::vless::address to_vless_address(const rv::socks5::address& address)
         address);
 }
 
-proxy_target make_proxy_target(const rv::socks5::connect_request& request)
+proxy_target make_proxy_target(const rv::socks5::request& request)
 {
     return proxy_target{
         .destination = to_vless_address(request.destination),
@@ -291,7 +293,7 @@ boost::asio::awaitable<initial_client_data> sniff_initial_client_data(tcp::socke
     }
 }
 
-[[nodiscard]] bool should_sniff_destination(const rv::socks5::connect_request& request) noexcept
+[[nodiscard]] bool should_sniff_destination(const rv::socks5::request& request) noexcept
 {
     return !std::holds_alternative<rv::socks5::domain_address>(request.destination);
 }
@@ -333,10 +335,17 @@ boost::asio::awaitable<void> send_upstream_failure_reply(tcp::socket& client_soc
 boost::asio::awaitable<void> run_socks_session(tcp::socket client_socket, rv::app::config configuration, std::string session_id)
 {
     boost::system::error_code ec;
-    const auto request = co_await rv::socks5::negotiate_connect(client_socket, configuration.socks_credentials, ec);
+    const auto request = co_await rv::socks5::negotiate(client_socket, configuration.socks_credentials, ec);
     if (ec)
     {
         spdlog::warn("{} socks5 negotiation failed: {}", session_id, ec.message());
+        co_return;
+    }
+
+    if (request->requested_command == rv::socks5::command::udp_associate)
+    {
+        spdlog::info("{} socks5 udp associate {}", session_id, rv::socks5::format_destination(*request));
+        co_await rv::udp_proxy::run_socks_association(std::move(client_socket), std::move(configuration), *request, std::move(session_id));
         co_return;
     }
 
@@ -652,6 +661,7 @@ int main(int argc, char* argv[])
         std::optional<tcp::acceptor> socks_acceptor;
         std::optional<tcp::acceptor> redirect_acceptor;
         std::optional<tcp::acceptor> tproxy_acceptor;
+        std::optional<udp::socket> tproxy_udp_socket;
 
         if (configuration->socks_listen_port != 0)
         {
@@ -682,11 +692,19 @@ int main(int argc, char* argv[])
                 spdlog::error("failed to create tproxy listener: {}", ec.message());
                 return 1;
             }
+
+            tproxy_udp_socket.emplace(rv::udp_proxy::create_tproxy_socket(context.get_executor(), configuration->tproxy_listen_port, ec));
+            if (ec)
+            {
+                spdlog::error("failed to create tproxy udp listener: {}", ec.message());
+                return 1;
+            }
         }
 
         boost::system::error_code socks_server_ec;
         boost::system::error_code redirect_server_ec;
         boost::system::error_code tproxy_server_ec;
+        boost::system::error_code tproxy_udp_server_ec;
         bool server_failed = false;
 
         const auto spawn_server = [&](auto server, const std::string& server_name, boost::system::error_code& server_ec)
@@ -729,6 +747,12 @@ int main(int argc, char* argv[])
             spawn_server(run_transparent_server(std::move(*tproxy_acceptor), *configuration, transparent_mode::tproxy, tproxy_server_ec),
                          "tproxy",
                          tproxy_server_ec);
+        }
+        if (tproxy_udp_socket)
+        {
+            spawn_server(rv::udp_proxy::run_tproxy_server(std::move(*tproxy_udp_socket), *configuration, tproxy_udp_server_ec),
+                         "tproxy udp",
+                         tproxy_udp_server_ec);
         }
 
         context.run();

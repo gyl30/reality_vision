@@ -34,6 +34,7 @@ struct client_config
 };
 
 [[nodiscard]] std::vector<std::uint8_t> encode_tcp_request(const client_config& configuration, boost::system::error_code& ec);
+[[nodiscard]] std::vector<std::uint8_t> encode_udp_request(const client_config& configuration, boost::system::error_code& ec);
 
 }    // namespace rv::vless
 

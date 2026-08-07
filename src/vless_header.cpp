@@ -11,35 +11,17 @@ namespace rv::vless
 namespace
 {
 
+constexpr std::uint8_t tcp_command = 0x01;
+constexpr std::uint8_t udp_command = 0x02;
+
 void put_u16(std::uint16_t value, std::vector<std::uint8_t>& output)
 {
     output.push_back(static_cast<std::uint8_t>(value >> 8U));
     output.push_back(static_cast<std::uint8_t>(value));
 }
 
-}    // namespace
-
-std::vector<std::uint8_t> encode_tcp_request(const client_config& configuration, boost::system::error_code& ec)
+void append_destination(const client_config& configuration, std::vector<std::uint8_t>& output, boost::system::error_code& ec)
 {
-    ec.clear();
-    if (configuration.destination_port == 0)
-    {
-        ec = boost::system::errc::make_error_code(boost::system::errc::invalid_argument);
-        return {};
-    }
-
-    std::vector<std::uint8_t> output;
-    output.reserve(64);
-    output.push_back(0x00);
-    output.insert(output.end(), configuration.user_id.begin(), configuration.user_id.end());
-
-    constexpr char flow_name[] = "xtls-rprx-vision";
-    output.push_back(18);
-    output.push_back(0x0a);
-    output.push_back(0x10);
-    output.insert(output.end(), flow_name, flow_name + 16);
-
-    output.push_back(0x01);
     put_u16(configuration.destination_port, output);
     std::visit(
         [&output, &ec](const auto& address)
@@ -68,11 +50,57 @@ std::vector<std::uint8_t> encode_tcp_request(const client_config& configuration,
             }
         },
         configuration.destination);
+}
+
+std::vector<std::uint8_t> encode_request(const client_config& configuration,
+                                         const std::uint8_t command,
+                                         const bool vision_flow,
+                                         boost::system::error_code& ec)
+{
+    ec.clear();
+    if (configuration.destination_port == 0)
+    {
+        ec = boost::system::errc::make_error_code(boost::system::errc::invalid_argument);
+        return {};
+    }
+
+    std::vector<std::uint8_t> output;
+    output.reserve(64);
+    output.push_back(0x00);
+    output.insert(output.end(), configuration.user_id.begin(), configuration.user_id.end());
+
+    if (vision_flow)
+    {
+        constexpr char flow_name[] = "xtls-rprx-vision";
+        output.push_back(18);
+        output.push_back(0x0a);
+        output.push_back(0x10);
+        output.insert(output.end(), flow_name, flow_name + 16);
+    }
+    else
+    {
+        output.push_back(0x00);
+    }
+
+    output.push_back(command);
+    append_destination(configuration, output, ec);
     if (ec)
     {
         return {};
     }
     return output;
+}
+
+}    // namespace
+
+std::vector<std::uint8_t> encode_tcp_request(const client_config& configuration, boost::system::error_code& ec)
+{
+    return encode_request(configuration, tcp_command, true, ec);
+}
+
+std::vector<std::uint8_t> encode_udp_request(const client_config& configuration, boost::system::error_code& ec)
+{
+    return encode_request(configuration, udp_command, false, ec);
 }
 
 }    // namespace rv::vless

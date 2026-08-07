@@ -162,6 +162,13 @@ void test_vless_header()
     config.destination_port = 443;
     const auto request = rv::vless::encode_tcp_request(config, ec);
     expect(!ec && !request.empty(), "VLESS request encoding failed");
+    expect(request[17] == 18 && request[36] == 0x01, "VLESS TCP Vision header mismatch");
+
+    config.destination_port = 53;
+    const auto udp_request = rv::vless::encode_udp_request(config, ec);
+    expect(!ec && udp_request.size() == 34, "VLESS UDP request encoding failed");
+    expect(udp_request[17] == 0x00 && udp_request[18] == 0x02, "VLESS UDP request unexpectedly contains Vision flow");
+    expect(udp_request[19] == 0x00 && udp_request[20] == 53, "VLESS UDP request port mismatch");
 
     config.destination = rv::vless::domain_address{};
     static_cast<void>(rv::vless::encode_tcp_request(config, ec));
@@ -317,16 +324,36 @@ void test_socks5_decode()
 {
     boost::system::error_code ec;
     constexpr std::array<std::uint8_t, 10> wire{5, 1, 0, 1, 127, 0, 0, 1, 0x01, 0xbb};
-    rv::socks5::connect_request request;
-    ec = rv::socks5::decode_connect_request(wire, request);
+    rv::socks5::request request;
+    ec = rv::socks5::decode_request(wire, request);
     expect(!ec, "SOCKS5 decode failed");
+    expect(request.requested_command == rv::socks5::command::connect, "SOCKS5 CONNECT command mismatch");
     expect(request.port == 443, "SOCKS5 port mismatch");
 
     auto malformed = wire;
     malformed[0] = 4;
-    ec = rv::socks5::decode_connect_request(malformed, request);
+    ec = rv::socks5::decode_request(malformed, request);
     expect(static_cast<bool>(ec), "SOCKS5 accepted wrong version");
     expect_error(ec, boost::system::errc::bad_message, "SOCKS5 malformed request returned wrong error");
+
+    constexpr std::array<std::uint8_t, 10> associate{5, 3, 0, 1, 0, 0, 0, 0, 0, 0};
+    ec = rv::socks5::decode_request(associate, request);
+    expect(!ec, "SOCKS5 UDP ASSOCIATE decode failed");
+    expect(request.requested_command == rv::socks5::command::udp_associate && request.port == 0,
+           "SOCKS5 UDP ASSOCIATE command mismatch");
+
+    constexpr std::array<std::uint8_t, 13> udp_packet{0, 0, 0, 1, 8, 8, 8, 8, 0, 53, 'd', 'n', 's'};
+    rv::socks5::udp_datagram datagram;
+    ec = rv::socks5::decode_udp_datagram(udp_packet, datagram);
+    expect(!ec && datagram.port == 53 && datagram.payload.size() == 3, "SOCKS5 UDP datagram decode failed");
+
+    const auto encoded = rv::socks5::encode_udp_datagram(datagram.destination, datagram.port, datagram.payload, ec);
+    expect(!ec && encoded == std::vector<std::uint8_t>(udp_packet.begin(), udp_packet.end()), "SOCKS5 UDP datagram encode mismatch");
+
+    auto fragmented = udp_packet;
+    fragmented[2] = 1;
+    ec = rv::socks5::decode_udp_datagram(fragmented, datagram);
+    expect_error(ec, boost::system::errc::operation_not_supported, "SOCKS5 UDP fragmentation returned wrong error");
 }
 
 }    // namespace

@@ -2,30 +2,33 @@
 
 ## 1. 所有权与调用方向
 
-每层 stream 以值语义独占下层：
+TCP 与 UDP 在 VLESS 层之前明确分叉；UDP 不进入 Vision：
 
 ```mermaid
 flowchart TD
-    A["业务协议 / 本地代理"] --> B["vision_stream"]
-    B --> C["vless_stream"]
-    C --> D["reality_stream"]
-    D --> E["tcp_byte_stream"]
-    E --> F["tcp::socket"]
+    A["SOCKS5 CONNECT / REDIRECT / TPROXY TCP"] --> B["optional sniffer"]
+    B --> C["vision_stream"]
+    C --> D["vless_stream"]
+    D --> E["reality_stream"]
+    E --> F["tcp_byte_stream"]
+    F --> G["tcp::socket"]
+
+    U["SOCKS5 UDP ASSOCIATE / TPROXY UDP"] --> V["UDP session"]
+    V --> W["vless_udp_stream"]
+    W --> R["reality_stream"]
 ```
 
-没有后台 reader，也没有通用 packet dispatcher。上层调用
-`read(output)` 时，下层才读取足够的数据来产生结果。这样可以把背压自然地
-交给协程调用链。
+TCP stream 没有后台 reader，也没有通用 packet dispatcher。上层调用 `read(output)` 时，下层才读取足够的数据来产生结果，
+写入同理。UDP 入口按 datagram 驱动；每条 UDP flow 内部仍保持一个 VLESS uplink writer 和一个 downlink reader。
 
-SOCKS5 服务负责监听、认证协商和解析 TCP CONNECT 目标。认证未配置时选择无认证，
-配置凭据时选择 RFC 1929 用户名密码认证。SOCKS 请求直接携带 domain 时保持原有目标；
-请求携带 IPv4/IPv6 时，应用层可用 `sniffer` 从客户端首包的 TLS SNI 或 HTTP Host 恢复域名。
-SOCKS5 协议模块本身仍不依赖 REALITY、VLESS、Vision 或 sniffer。
+SOCKS5 服务负责监听、认证协商以及解析 `CONNECT` / `UDP ASSOCIATE`。认证未配置时选择无认证，配置凭据时选择 RFC 1929
+用户名密码认证。TCP CONNECT 的 IP 目标可以由 `sniffer` 从首包 TLS SNI / HTTP Host 恢复域名；UDP ASSOCIATE 不 sniff，
+每个 SOCKS5 UDP datagram 自带目标地址和端口。SOCKS5 协议模块本身不依赖 REALITY、VLESS、Vision 或 sniffer。
 
-Linux IPv4 TCP 透明入站与 SOCKS5 并列。REDIRECT accepted socket 通过 `SO_ORIGINAL_DST` 恢复 NAT 前目标；
-TPROXY listener 在 bind 前设置 `IP_TRANSPARENT`，accepted socket 的 local endpoint 保留原目标。透明入口恢复出的
-IP:port 与 SOCKS IP request 之后共用同一套 sniffer、VLESS target 构造和 relay；iptables/nftables、fwmark 与 policy
-routing 保持在程序外部。
+Linux IPv4 transparent 与 SOCKS5 并列。TCP REDIRECT accepted socket 通过 `SO_ORIGINAL_DST` 恢复 NAT 前目标；TCP TPROXY
+listener 在 bind 前设置 `IP_TRANSPARENT`，accepted socket local endpoint 保留原目标。UDP TPROXY socket 同时启用
+`IP_TRANSPARENT` 与 `IP_RECVORIGDSTADDR`，通过 `recvmsg()` 对每个 datagram 取得 client endpoint 和 original destination。
+iptables/nftables、fwmark 与 policy routing 保持在程序外部。通用 UDP REDIRECT 不实现。
 
 域名目标的连接建立顺序为：
 
@@ -49,18 +52,21 @@ ClientHello handshake record；跨 TLS record 的 ClientHello 直接按探测失
 | `crypto::aead` | 私有 PImpl | 封装 BoringSSL `EVP_AEAD_CTX`，不向其他模块暴露 BoringSSL 类型 |
 | `reality::record_key` | AEAD、12-byte IV、sequence | TLS 1.3 单方向 record protection |
 | `reality::reality_stream` | RX/TX mode、receive/send key、两个 byte_queue | TLS application records 与 raw TCP 之间切换 |
-| `vless::vless_stream` | response header pending flag | 发送 request header，并在首次读取时消费 response header |
+| `vless::vless_stream` | response header pending flag | VLESS TCP request/response header 与 stream body |
+| `vless::vless_udp_stream` | response header pending flag | VLESS UDP request header，以及 `uint16 length + datagram` body framing；不包含 Vision |
 | `vision::server_hello_tracker` | bounded buffer、record length、result | 跨读取片段识别内层 TLS 1.3 ServerHello |
-| `vision::vision_stream` | receive phase、frame counters、padding/direct flags | Vision 编解码与两个方向的 Direct 决策 |
-| `socks5::connect_request` | address variant + port | 表示 SOCKS5 TCP CONNECT 目标，不包含远端协议状态 |
+| `vision::vision_stream` | receive phase、frame counters、padding/direct flags | 仅 TCP 路径的 Vision 编解码与两个方向 Direct 决策 |
+| `socks5::request` | command + address variant + port | 表示 SOCKS5 CONNECT / UDP ASSOCIATE 请求，不包含远端协议状态 |
+| `socks5::udp_datagram` | destination + port + payload span | 解析/构造 RFC 1928 UDP relay datagram；当前只接受 `FRAG=0` |
 | `socks5::credentials` | username + password | 可选的本地代理认证配置，不写入日志 |
-| `sniff::result` | need_more / no_match / found + domain | 对累计首包做 TLS SNI / HTTP Host 纯解析，不持有 socket |
-| `transparent` helper | Linux socket options / original destination | 设置 IPv4 `IP_TRANSPARENT`，读取 REDIRECT `SO_ORIGINAL_DST` |
+| `sniff::result` | need_more / no_match / found + domain | 仅 TCP 首包的 TLS SNI / HTTP Host 纯解析，不持有 socket |
+| `transparent` helper | Linux socket options / original destination | TCP REDIRECT/TPROXY helper，以及 UDP `IP_RECVORIGDSTADDR`/`recvmsg` helper |
+| `udp_proxy` state | association/flow map、idle timestamp | SOCKS5 UDP association 与 TPROXY UDP flow 生命周期、透明回包 |
 
 配置均为不拥有运行时资源的 typed value：
 
 - `reality::client_config`：SNI、REALITY public key、short ID、client version、指纹枚举；
-- `vless::client_config`：UUID、目标地址和端口；Vision addon 固定写入请求头；
+- `vless::client_config`：UUID、目标地址和端口；TCP encoder 写入 Vision addon，UDP encoder 写空 addon；
 - 日志上下文使用连接 ID 字符串；spdlog pattern 不输出方括号。
 
 配置解析、Base64/UUID 文本转换和业务路由位于可执行程序边缘；协议类只接收已经验证过
@@ -113,21 +119,19 @@ record”，raw 后缀也仍留在 socket receive buffer 中。Vision 完整消�
 TX 先把包含 `command=2` 的完整 Vision frame 作为最后一个外层 TLS application record
 写完，之后才把 send mode 改为 raw。这避免 command 自身被提前按 raw 发送。
 
-## 5. VLESS 与 Vision
+## 5. VLESS TCP、VLESS UDP 与 Vision
 
-VLESS request header 使用：
+两种 VLESS request 共用 version `0`、16-byte UUID、big-endian port 和 IPv4/domain/IPv6 target，但 command/addon 不同：
 
-- version `0`；
-- 16-byte UUID；
-- 固定 addon `xtls-rprx-vision`；
-- TCP command；
-- big-endian port；
-- IPv4/domain/IPv6 address。
+| 路径 | addon | command | body |
+|---|---|---:|---|
+| TCP | `xtls-rprx-vision` | `0x01` | byte stream，交给 `vision_stream` |
+| UDP | empty | `0x02` | 每个 datagram 为 `uint16_be length + payload` |
 
-VLESS response header 延迟到首次 `read()` 时消费，因此发送方向不需要等待
-response header。
+TCP 和 UDP response header 都延迟到首次下行 `read()` / `read_datagram()` 时消费，因此发送方向不需要等待 response header。
+UDP 不创建 `vision_stream`，不发送 Vision padding，不执行 command 0/1/2，也没有 TLS tracker 或 Direct switch。
 
-Vision 首帧含 16-byte UUID，后续帧使用 5-byte header：
+Vision 只属于 TCP 路径。首帧含 16-byte UUID，后续帧使用 5-byte header：
 
 | 字段 | 长度 | 说明 |
 |---|---:|---|
@@ -145,14 +149,16 @@ REALITY raw。接收方向只在对端 Direct frame 的 content 与 padding 都�
 
 ## 6. 并发与生命周期约定
 
-每个连接支持：
+每条 TCP/REALITY stream 支持一个活动读协程和一个活动写协程，两个方向可以同时活动。SOCKS5、REDIRECT 和 TPROXY listener
+可以同时运行并服务多个连接；TCP 一个方向遇到 EOF 时只 half-close 对端发送方向，等待另一方向排空后再释放会话。
 
-- 一个活动的读协程；
-- 一个活动的写协程；
-- 读写可以同时活动。
+SOCKS5 UDP association 的生命周期由 SOCKS TCP control connection 决定。association 内按 SOCKS UDP target 建立 flow；每条
+flow 复用一个 `vless_udp_stream`，主 relay 协程串行写 datagram，独立 downlink 协程串行读 datagram。control connection 关闭时
+association 的 UDP socket 和全部上游 flow 一起关闭。
 
-SOCKS5、REDIRECT 和 TPROXY listener 可以同时运行并服务多个连接；每条连接内部仍遵循一个读协程和一个写协程。一个方向
-遇到 EOF 时只 half-close 对端的发送方向，等待另一个方向排空后再关闭整个会话。
+TPROXY UDP 按 `(client endpoint, original destination)` 建立 flow。每条 flow 额外拥有一个 `IP_TRANSPARENT` reply socket，
+绑定 original destination，使下行 datagram 返回客户端时仍以原目标 IP:port 为源。单线程 `io_context(1)` 下 flow map、uplink、
+downlink 和 30 秒 cleanup timer 顺序执行；120 秒无活动 flow 被回收。UDP/443 当前在入口处跳过，不创建 flow。
 
 stream 不在内部排队或检测同方向并发。调用方必须保证同一时刻最多有一个读操作和一个
 写操作；这些对象也不是线程安全容器。当一个 `io_context` 由多个线程运行时，调用方必须
@@ -177,6 +183,6 @@ stream 不在内部排队或检测同方向并发。调用方必须保证同一�
 `boost::system::system_error`。只有内存分配失败等非预期 C++ 异常仍可能向上传播，并在
 最外层任务边界记录。调用方必须在每次同步解析或 `co_await` 后立即检查 `ec`。
 
-所有可变长度输入都有显式上限：TLS plaintext 16 KiB、TLS ciphertext 上限、handshake
-1 MiB、Vision/Xray frame 8192 bytes、内部 byte_queue 上限。身份校验、AEAD tag、Finished
-或 CertificateVerify 失败均 fail closed。
+所有可变长度输入都有显式上限：TLS plaintext 16 KiB、TLS ciphertext 上限、handshake 1 MiB、Vision/Xray frame
+8192 bytes、内部 byte_queue 上限；UDP datagram length 由 VLESS 2-byte framing 限制为 65535 bytes。身份校验、AEAD tag、
+Finished 或 CertificateVerify 失败均 fail closed。

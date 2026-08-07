@@ -4,10 +4,10 @@
 
 - Boost.Asio `tcp_byte_stream`；
 - REALITY 客户端握手与受限 TLS 1.3 record layer；
-- VLESS TCP request 与固定的 `xtls-rprx-vision` addon；
+- VLESS TCP request（固定 `xtls-rprx-vision` addon）与 VLESS UDP datagram framing（空 flow，不经过 Vision）；
 - XTLS-Vision padding，以及收、发方向独立切换的 Direct splice；
-- 本地 SOCKS5 TCP CONNECT 代理（支持无认证或用户名密码认证，以及域名、IPv4 和 IPv6）；
-- Linux IPv4 TCP REDIRECT / TPROXY 透明入站；
+- 本地 SOCKS5 `CONNECT` / `UDP ASSOCIATE` 代理（支持无认证或用户名密码认证，以及域名、IPv4 和 IPv6）；
+- Linux IPv4 TCP REDIRECT，以及 TCP/UDP TPROXY 透明入站；
 - IP 目标的轻量 destination sniffer（TLS SNI / HTTP Host）；
 - spdlog 会话日志；
 - 基于真实 Xray 进程的端到端互通测试。
@@ -41,20 +41,20 @@
 - `TLS_AES_256_GCM_SHA384`；
 - `TLS_CHACHA20_POLY1305_SHA256`；
 - REALITY Ed25519 leaf certificate、HMAC-SHA512、CertificateVerify 和 Finished 校验；
-- VLESS TCP 与固定的 `xtls-rprx-vision`；
-- SOCKS5 `CONNECT` 与 RFC 1929 用户名密码认证，每个本地连接独立建立一条远端协议栈；
+- VLESS TCP 使用固定 `xtls-rprx-vision`；VLESS UDP 使用 command `0x02`、空 flow 和 2-byte big-endian datagram length；
+- SOCKS5 `CONNECT` / `UDP ASSOCIATE` 与 RFC 1929 用户名密码认证；UDP association 可按目标复用独立 VLESS UDP flow；
 - Vision 对内层 TLS 1.3 `0x1301..0x1304` 的 Direct 判定；
 - 非 TLS TCP 和内层 TLS 1.2 通过 Vision `command=1` 回退并继续透明传输；
 - IPv4、IPv6 和 domain 类型的 VLESS 目标地址；
 - SOCKS 或透明入站目标为 IP 时可从 TLS ClientHello SNI 或 HTTP/1.x Host 恢复域名，探测失败保持原目标；
-- Linux IPv4 TCP REDIRECT 使用 `SO_ORIGINAL_DST` 恢复 NAT 前目标；TPROXY listener 使用 `IP_TRANSPARENT` 并从 accepted socket local endpoint 取得原目标。
+- Linux IPv4 TCP REDIRECT 使用 `SO_ORIGINAL_DST` 恢复 NAT 前目标；TPROXY TCP/UDP 使用 `IP_TRANSPARENT`，UDP 通过 `IP_RECVORIGDSTADDR` 获取每个 datagram 的原目标。
 
 当前有意不支持：HelloRetryRequest、0-RTT、session resumption、KeyUpdate、
 X25519MLKEM768、ML-DSA 附加校验和 Xray 的 spider fallback。REALITY 身份校验失败时
 会直接失败，不会把连接当作普通网站 TLS 会话继续使用。
 
-SOCKS5 当前只监听本机回环地址；不支持 `BIND` 或 UDP `ASSOCIATE`。透明入站当前只支持 Linux IPv4 TCP；
-UDP、IPv6 REDIRECT/TPROXY、DNS 劫持和 QUIC 不由本程序处理。
+SOCKS5 当前只监听本机回环地址；不支持 `BIND`，支持 `UDP ASSOCIATE` 但不支持 SOCKS5 UDP fragmentation (`FRAG != 0`)。
+透明入站当前支持 Linux IPv4 TCP REDIRECT、TCP TPROXY 和 UDP TPROXY；不实现通用 UDP REDIRECT。IPv6 transparent、DNS 专用劫持和 UDP/443（QUIC）留到后续阶段。
 
 ## 目录与依赖关系
 
@@ -64,11 +64,12 @@ src/
   main.cpp                      程序入口和连接运行流程
   base64.* / hex.*              文本编解码
   reality_*                     REALITY 协议实现
-  vless_*                       VLESS 协议实现
+  vless_*                       VLESS TCP / UDP 协议实现
   vision_*                      XTLS-Vision 实现
   socks5_protocol.*             SOCKS5 协议实现
   sniffer.*                     TLS SNI / HTTP Host 目标探测
   transparent.*                 Linux REDIRECT / TPROXY socket helper
+  udp_proxy.*                    SOCKS5 / TPROXY UDP session 与 relay
   tcp_byte_stream.*             TCP 字节流
   crypto.*                      BoringSSL 封装
   protocol_tests.*              内置协议自测
@@ -78,12 +79,19 @@ docs/                           架构与兼容性说明
 ```
 
 ```text
+TCP:
 vision_stream -> vless_stream -> reality_stream -> tcp_byte_stream -> Boost.Asio TCP
                               |
                               +-------------> crypto wrapper -> BoringSSL
 
-SOCKS5 client -> TCP CONNECT parser ─┐
-REDIRECT/TPROXY -> original target ────┴-> optional sniffer -> one protocol stack per connection
+SOCKS5 CONNECT / REDIRECT / TPROXY TCP
+    -> optional sniffer -> VLESS TCP -> Vision -> REALITY
+
+UDP:
+SOCKS5 UDP ASSOCIATE / TPROXY UDP
+    -> UDP session -> VLESS UDP (empty flow) -> REALITY -> TCP transport
+
+UDP never enters vision_stream.
 
 所有 .cpp 最终直接编入 reality_vision 可执行文件，不生成中间静态库。
 ```
@@ -132,10 +140,10 @@ CMake 只创建一个 `reality_vision` executable，所有实现源文件直接�
 - `RV_XRAY_EXECUTABLE=/path/to/xray`：启用真实 Xray 互通测试。
 
 协议自测已经编入同一个二进制，也可以直接运行 `./build/reality_vision --self_test`。
-Xray 互通测试覆盖 SOCKS5 非 TLS、TLS 1.2 fallback、TLS 1.3 Direct、IP 目标 TLS SNI sniff 和 Vision
-framing，并验证 SOCKS5 正确密码与错误密码；还需要 Python 3 和系统的 OpenSSL 命令行工具。
+Xray 互通测试覆盖 SOCKS5 非 TLS、TLS 1.2 fallback、TLS 1.3 Direct、IP 目标 TLS SNI sniff、Vision framing，
+并验证 SOCKS5 正确/错误密码以及 `UDP ASSOCIATE -> VLESS UDP -> UDP echo`；还需要 Python 3 和系统的 OpenSSL 命令行工具。
 
-## 作为 SOCKS5 TCP 代理运行
+## 作为 SOCKS5 TCP / UDP 代理运行
 
 启动 Xray 服务端后运行：
 
@@ -175,14 +183,19 @@ curl --proxy socks5h://test_user:test_password@127.0.0.1:1080 \
 不传 `--socks_username` 和 `--socks_password` 时使用无认证模式；两个参数必须同时提供，
 每项长度为 1 到 255 bytes。日志不会输出凭据。
 
-该模式会持续 accept，并为每个 SOCKS5 TCP CONNECT 请求独立创建
+该模式会持续 accept。每个 SOCKS5 TCP CONNECT 请求独立创建
 `tcp_byte_stream -> reality_stream -> vless_stream -> vision_stream`。客户端或远端 EOF 会按
 TCP half-close 传播，另一方向继续排空后再释放连接。
 
-## 作为 Linux TCP 透明代理运行
+`UDP ASSOCIATE` 使用同一个 `--socks_port`：TCP 控制连接建立 association，服务端返回一个回环 UDP relay endpoint。
+SOCKS5 UDP header 中的目标地址/端口决定远端 VLESS UDP flow；同一 association 对同一目标复用 flow，不同目标各自建立
+`reality_stream -> vless_udp_stream`。UDP flow 的 VLESS addon 长度为 0，不创建 `vision_stream`，datagram 在 VLESS body 中按
+`uint16_be length + payload` 保持边界。SOCKS5 `FRAG != 0` 当前拒绝。UDP/443 当前阶段直接跳过，不建立上游 flow。
+
+## 作为 Linux TCP / UDP 透明代理运行
 
 `--redirect_port` 和 `--tproxy_port` 都是可选 listener；`--socks_port` 也不再强制要求。三个端口至少配置一个，
-因此可以只运行透明代理，也可以同时保留 SOCKS5。透明 listener 绑定 `0.0.0.0`，当前只接受 IPv4 TCP。
+因此可以只运行透明代理，也可以同时保留 SOCKS5。REDIRECT 当前只接受 IPv4 TCP；配置 `--tproxy_port` 时，同一数值端口会同时监听 IPv4 TCP 和 UDP。
 
 REDIRECT 是推荐主路径。程序对 accepted socket 使用 `SO_ORIGINAL_DST` 恢复 NAT 前的目标地址：
 
@@ -224,23 +237,29 @@ TPROXY 使用独立 listener：
   --tproxy_port 12345
 ```
 
-程序在 `bind()` 前设置 `IP_TRANSPARENT`；运行进程需要相应 Linux capability，例如给专用二进制授予
-`cap_net_admin`。系统侧仍需 fwmark 与 policy routing，例如：
+程序在 TCP acceptor 和 UDP socket `bind()` 前设置 `IP_TRANSPARENT`；UDP listener 还启用 `IP_RECVORIGDSTADDR`。
+运行进程需要相应 Linux capability，例如测试时给专用二进制授予 `cap_net_admin,cap_net_raw`。系统侧仍需 fwmark 与 policy routing，例如：
 
 ```sh
-sudo setcap cap_net_admin=ep ./build/reality_vision
+sudo setcap cap_net_admin,cap_net_raw=ep ./build/reality_vision
 ip rule add fwmark 1 table 100
 ip route replace local 0.0.0.0/0 dev lo table 100
 iptables -t mangle -A PREROUTING -p tcp \
   -j TPROXY --on-port 12345 --tproxy-mark 1
+iptables -t mangle -A PREROUTING -p udp --dport 53 \
+  -j TPROXY --on-port 12345 --tproxy-mark 1
 ```
 
-两种透明入口的 session 流程相同：恢复原始 IP:port，建立 REALITY，最多缓存客户端首个 16 KiB / 200 ms 做
-TLS SNI / HTTP Host 探测；若得到域名，则 VLESS 使用该域名和原端口，否则使用原始 IP。缓存字节原样写入现有
-`vision_stream`，所以 Vision TLS tracker 和 Direct 边界逻辑不需要特殊透明代理分支。
+TCP transparent session 仍按原流程运行：恢复原始 IP:port，建立 REALITY，最多缓存客户端首个 16 KiB / 200 ms 做
+TLS SNI / HTTP Host 探测；若得到域名，则 VLESS 使用该域名和原端口，否则使用原始 IP，随后进入现有 Vision 路径。
 
-当前程序不管理 iptables/nftables、policy routing、DNS 或 QUIC。UDP/53 可以继续由独立 DNS redirect 处理；
-如果希望 HTTP/3 强制回落 TCP，可在系统规则层拒绝 UDP/443。
+UDP TPROXY 不做 sniff，也不经过 Vision。listener 用 `recvmsg()` 读取 client endpoint 与 `IP_ORIGDSTADDR`，按
+`(client endpoint, original destination)` 复用 UDP flow；每条 flow 建立 `REALITY -> VLESS UDP`，下行使用一个
+绑定到 original destination 的透明 UDP socket，把回包以原目标 IP:port 作为源地址送回客户端。空闲 flow 当前在 120 秒后回收。
+
+当前阶段明确不处理 UDP/443；部署规则应避免把 UDP/443 送入本程序，若希望浏览器/HTTP3 回落 TCP，可在系统规则层
+REJECT UDP/443。程序本身不管理 iptables/nftables、policy routing 或 DNS 劫持。Docker bridge 的 UDP TPROXY 还可能受到
+`br_netfilter` 路径影响，和 TCP TPROXY 一样应由部署环境验证；本机/路由场景不依赖 Docker bridge。
 
 ## 基本用法
 
@@ -304,7 +323,7 @@ if (ec)
 - `Password (PublicKey)` 传给 C++ 的 `server_public_key`；
 - `Hash32` 不参与这条 REALITY client 链路。
 
-本项目提供 SOCKS5 与 Linux IPv4 TCP REDIRECT/TPROXY 入站，不包含固定目标、测试 payload 或 one-shot 本地隧道模式。
+本项目提供 SOCKS5 CONNECT/UDP ASSOCIATE、Linux IPv4 TCP REDIRECT 以及 TCP/UDP TPROXY 入站，不包含固定目标、测试 payload 或 one-shot 本地隧道模式。
 使用真实 TLS 客户端验收 Vision Direct 时，让客户端通过 SOCKS5 访问 TLS 1.3 站点：
 
 ```sh
