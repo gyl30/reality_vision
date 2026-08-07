@@ -21,7 +21,7 @@ boost::asio::awaitable<void> read_exact(reality::reality_stream& stream, std::sp
     std::size_t offset = 0;
     while (offset != output.size())
     {
-        const auto count = co_await stream.async_read_some(output.subspan(offset), ec);
+        const auto count = co_await stream.read(output.subspan(offset), ec);
         if (ec)
         {
             co_return;
@@ -37,31 +37,35 @@ boost::asio::awaitable<void> read_exact(reality::reality_stream& stream, std::sp
 
 }    // namespace
 
-boost::asio::awaitable<std::optional<vless_stream>> vless_stream::connect(reality::reality_stream lower,
-                                                                          client_config config,
-                                                                          std::string id,
+boost::asio::awaitable<std::optional<vless_stream>> vless_stream::connect(reality::reality_stream reality,
+                                                                          client_config configuration,
+                                                                          std::string session_id,
                                                                           boost::system::error_code& ec)
 {
-    const auto request = encode_tcp_request(config, ec);
+    const auto request = encode_tcp_request(configuration, ec);
     if (ec)
     {
         co_return std::nullopt;
     }
-    co_await lower.async_write_all(request, ec);
+
+    co_await reality.write(request, ec);
     if (ec)
     {
         co_return std::nullopt;
     }
-    spdlog::info("{} vless tcp request header sent", id);
-    co_return vless_stream(std::move(lower), std::move(id));
+
+    spdlog::info("{} vless tcp request header sent", session_id);
+    co_return vless_stream(std::move(reality), std::move(session_id));
 }
 
-vless_stream::vless_stream(reality::reality_stream lower, std::string log) : lower_(std::move(lower)), id_(std::move(log)) {}
+vless_stream::vless_stream(reality::reality_stream reality, std::string session_id) : reality_(std::move(reality)), session_id_(std::move(session_id))
+{
+}
 
 boost::asio::awaitable<void> vless_stream::read_response_header(boost::system::error_code& ec)
 {
     std::array<std::uint8_t, 2> header{};
-    co_await read_exact(lower_, header, ec);
+    co_await read_exact(reality_, header, ec);
     if (ec)
     {
         co_return;
@@ -71,22 +75,24 @@ boost::asio::awaitable<void> vless_stream::read_response_header(boost::system::e
         ec = boost::system::errc::make_error_code(boost::system::errc::permission_denied);
         co_return;
     }
+
     if (header[1] != 0)
     {
         std::vector<std::uint8_t> addon(header[1]);
-        co_await read_exact(lower_, addon, ec);
+        co_await read_exact(reality_, addon, ec);
         if (ec)
         {
             co_return;
         }
     }
-    response_pending_ = false;
-    spdlog::info("{} vless response header accepted", id_);
+
+    response_header_pending_ = false;
+    spdlog::info("{} vless response header accepted", session_id_);
 }
 
-boost::asio::awaitable<std::size_t> vless_stream::async_read_some(std::span<std::uint8_t> output, boost::system::error_code& ec)
+boost::asio::awaitable<std::size_t> vless_stream::read(std::span<std::uint8_t> output, boost::system::error_code& ec)
 {
-    if (response_pending_)
+    if (response_header_pending_)
     {
         co_await read_response_header(ec);
         if (ec)
@@ -94,32 +100,33 @@ boost::asio::awaitable<std::size_t> vless_stream::async_read_some(std::span<std:
             co_return 0;
         }
     }
-    co_return co_await lower_.async_read_some(output, ec);
+
+    co_return co_await reality_.read(output, ec);
 }
 
-boost::asio::awaitable<void> vless_stream::async_write_all(std::span<const std::uint8_t> input, boost::system::error_code& ec)
+boost::asio::awaitable<void> vless_stream::write(std::span<const std::uint8_t> input, boost::system::error_code& ec)
 {
-    co_await lower_.async_write_all(input, ec);
+    co_await reality_.write(input, ec);
 }
 
-boost::asio::awaitable<void> vless_stream::async_shutdown_send(boost::system::error_code& ec) { co_await lower_.async_shutdown_send(ec); }
+boost::asio::awaitable<void> vless_stream::shutdown_send(boost::system::error_code& ec) { co_await reality_.shutdown_send(ec); }
 
-bool vless_stream::switch_receive_to_raw(boost::system::error_code& ec)
+void vless_stream::switch_receive_to_raw(boost::system::error_code& ec)
 {
-    if (response_pending_)
+    if (response_header_pending_)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::operation_not_permitted);
-        return false;
+        return;
     }
-    return lower_.switch_receive_to_raw(ec);
+    reality_.switch_receive_to_raw(ec);
 }
 
-boost::asio::awaitable<void> vless_stream::async_write_final_tls_and_switch(std::span<const std::uint8_t> final_plaintext,
-                                                                            boost::system::error_code& ec)
+boost::asio::awaitable<void> vless_stream::write_final_tls_and_switch_to_raw(std::span<const std::uint8_t> final_plaintext,
+                                                                             boost::system::error_code& ec)
 {
-    co_await lower_.async_write_final_tls_and_switch(final_plaintext, ec);
+    co_await reality_.write_final_tls_and_switch_to_raw(final_plaintext, ec);
 }
 
-void vless_stream::shutdown() noexcept { lower_.shutdown(); }
+void vless_stream::shutdown() noexcept { reality_.shutdown(); }
 
 }    // namespace rv::vless

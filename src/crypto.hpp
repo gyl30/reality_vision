@@ -92,7 +92,7 @@ private:
 
 [[nodiscard]] reality_certificate parse_reality_certificate(
     std::span<const std::uint8_t> der, boost::system::error_code& ec);
-[[nodiscard]] bool verify_ed25519(
+void verify_ed25519(
     std::span<const std::uint8_t, 32> public_key,
     std::span<const std::uint8_t> message,
     std::span<const std::uint8_t> signature,

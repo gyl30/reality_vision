@@ -32,7 +32,7 @@ constexpr std::uint8_t handshake_certificate_verify = 15;
 constexpr std::uint8_t handshake_finished = 20;
 constexpr std::size_t maximum_handshake_message = 1U << 20;
 
-struct wire_record
+struct tls_record
 {
     std::array<std::uint8_t, 5> header{};
     std::uint8_t type{};
@@ -61,77 +61,63 @@ struct parsed_server_hello
     std::array<std::uint8_t, 32> x25519_key_share{};
 };
 
-void bad_message(boost::system::error_code& ec)
-{
-    ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
-}
+void set_bad_message_error(boost::system::error_code& ec) { ec = boost::system::errc::make_error_code(boost::system::errc::bad_message); }
 
-bool take(
-    std::span<const std::uint8_t> input,
-    std::size_t& position,
-    std::size_t length,
-    std::span<const std::uint8_t>& output,
-    boost::system::error_code& ec)
+void take_bytes(std::span<const std::uint8_t> input,
+                std::size_t& position,
+                const std::size_t length,
+                std::span<const std::uint8_t>& output,
+                boost::system::error_code& ec)
 {
     if (position > input.size() || length > input.size() - position)
     {
-        bad_message(ec);
+        set_bad_message_error(ec);
         output = {};
-        return false;
+        return;
     }
     output = input.subspan(position, length);
     position += length;
-    return true;
 }
 
-bool take_u8(
-    std::span<const std::uint8_t> input,
-    std::size_t& position,
-    std::uint8_t& output,
-    boost::system::error_code& ec)
+void take_u8(std::span<const std::uint8_t> input, std::size_t& position, std::uint8_t& output, boost::system::error_code& ec)
 {
     std::span<const std::uint8_t> bytes;
-    if (!take(input, position, 1, bytes, ec)) return false;
+    take_bytes(input, position, 1, bytes, ec);
+    if (ec)
+    {
+        return;
+    }
     output = bytes[0];
-    return true;
 }
 
-bool take_u16(
-    std::span<const std::uint8_t> input,
-    std::size_t& position,
-    std::uint16_t& output,
-    boost::system::error_code& ec)
+void take_u16(std::span<const std::uint8_t> input, std::size_t& position, std::uint16_t& output, boost::system::error_code& ec)
 {
     std::span<const std::uint8_t> bytes;
-    if (!take(input, position, 2, bytes, ec)) return false;
-    output = static_cast<std::uint16_t>(static_cast<std::uint16_t>(bytes[0]) << 8U |
-                                        static_cast<std::uint16_t>(bytes[1]));
-    return true;
+    take_bytes(input, position, 2, bytes, ec);
+    if (ec)
+    {
+        return;
+    }
+    output = static_cast<std::uint16_t>(static_cast<std::uint16_t>(bytes[0]) << 8U | static_cast<std::uint16_t>(bytes[1]));
 }
 
-bool take_u24(
-    std::span<const std::uint8_t> input,
-    std::size_t& position,
-    std::size_t& output,
-    boost::system::error_code& ec)
+void take_u24(std::span<const std::uint8_t> input, std::size_t& position, std::size_t& output, boost::system::error_code& ec)
 {
     std::span<const std::uint8_t> bytes;
-    if (!take(input, position, 3, bytes, ec)) return false;
-    output = static_cast<std::size_t>(bytes[0]) << 16U |
-             static_cast<std::size_t>(bytes[1]) << 8U |
-             static_cast<std::size_t>(bytes[2]);
-    return true;
+    take_bytes(input, position, 3, bytes, ec);
+    if (ec)
+    {
+        return;
+    }
+    output = static_cast<std::size_t>(bytes[0]) << 16U | static_cast<std::size_t>(bytes[1]) << 8U | static_cast<std::size_t>(bytes[2]);
 }
 
-boost::asio::awaitable<void> read_exact(
-    net::tcp_byte_stream& stream,
-    std::span<std::uint8_t> output,
-    boost::system::error_code& ec)
+boost::asio::awaitable<void> read_exact(net::tcp_byte_stream& stream, std::span<std::uint8_t> output, boost::system::error_code& ec)
 {
     std::size_t offset = 0;
     while (offset != output.size())
     {
-        const auto count = co_await stream.async_read_some(output.subspan(offset), ec);
+        const auto count = co_await stream.read(output.subspan(offset), ec);
         if (ec)
         {
             co_return;
@@ -145,17 +131,17 @@ boost::asio::awaitable<void> read_exact(
     }
 }
 
-boost::asio::awaitable<wire_record> read_record(
-    net::tcp_byte_stream& stream,
-    boost::system::error_code& ec)
+boost::asio::awaitable<tls_record> read_tls_record(net::tcp_byte_stream& stream, boost::system::error_code& ec)
 {
-    wire_record record;
+    tls_record record;
     co_await read_exact(stream, record.header, ec);
-    if (ec) co_return record;
+    if (ec)
+    {
+        co_return record;
+    }
 
     record.type = record.header[0];
-    const auto length = static_cast<std::size_t>(record.header[3]) << 8U |
-                        static_cast<std::size_t>(record.header[4]);
+    const auto length = static_cast<std::size_t>(record.header[3]) << 8U | static_cast<std::size_t>(record.header[4]);
     if (length > max_tls_ciphertext)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::message_size);
@@ -166,18 +152,14 @@ boost::asio::awaitable<wire_record> read_record(
     co_return record;
 }
 
-std::optional<handshake_message> pop_handshake(
-    core::byte_queue& queue,
-    boost::system::error_code& ec)
+std::optional<handshake_message> pop_handshake_message(core::byte_queue& queue, boost::system::error_code& ec)
 {
     if (queue.size() < 4)
     {
         return std::nullopt;
     }
     const auto data = queue.data();
-    const auto body_length = static_cast<std::size_t>(data[1]) << 16U |
-                             static_cast<std::size_t>(data[2]) << 8U |
-                             static_cast<std::size_t>(data[3]);
+    const auto body_length = static_cast<std::size_t>(data[1]) << 16U | static_cast<std::size_t>(data[2]) << 8U | static_cast<std::size_t>(data[3]);
     if (body_length > maximum_handshake_message)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::message_size);
@@ -191,65 +173,79 @@ std::optional<handshake_message> pop_handshake(
     return handshake_message{raw[0], std::move(raw)};
 }
 
-boost::asio::awaitable<handshake_message> read_plain_handshake(
-    net::tcp_byte_stream& stream,
-    core::byte_queue& queue,
-    boost::system::error_code& ec)
+boost::asio::awaitable<handshake_message> read_plain_handshake_message(net::tcp_byte_stream& stream,
+                                                                       core::byte_queue& queue,
+                                                                       boost::system::error_code& ec)
 {
     for (;;)
     {
-        if (auto message = pop_handshake(queue, ec))
+        if (auto message = pop_handshake_message(queue, ec))
         {
             co_return std::move(*message);
         }
-        if (ec) co_return handshake_message{};
+        if (ec)
+        {
+            co_return handshake_message{};
+        }
 
-        auto record = co_await read_record(stream, ec);
-        if (ec) co_return handshake_message{};
+        auto record = co_await read_tls_record(stream, ec);
+        if (ec)
+        {
+            co_return handshake_message{};
+        }
         if (record.type == tls_record_change_cipher_spec)
         {
             continue;
         }
         if (record.type != tls_record_handshake || record.header[1] != 0x03)
         {
-            bad_message(ec);
+            set_bad_message_error(ec);
             co_return handshake_message{};
         }
-        if (!queue.append(record.payload, ec))
+        queue.append(record.payload, ec);
+        if (ec)
         {
             co_return handshake_message{};
         }
     }
 }
 
-boost::asio::awaitable<handshake_message> read_encrypted_handshake(
-    net::tcp_byte_stream& stream,
-    record_key& key,
-    core::byte_queue& queue,
-    boost::system::error_code& ec)
+boost::asio::awaitable<handshake_message> read_encrypted_handshake_message(net::tcp_byte_stream& stream,
+                                                                           record_key& key,
+                                                                           core::byte_queue& queue,
+                                                                           boost::system::error_code& ec)
 {
     for (;;)
     {
-        if (auto message = pop_handshake(queue, ec))
+        if (auto message = pop_handshake_message(queue, ec))
         {
             co_return std::move(*message);
         }
-        if (ec) co_return handshake_message{};
+        if (ec)
+        {
+            co_return handshake_message{};
+        }
 
-        auto record = co_await read_record(stream, ec);
-        if (ec) co_return handshake_message{};
+        auto record = co_await read_tls_record(stream, ec);
+        if (ec)
+        {
+            co_return handshake_message{};
+        }
         if (record.type == tls_record_change_cipher_spec)
         {
             continue;
         }
         if (record.type != tls_record_application_data || record.header[1] != 0x03 || record.header[2] != 0x03)
         {
-            bad_message(ec);
+            set_bad_message_error(ec);
             co_return handshake_message{};
         }
 
         auto opened = key.open(record.header, record.payload, ec);
-        if (ec) co_return handshake_message{};
+        if (ec)
+        {
+            co_return handshake_message{};
+        }
         if (opened.inner_type == tls_record_alert)
         {
             ec = boost::system::errc::make_error_code(boost::system::errc::connection_aborted);
@@ -257,42 +253,140 @@ boost::asio::awaitable<handshake_message> read_encrypted_handshake(
         }
         if (opened.inner_type != tls_record_handshake)
         {
-            bad_message(ec);
+            set_bad_message_error(ec);
             co_return handshake_message{};
         }
-        if (!queue.append(opened.content, ec))
+        queue.append(opened.content, ec);
+        if (ec)
         {
             co_return handshake_message{};
         }
     }
 }
 
-parsed_server_hello parse_server_hello(
-    const handshake_message& message,
-    boost::system::error_code& ec)
+void parse_server_key_share(const std::span<const std::uint8_t> extension_data, parsed_server_hello& server_hello, boost::system::error_code& ec)
+{
+    std::size_t position = 0;
+    std::uint16_t group = 0;
+    std::uint16_t share_length = 0;
+
+    take_u16(extension_data, position, group, ec);
+    if (ec)
+    {
+        return;
+    }
+    take_u16(extension_data, position, share_length, ec);
+    if (ec)
+    {
+        return;
+    }
+
+    std::span<const std::uint8_t> share;
+    take_bytes(extension_data, position, share_length, share, ec);
+    if (ec)
+    {
+        return;
+    }
+
+    if (position != extension_data.size() || group != 0x001d || share.size() != server_hello.x25519_key_share.size())
+    {
+        set_bad_message_error(ec);
+        return;
+    }
+
+    std::copy(share.begin(), share.end(), server_hello.x25519_key_share.begin());
+}
+
+void parse_server_hello_extensions(const std::span<const std::uint8_t> extensions, parsed_server_hello& server_hello, boost::system::error_code& ec)
+{
+    bool tls13_seen = false;
+    bool key_share_seen = false;
+    std::size_t position = 0;
+
+    while (position < extensions.size())
+    {
+        std::uint16_t type = 0;
+        std::uint16_t length = 0;
+        take_u16(extensions, position, type, ec);
+        if (ec)
+        {
+            return;
+        }
+        take_u16(extensions, position, length, ec);
+        if (ec)
+        {
+            return;
+        }
+
+        std::span<const std::uint8_t> extension_data;
+        take_bytes(extensions, position, length, extension_data, ec);
+        if (ec)
+        {
+            return;
+        }
+
+        if (type == 0x002b)
+        {
+            if (extension_data.size() != 2 || extension_data[0] != 0x03 || extension_data[1] != 0x04)
+            {
+                set_bad_message_error(ec);
+                return;
+            }
+            tls13_seen = true;
+            continue;
+        }
+
+        if (type == 0x0033)
+        {
+            parse_server_key_share(extension_data, server_hello, ec);
+            if (ec)
+            {
+                return;
+            }
+            key_share_seen = true;
+        }
+    }
+
+    if (!tls13_seen || !key_share_seen)
+    {
+        set_bad_message_error(ec);
+    }
+}
+
+parsed_server_hello parse_server_hello(const handshake_message& message, boost::system::error_code& ec)
 {
     parsed_server_hello result;
     if (message.type != handshake_server_hello || message.raw.size() < 42)
     {
-        bad_message(ec);
+        set_bad_message_error(ec);
         return result;
     }
 
-    constexpr std::array<std::uint8_t, 32> hello_retry_request{
-        0xcf, 0x21, 0xad, 0x74, 0xe5, 0x9a, 0x61, 0x11, 0xbe, 0x1d, 0x8c, 0x02, 0x1e, 0x65, 0xb8, 0x91,
-        0xc2, 0xa2, 0x11, 0x16, 0x7a, 0xbb, 0x8c, 0x5e, 0x07, 0x9e, 0x09, 0xe2, 0xc8, 0xa8, 0x33, 0x9c};
+    constexpr std::array<std::uint8_t, 32> hello_retry_request{0xcf, 0x21, 0xad, 0x74, 0xe5, 0x9a, 0x61, 0x11, 0xbe, 0x1d, 0x8c,
+                                                               0x02, 0x1e, 0x65, 0xb8, 0x91, 0xc2, 0xa2, 0x11, 0x16, 0x7a, 0xbb,
+                                                               0x8c, 0x5e, 0x07, 0x9e, 0x09, 0xe2, 0xc8, 0xa8, 0x33, 0x9c};
 
     const auto body = handshake_body(message);
     std::size_t position = 0;
+
     std::uint16_t legacy_version = 0;
-    if (!take_u16(body, position, legacy_version, ec) || legacy_version != 0x0303)
+    take_u16(body, position, legacy_version, ec);
+    if (ec)
     {
-        if (!ec) bad_message(ec);
+        return result;
+    }
+    if (legacy_version != 0x0303)
+    {
+        set_bad_message_error(ec);
         return result;
     }
 
     std::span<const std::uint8_t> random;
-    if (!take(body, position, 32, random, ec)) return result;
+    take_bytes(body, position, 32, random, ec);
+    if (ec)
+    {
+        return result;
+    }
     if (std::equal(random.begin(), random.end(), hello_retry_request.begin()))
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::operation_not_supported);
@@ -300,169 +394,217 @@ parsed_server_hello parse_server_hello(
     }
 
     std::uint8_t session_length = 0;
-    if (!take_u8(body, position, session_length, ec)) return result;
+    take_u8(body, position, session_length, ec);
+    if (ec)
+    {
+        return result;
+    }
+
     std::span<const std::uint8_t> session;
-    if (!take(body, position, session_length, session, ec)) return result;
+    take_bytes(body, position, session_length, session, ec);
+    if (ec)
+    {
+        return result;
+    }
     result.session_id.assign(session.begin(), session.end());
 
     std::uint16_t suite_value = 0;
-    if (!take_u16(body, position, suite_value, ec)) return result;
+    take_u16(body, position, suite_value, ec);
+    if (ec)
+    {
+        return result;
+    }
     result.suite = parse_cipher_suite(suite_value, ec);
-    if (ec) return result;
+    if (ec)
+    {
+        return result;
+    }
 
     std::uint8_t compression = 0;
-    if (!take_u8(body, position, compression, ec) || compression != 0)
+    take_u8(body, position, compression, ec);
+    if (ec)
     {
-        if (!ec) bad_message(ec);
+        return result;
+    }
+    if (compression != 0)
+    {
+        set_bad_message_error(ec);
         return result;
     }
 
     std::uint16_t extensions_length = 0;
-    if (!take_u16(body, position, extensions_length, ec)) return result;
-    std::span<const std::uint8_t> extensions;
-    if (!take(body, position, extensions_length, extensions, ec) || position != body.size())
+    take_u16(body, position, extensions_length, ec);
+    if (ec)
     {
-        if (!ec) bad_message(ec);
         return result;
     }
 
-    bool tls13 = false;
-    bool key_share_seen = false;
-    std::size_t extension_position = 0;
-    while (extension_position < extensions.size())
+    std::span<const std::uint8_t> extensions;
+    take_bytes(body, position, extensions_length, extensions, ec);
+    if (ec)
     {
-        std::uint16_t type = 0;
-        std::uint16_t length = 0;
-        if (!take_u16(extensions, extension_position, type, ec) ||
-            !take_u16(extensions, extension_position, length, ec)) return result;
-        std::span<const std::uint8_t> data;
-        if (!take(extensions, extension_position, length, data, ec)) return result;
-
-        if (type == 0x002b)
-        {
-            if (data.size() != 2 || data[0] != 0x03 || data[1] != 0x04)
-            {
-                bad_message(ec);
-                return result;
-            }
-            tls13 = true;
-        }
-        else if (type == 0x0033)
-        {
-            std::size_t share_position = 0;
-            std::uint16_t group = 0;
-            std::uint16_t share_length = 0;
-            if (!take_u16(data, share_position, group, ec) ||
-                !take_u16(data, share_position, share_length, ec)) return result;
-            std::span<const std::uint8_t> share;
-            if (!take(data, share_position, share_length, share, ec)) return result;
-            if (share_position != data.size() || group != 0x001d || share.size() != result.x25519_key_share.size())
-            {
-                bad_message(ec);
-                return result;
-            }
-            std::copy(share.begin(), share.end(), result.x25519_key_share.begin());
-            key_share_seen = true;
-        }
+        return result;
+    }
+    if (position != body.size())
+    {
+        set_bad_message_error(ec);
+        return result;
     }
 
-    if (!tls13 || !key_share_seen)
-    {
-        bad_message(ec);
-    }
+    parse_server_hello_extensions(extensions, result, ec);
     return result;
 }
 
-std::vector<std::uint8_t> parse_leaf_certificate(
-    const handshake_message& message,
-    boost::system::error_code& ec)
+std::vector<std::uint8_t> parse_leaf_certificate(const handshake_message& message, boost::system::error_code& ec)
 {
     const auto body = handshake_body(message);
     std::size_t position = 0;
+
     std::uint8_t context_length = 0;
-    if (!take_u8(body, position, context_length, ec)) return {};
+    take_u8(body, position, context_length, ec);
+    if (ec)
+    {
+        return {};
+    }
+
     std::span<const std::uint8_t> context;
-    if (!take(body, position, context_length, context, ec)) return {};
+    take_bytes(body, position, context_length, context, ec);
+    if (ec)
+    {
+        return {};
+    }
 
     std::size_t list_length = 0;
-    if (!take_u24(body, position, list_length, ec)) return {};
-    std::span<const std::uint8_t> list;
-    if (!take(body, position, list_length, list, ec) || position != body.size())
+    take_u24(body, position, list_length, ec);
+    if (ec)
     {
-        if (!ec) bad_message(ec);
+        return {};
+    }
+
+    std::span<const std::uint8_t> list;
+    take_bytes(body, position, list_length, list, ec);
+    if (ec)
+    {
+        return {};
+    }
+    if (position != body.size())
+    {
+        set_bad_message_error(ec);
         return {};
     }
 
     std::size_t list_position = 0;
     std::size_t certificate_length = 0;
-    if (!take_u24(list, list_position, certificate_length, ec)) return {};
-    std::span<const std::uint8_t> certificate;
-    if (!take(list, list_position, certificate_length, certificate, ec)) return {};
-    std::uint16_t certificate_extensions_length = 0;
-    if (!take_u16(list, list_position, certificate_extensions_length, ec)) return {};
-    std::span<const std::uint8_t> certificate_extensions;
-    if (!take(list, list_position, certificate_extensions_length, certificate_extensions, ec)) return {};
-    if (certificate.empty())
+    take_u24(list, list_position, certificate_length, ec);
+    if (ec)
     {
-        bad_message(ec);
         return {};
     }
+
+    std::span<const std::uint8_t> certificate;
+    take_bytes(list, list_position, certificate_length, certificate, ec);
+    if (ec)
+    {
+        return {};
+    }
+
+    std::uint16_t certificate_extensions_length = 0;
+    take_u16(list, list_position, certificate_extensions_length, ec);
+    if (ec)
+    {
+        return {};
+    }
+
+    std::span<const std::uint8_t> certificate_extensions;
+    take_bytes(list, list_position, certificate_extensions_length, certificate_extensions, ec);
+    if (ec)
+    {
+        return {};
+    }
+
+    if (certificate.empty())
+    {
+        set_bad_message_error(ec);
+        return {};
+    }
+
     return {certificate.begin(), certificate.end()};
 }
 
-bool validate_encrypted_extensions(
-    const handshake_message& message,
-    boost::system::error_code& ec)
+void validate_encrypted_extensions(const handshake_message& message, boost::system::error_code& ec)
 {
     const auto body = handshake_body(message);
     std::size_t position = 0;
     std::uint16_t length = 0;
-    if (!take_u16(body, position, length, ec)) return false;
+    take_u16(body, position, length, ec);
+    if (ec)
+    {
+        return;
+    }
+
     std::span<const std::uint8_t> extensions;
-    if (!take(body, position, length, extensions, ec)) return false;
+    take_bytes(body, position, length, extensions, ec);
+    if (ec)
+    {
+        return;
+    }
+
     if (position != body.size())
     {
-        bad_message(ec);
-        return false;
+        set_bad_message_error(ec);
     }
-    return true;
 }
 
-bool verify_certificate_verify(
-    const handshake_message& message,
-    std::span<const std::uint8_t, 32> public_key,
-    cipher_suite suite,
-    std::span<const std::uint8_t> transcript,
-    boost::system::error_code& ec)
+void verify_certificate_verify(const handshake_message& message,
+                               std::span<const std::uint8_t, 32> public_key,
+                               const cipher_suite suite,
+                               std::span<const std::uint8_t> transcript,
+                               boost::system::error_code& ec)
 {
     const auto body = handshake_body(message);
     std::size_t position = 0;
     std::uint16_t algorithm = 0;
     std::uint16_t signature_length = 0;
-    if (!take_u16(body, position, algorithm, ec) ||
-        !take_u16(body, position, signature_length, ec)) return false;
+
+    take_u16(body, position, algorithm, ec);
+    if (ec)
+    {
+        return;
+    }
+    take_u16(body, position, signature_length, ec);
+    if (ec)
+    {
+        return;
+    }
+
     std::span<const std::uint8_t> signature;
-    if (!take(body, position, signature_length, signature, ec)) return false;
+    take_bytes(body, position, signature_length, signature, ec);
+    if (ec)
+    {
+        return;
+    }
+
     if (position != body.size() || algorithm != 0x0807)
     {
-        bad_message(ec);
-        return false;
+        set_bad_message_error(ec);
+        return;
     }
 
     std::vector<std::uint8_t> signed_message(64, 0x20);
     constexpr std::string_view context = "TLS 1.3, server CertificateVerify";
     signed_message.insert(signed_message.end(), context.begin(), context.end());
     signed_message.push_back(0);
+
     const auto transcript_hash = crypto::digest(cipher_properties(suite).hash, transcript, ec);
-    if (ec) return false;
+    if (ec)
+    {
+        return;
+    }
     signed_message.insert(signed_message.end(), transcript_hash.begin(), transcript_hash.end());
-    return crypto::verify_ed25519(public_key, signed_message, signature, ec);
+    crypto::verify_ed25519(public_key, signed_message, signature, ec);
 }
 
-std::vector<std::uint8_t> make_handshake_message(
-    std::uint8_t type,
-    std::span<const std::uint8_t> body,
-    boost::system::error_code& ec)
+std::vector<std::uint8_t> make_handshake_message(std::uint8_t type, std::span<const std::uint8_t> body, boost::system::error_code& ec)
 {
     if (body.size() > 0x00ff'ffffU)
     {
@@ -479,145 +621,331 @@ std::vector<std::uint8_t> make_handshake_message(
     return output;
 }
 
-} // namespace
-
-boost::asio::awaitable<std::optional<handshake_result>> perform_client_handshake(
-    net::tcp_byte_stream& stream,
-    const client_config& config,
-    const std::string& log,
-    boost::system::error_code& ec)
+void accept_encrypted_extensions(const handshake_message& message, std::vector<std::uint8_t>& transcript, boost::system::error_code& ec)
 {
-    ec.clear();
-    auto hello = build_client_hello(config, ec);
-    if (ec || !hello) co_return std::nullopt;
+    if (message.type != handshake_encrypted_extensions)
+    {
+        set_bad_message_error(ec);
+        return;
+    }
 
-    auto transcript = hello->handshake;
-    const auto hello_record = wrap_plain_record(tls_record_handshake, hello->handshake, ec);
-    if (ec) co_return std::nullopt;
-    co_await stream.async_write_all(hello_record, ec);
-    if (ec) co_return std::nullopt;
-    spdlog::info("{} reality client hello sent firefox 120 profile", log);
+    validate_encrypted_extensions(message, ec);
+    if (ec)
+    {
+        return;
+    }
+    transcript.insert(transcript.end(), message.raw.begin(), message.raw.end());
+}
 
-    core::byte_queue plain_handshake(maximum_handshake_message);
-    auto server_hello_message = co_await read_plain_handshake(stream, plain_handshake, ec);
-    if (ec) co_return std::nullopt;
-    const auto server_hello = parse_server_hello(server_hello_message, ec);
-    if (ec) co_return std::nullopt;
-    if (!crypto::constant_time_equal(server_hello.session_id, hello->session_id))
+void accept_server_certificate(const handshake_message& message,
+                               const client_hello_material& client_hello,
+                               std::array<std::uint8_t, 32>& certificate_public_key,
+                               std::vector<std::uint8_t>& transcript,
+                               boost::system::error_code& ec)
+{
+    if (message.type != handshake_certificate)
+    {
+        set_bad_message_error(ec);
+        return;
+    }
+
+    const auto certificate_der = parse_leaf_certificate(message, ec);
+    if (ec)
+    {
+        return;
+    }
+
+    const auto certificate = crypto::parse_reality_certificate(certificate_der, ec);
+    if (ec)
+    {
+        return;
+    }
+
+    const auto expected_signature = crypto::hmac(crypto::hash_algorithm::sha512, client_hello.reality_auth_key, certificate.ed25519_public_key, ec);
+    if (ec)
+    {
+        return;
+    }
+
+    if (!crypto::constant_time_equal(expected_signature, certificate.outer_signature))
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::permission_denied);
-        spdlog::error("{} REALITY server did not echo the authenticated session ID", log);
-        co_return std::nullopt;
+        return;
     }
-    transcript.insert(transcript.end(), server_hello_message.raw.begin(), server_hello_message.raw.end());
 
-    auto shared_secret = crypto::x25519(hello->x25519_private_key, server_hello.x25519_key_share, ec);
-    crypto::cleanse(hello->x25519_private_key);
-    if (ec) co_return std::nullopt;
-    auto handshake = derive_handshake_secrets(server_hello.suite, shared_secret, transcript, ec);
-    crypto::cleanse(shared_secret);
-    if (ec || !handshake) co_return std::nullopt;
+    certificate_public_key = certificate.ed25519_public_key;
+    transcript.insert(transcript.end(), message.raw.begin(), message.raw.end());
+}
 
+void accept_certificate_verify(const handshake_message& message,
+                               std::span<const std::uint8_t, 32> certificate_public_key,
+                               const cipher_suite suite,
+                               std::vector<std::uint8_t>& transcript,
+                               boost::system::error_code& ec)
+{
+    if (message.type != handshake_certificate_verify)
+    {
+        ec = boost::system::errc::make_error_code(boost::system::errc::permission_denied);
+        return;
+    }
+
+    verify_certificate_verify(message, certificate_public_key, suite, transcript, ec);
+    if (ec)
+    {
+        return;
+    }
+    transcript.insert(transcript.end(), message.raw.begin(), message.raw.end());
+}
+
+void accept_server_finished(const handshake_message& message,
+                            const parsed_server_hello& server_hello,
+                            const handshake_secrets& secrets,
+                            std::vector<std::uint8_t>& transcript,
+                            boost::system::error_code& ec)
+{
+    if (message.type != handshake_finished)
+    {
+        set_bad_message_error(ec);
+        return;
+    }
+
+    const auto expected_verify_data = finished_verify_data(server_hello.suite, secrets.server_secret, transcript, ec);
+    if (ec)
+    {
+        return;
+    }
+
+    if (!crypto::constant_time_equal(expected_verify_data, handshake_body(message)))
+    {
+        ec = boost::system::errc::make_error_code(boost::system::errc::permission_denied);
+        return;
+    }
+
+    transcript.insert(transcript.end(), message.raw.begin(), message.raw.end());
+}
+
+boost::asio::awaitable<void> read_server_handshake_flight(net::tcp_byte_stream& tcp,
+                                                          const client_hello_material& client_hello,
+                                                          const parsed_server_hello& server_hello,
+                                                          handshake_secrets& secrets,
+                                                          std::vector<std::uint8_t>& transcript,
+                                                          boost::system::error_code& ec)
+{
     core::byte_queue encrypted_handshake(maximum_handshake_message);
-    enum class phase { encrypted_extensions, certificate, certificate_verify, finished };
+    enum class phase
+    {
+        encrypted_extensions,
+        certificate,
+        certificate_verify,
+        finished
+    };
+
     auto current_phase = phase::encrypted_extensions;
     std::array<std::uint8_t, 32> certificate_public_key{};
 
     for (;;)
     {
-        auto message = co_await read_encrypted_handshake(stream, handshake->server_key, encrypted_handshake, ec);
-        if (ec) co_return std::nullopt;
-
-        if (current_phase == phase::encrypted_extensions)
+        auto message = co_await read_encrypted_handshake_message(tcp, secrets.server_key, encrypted_handshake, ec);
+        if (ec)
         {
-            if (message.type != handshake_encrypted_extensions || !validate_encrypted_extensions(message, ec))
-            {
-                if (!ec) bad_message(ec);
-                co_return std::nullopt;
-            }
-            transcript.insert(transcript.end(), message.raw.begin(), message.raw.end());
-            current_phase = phase::certificate;
-            continue;
+            co_return;
         }
 
-        if (current_phase == phase::certificate)
+        switch (current_phase)
         {
-            if (message.type != handshake_certificate)
-            {
-                bad_message(ec);
-                co_return std::nullopt;
-            }
-            const auto certificate_der = parse_leaf_certificate(message, ec);
-            if (ec) co_return std::nullopt;
-            const auto certificate = crypto::parse_reality_certificate(certificate_der, ec);
-            if (ec) co_return std::nullopt;
-            const auto expected_signature = crypto::hmac(
-                crypto::hash_algorithm::sha512,
-                hello->reality_auth_key,
-                certificate.ed25519_public_key,
-                ec);
-            if (ec) co_return std::nullopt;
-            if (!crypto::constant_time_equal(expected_signature, certificate.outer_signature))
-            {
-                ec = boost::system::errc::make_error_code(boost::system::errc::permission_denied);
-                co_return std::nullopt;
-            }
-            certificate_public_key = certificate.ed25519_public_key;
-            transcript.insert(transcript.end(), message.raw.begin(), message.raw.end());
-            current_phase = phase::certificate_verify;
-            continue;
-        }
+            case phase::encrypted_extensions:
+                accept_encrypted_extensions(message, transcript, ec);
+                if (ec)
+                {
+                    co_return;
+                }
+                current_phase = phase::certificate;
+                break;
 
-        if (current_phase == phase::certificate_verify)
-        {
-            if (message.type != handshake_certificate_verify ||
-                !verify_certificate_verify(message, certificate_public_key, server_hello.suite, transcript, ec))
-            {
-                if (!ec) ec = boost::system::errc::make_error_code(boost::system::errc::permission_denied);
-                co_return std::nullopt;
-            }
-            transcript.insert(transcript.end(), message.raw.begin(), message.raw.end());
-            current_phase = phase::finished;
-            continue;
-        }
+            case phase::certificate:
+                accept_server_certificate(message, client_hello, certificate_public_key, transcript, ec);
+                if (ec)
+                {
+                    co_return;
+                }
+                current_phase = phase::certificate_verify;
+                break;
 
-        if (message.type == handshake_new_session_ticket)
-        {
-            continue;
+            case phase::certificate_verify:
+                accept_certificate_verify(message, certificate_public_key, server_hello.suite, transcript, ec);
+                if (ec)
+                {
+                    co_return;
+                }
+                current_phase = phase::finished;
+                break;
+
+            case phase::finished:
+                if (message.type == handshake_new_session_ticket)
+                {
+                    break;
+                }
+                accept_server_finished(message, server_hello, secrets, transcript, ec);
+                co_return;
         }
-        if (message.type != handshake_finished)
-        {
-            bad_message(ec);
-            co_return std::nullopt;
-        }
-        const auto expected = finished_verify_data(server_hello.suite, handshake->server_secret, transcript, ec);
-        if (ec) co_return std::nullopt;
-        if (!crypto::constant_time_equal(expected, handshake_body(message)))
-        {
-            ec = boost::system::errc::make_error_code(boost::system::errc::permission_denied);
-            co_return std::nullopt;
-        }
-        transcript.insert(transcript.end(), message.raw.begin(), message.raw.end());
-        break;
     }
-
-    auto application = derive_application_keys(server_hello.suite, handshake->master_secret, transcript, ec);
-    if (ec || !application) co_return std::nullopt;
-    const auto client_verify_data = finished_verify_data(server_hello.suite, handshake->client_secret, transcript, ec);
-    if (ec) co_return std::nullopt;
-    const auto client_finished = make_handshake_message(handshake_finished, client_verify_data, ec);
-    if (ec) co_return std::nullopt;
-    const auto client_finished_record = handshake->client_key.seal(tls_record_handshake, client_finished, ec);
-    if (ec) co_return std::nullopt;
-    co_await stream.async_write_all(client_finished_record, ec);
-    if (ec) co_return std::nullopt;
-
-    crypto::cleanse(handshake->client_secret);
-    crypto::cleanse(handshake->server_secret);
-    crypto::cleanse(handshake->master_secret);
-    crypto::cleanse(hello->reality_auth_key);
-    spdlog::info("{} reality tls 1.3 handshake completed", log);
-    co_return handshake_result{std::move(application->server), std::move(application->client)};
 }
 
-} // namespace rv::reality
+boost::asio::awaitable<std::optional<client_hello_material>> send_client_hello(net::tcp_byte_stream& tcp,
+                                                                               const client_config& configuration,
+                                                                               std::vector<std::uint8_t>& transcript,
+                                                                               const std::string& session_id,
+                                                                               boost::system::error_code& ec)
+{
+    auto client_hello = build_client_hello(configuration, ec);
+    if (ec)
+    {
+        co_return std::nullopt;
+    }
+
+    transcript = client_hello->handshake_bytes;
+    const auto client_hello_record = wrap_plain_record(tls_record_handshake, client_hello->handshake_bytes, ec);
+    if (ec)
+    {
+        co_return std::nullopt;
+    }
+
+    co_await tcp.write(client_hello_record, ec);
+    if (ec)
+    {
+        co_return std::nullopt;
+    }
+
+    spdlog::info("{} reality client hello sent firefox 120 profile", session_id);
+    co_return client_hello;
+}
+
+boost::asio::awaitable<std::optional<parsed_server_hello>> receive_server_hello(net::tcp_byte_stream& tcp,
+                                                                                const client_hello_material& client_hello,
+                                                                                std::vector<std::uint8_t>& transcript,
+                                                                                const std::string& session_id,
+                                                                                boost::system::error_code& ec)
+{
+    core::byte_queue plain_handshake(maximum_handshake_message);
+    auto message = co_await read_plain_handshake_message(tcp, plain_handshake, ec);
+    if (ec)
+    {
+        co_return std::nullopt;
+    }
+
+    auto server_hello = parse_server_hello(message, ec);
+    if (ec)
+    {
+        co_return std::nullopt;
+    }
+    if (!crypto::constant_time_equal(server_hello.session_id, client_hello.session_id))
+    {
+        ec = boost::system::errc::make_error_code(boost::system::errc::permission_denied);
+        spdlog::error("{} REALITY server did not echo the authenticated session ID", session_id);
+        co_return std::nullopt;
+    }
+
+    transcript.insert(transcript.end(), message.raw.begin(), message.raw.end());
+    co_return server_hello;
+}
+
+std::optional<handshake_secrets> derive_client_handshake_secrets(client_hello_material& client_hello,
+                                                                 const parsed_server_hello& server_hello,
+                                                                 const std::span<const std::uint8_t> transcript,
+                                                                 boost::system::error_code& ec)
+{
+    auto shared_secret = crypto::x25519(client_hello.x25519_private_key, server_hello.x25519_key_share, ec);
+    crypto::cleanse(client_hello.x25519_private_key);
+    if (ec)
+    {
+        return std::nullopt;
+    }
+
+    auto secrets = derive_handshake_secrets(server_hello.suite, shared_secret, transcript, ec);
+    crypto::cleanse(shared_secret);
+    return secrets;
+}
+
+boost::asio::awaitable<void> send_client_finished(net::tcp_byte_stream& tcp,
+                                                  const cipher_suite suite,
+                                                  handshake_secrets& secrets,
+                                                  std::span<const std::uint8_t> transcript,
+                                                  boost::system::error_code& ec)
+{
+    const auto verify_data = finished_verify_data(suite, secrets.client_secret, transcript, ec);
+    if (ec)
+    {
+        co_return;
+    }
+    const auto finished_message = make_handshake_message(handshake_finished, verify_data, ec);
+    if (ec)
+    {
+        co_return;
+    }
+    const auto finished_record = secrets.client_key.seal(tls_record_handshake, finished_message, ec);
+    if (ec)
+    {
+        co_return;
+    }
+    co_await tcp.write(finished_record, ec);
+}
+
+}    // namespace
+
+boost::asio::awaitable<std::optional<handshake_result>> perform_client_handshake(net::tcp_byte_stream& tcp,
+                                                                                 const client_config& configuration,
+                                                                                 const std::string& session_id,
+                                                                                 boost::system::error_code& ec)
+{
+    ec.clear();
+    std::vector<std::uint8_t> transcript;
+
+    auto client_hello = co_await send_client_hello(tcp, configuration, transcript, session_id, ec);
+    if (ec)
+    {
+        co_return std::nullopt;
+    }
+
+    auto server_hello = co_await receive_server_hello(tcp, *client_hello, transcript, session_id, ec);
+    if (ec)
+    {
+        co_return std::nullopt;
+    }
+
+    auto handshake_secrets = derive_client_handshake_secrets(*client_hello, *server_hello, transcript, ec);
+    if (ec)
+    {
+        co_return std::nullopt;
+    }
+
+    co_await read_server_handshake_flight(tcp, *client_hello, *server_hello, *handshake_secrets, transcript, ec);
+    if (ec)
+    {
+        co_return std::nullopt;
+    }
+
+    auto application_keys = derive_application_keys(server_hello->suite, handshake_secrets->master_secret, transcript, ec);
+    if (ec)
+    {
+        co_return std::nullopt;
+    }
+
+    co_await send_client_finished(tcp, server_hello->suite, *handshake_secrets, transcript, ec);
+    if (ec)
+    {
+        co_return std::nullopt;
+    }
+
+    crypto::cleanse(handshake_secrets->client_secret);
+    crypto::cleanse(handshake_secrets->server_secret);
+    crypto::cleanse(handshake_secrets->master_secret);
+    crypto::cleanse(client_hello->reality_auth_key);
+
+    spdlog::info("{} reality tls 1.3 handshake completed", session_id);
+    co_return handshake_result{
+        .receive_key = std::move(application_keys->server_key),
+        .send_key = std::move(application_keys->client_key),
+    };
+}
+
+}    // namespace rv::reality

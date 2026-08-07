@@ -35,10 +35,7 @@ void discard_crypto_errors() noexcept
     }
 }
 
-void set_crypto_error(
-    boost::system::error_code& ec,
-    boost::system::errc::errc_t value,
-    const char* operation)
+void set_crypto_error(boost::system::error_code& ec, boost::system::errc::errc_t value, const char* operation)
 {
     ec = boost::system::errc::make_error_code(value);
     std::string details;
@@ -66,9 +63,12 @@ const EVP_MD* evp_md(hash_algorithm algorithm) noexcept
 {
     switch (algorithm)
     {
-    case hash_algorithm::sha256: return EVP_sha256();
-    case hash_algorithm::sha384: return EVP_sha384();
-    case hash_algorithm::sha512: return EVP_sha512();
+        case hash_algorithm::sha256:
+            return EVP_sha256();
+        case hash_algorithm::sha384:
+            return EVP_sha384();
+        case hash_algorithm::sha512:
+            return EVP_sha512();
     }
     return nullptr;
 }
@@ -77,14 +77,17 @@ const EVP_AEAD* evp_aead(aead_algorithm algorithm) noexcept
 {
     switch (algorithm)
     {
-    case aead_algorithm::aes_128_gcm: return EVP_aead_aes_128_gcm();
-    case aead_algorithm::aes_256_gcm: return EVP_aead_aes_256_gcm();
-    case aead_algorithm::chacha20_poly1305: return EVP_aead_chacha20_poly1305();
+        case aead_algorithm::aes_128_gcm:
+            return EVP_aead_aes_128_gcm();
+        case aead_algorithm::aes_256_gcm:
+            return EVP_aead_aes_256_gcm();
+        case aead_algorithm::chacha20_poly1305:
+            return EVP_aead_chacha20_poly1305();
     }
     return nullptr;
 }
 
-} // namespace
+}    // namespace
 
 void random_bytes(std::span<std::uint8_t> output, boost::system::error_code& ec)
 {
@@ -120,10 +123,9 @@ x25519_key_pair make_x25519_key_pair() noexcept
     return result;
 }
 
-std::array<std::uint8_t, 32> x25519(
-    std::span<const std::uint8_t, 32> private_key,
-    std::span<const std::uint8_t, 32> peer_public_key,
-    boost::system::error_code& ec)
+std::array<std::uint8_t, 32> x25519(std::span<const std::uint8_t, 32> private_key,
+                                    std::span<const std::uint8_t, 32> peer_public_key,
+                                    boost::system::error_code& ec)
 {
     ec.clear();
     std::array<std::uint8_t, 32> result{};
@@ -147,12 +149,7 @@ std::array<std::uint8_t, 65> make_p256_public_key(boost::system::error_code& ec)
         return output;
     }
     const auto written = EC_POINT_point2oct(
-        EC_KEY_get0_group(key.get()),
-        EC_KEY_get0_public_key(key.get()),
-        POINT_CONVERSION_UNCOMPRESSED,
-        output.data(),
-        output.size(),
-        nullptr);
+        EC_KEY_get0_group(key.get()), EC_KEY_get0_public_key(key.get()), POINT_CONVERSION_UNCOMPRESSED, output.data(), output.size(), nullptr);
     if (written != output.size())
     {
         set_crypto_error(ec, boost::system::errc::io_error, "P-256 public key encoding failed");
@@ -164,17 +161,17 @@ std::size_t hash_size(hash_algorithm algorithm) noexcept
 {
     switch (algorithm)
     {
-    case hash_algorithm::sha256: return 32;
-    case hash_algorithm::sha384: return 48;
-    case hash_algorithm::sha512: return 64;
+        case hash_algorithm::sha256:
+            return 32;
+        case hash_algorithm::sha384:
+            return 48;
+        case hash_algorithm::sha512:
+            return 64;
     }
     return 0;
 }
 
-std::vector<std::uint8_t> digest(
-    hash_algorithm algorithm,
-    std::span<const std::uint8_t> input,
-    boost::system::error_code& ec)
+std::vector<std::uint8_t> digest(hash_algorithm algorithm, std::span<const std::uint8_t> input, boost::system::error_code& ec)
 {
     ec.clear();
     std::vector<std::uint8_t> output(hash_size(algorithm));
@@ -194,11 +191,10 @@ std::vector<std::uint8_t> digest(
     return output;
 }
 
-std::vector<std::uint8_t> hmac(
-    hash_algorithm algorithm,
-    std::span<const std::uint8_t> key,
-    std::span<const std::uint8_t> input,
-    boost::system::error_code& ec)
+std::vector<std::uint8_t> hmac(hash_algorithm algorithm,
+                               std::span<const std::uint8_t> key,
+                               std::span<const std::uint8_t> input,
+                               boost::system::error_code& ec)
 {
     ec.clear();
     if (key.size() > static_cast<std::size_t>(std::numeric_limits<int>::max()))
@@ -224,11 +220,10 @@ std::vector<std::uint8_t> hmac(
     return output;
 }
 
-std::vector<std::uint8_t> hkdf_extract(
-    hash_algorithm algorithm,
-    std::span<const std::uint8_t> salt,
-    std::span<const std::uint8_t> input_key_material,
-    boost::system::error_code& ec)
+std::vector<std::uint8_t> hkdf_extract(hash_algorithm algorithm,
+                                       std::span<const std::uint8_t> salt,
+                                       std::span<const std::uint8_t> input_key_material,
+                                       boost::system::error_code& ec)
 {
     ec.clear();
     const auto* md = evp_md(algorithm);
@@ -249,12 +244,11 @@ std::vector<std::uint8_t> hkdf_extract(
     return output;
 }
 
-std::vector<std::uint8_t> hkdf_expand(
-    hash_algorithm algorithm,
-    std::span<const std::uint8_t> pseudorandom_key,
-    std::span<const std::uint8_t> info,
-    std::size_t output_length,
-    boost::system::error_code& ec)
+std::vector<std::uint8_t> hkdf_expand(hash_algorithm algorithm,
+                                      std::span<const std::uint8_t> pseudorandom_key,
+                                      std::span<const std::uint8_t> info,
+                                      std::size_t output_length,
+                                      boost::system::error_code& ec)
 {
     ec.clear();
     const auto* md = evp_md(algorithm);
@@ -284,14 +278,13 @@ bool constant_time_equal(std::span<const std::uint8_t> lhs, std::span<const std:
 
 class aead::impl
 {
-public:
+   public:
     bssl::UniquePtr<EVP_AEAD_CTX> context;
 };
 
 aead::aead() = default;
 
-aead::aead(aead_algorithm algorithm, std::span<const std::uint8_t> key, boost::system::error_code& ec)
-    : impl_(std::make_unique<impl>())
+aead::aead(aead_algorithm algorithm, std::span<const std::uint8_t> key, boost::system::error_code& ec) : impl_(std::make_unique<impl>())
 {
     ec.clear();
     const auto* algorithm_impl = evp_aead(algorithm);
@@ -314,16 +307,12 @@ aead::~aead() = default;
 aead::aead(aead&&) noexcept = default;
 aead& aead::operator=(aead&&) noexcept = default;
 
-bool aead::valid() const noexcept
-{
-    return impl_ && impl_->context;
-}
+bool aead::valid() const noexcept { return impl_ && impl_->context; }
 
-std::vector<std::uint8_t> aead::seal(
-    std::span<const std::uint8_t> nonce,
-    std::span<const std::uint8_t> plaintext,
-    std::span<const std::uint8_t> additional_data,
-    boost::system::error_code& ec) const
+std::vector<std::uint8_t> aead::seal(std::span<const std::uint8_t> nonce,
+                                     std::span<const std::uint8_t> plaintext,
+                                     std::span<const std::uint8_t> additional_data,
+                                     boost::system::error_code& ec) const
 {
     ec.clear();
     if (!valid())
@@ -334,8 +323,16 @@ std::vector<std::uint8_t> aead::seal(
     std::vector<std::uint8_t> output(plaintext.size() + 16);
     std::size_t written = 0;
     ERR_clear_error();
-    if (EVP_AEAD_CTX_seal(impl_->context.get(), output.data(), &written, output.size(), nonce.data(), nonce.size(), plaintext.data(), plaintext.size(),
-                          additional_data.data(), additional_data.size()) != 1)
+    if (EVP_AEAD_CTX_seal(impl_->context.get(),
+                          output.data(),
+                          &written,
+                          output.size(),
+                          nonce.data(),
+                          nonce.size(),
+                          plaintext.data(),
+                          plaintext.size(),
+                          additional_data.data(),
+                          additional_data.size()) != 1)
     {
         set_crypto_error(ec, boost::system::errc::io_error, "AEAD seal failed");
         return {};
@@ -344,11 +341,10 @@ std::vector<std::uint8_t> aead::seal(
     return output;
 }
 
-std::vector<std::uint8_t> aead::open(
-    std::span<const std::uint8_t> nonce,
-    std::span<const std::uint8_t> ciphertext,
-    std::span<const std::uint8_t> additional_data,
-    boost::system::error_code& ec) const
+std::vector<std::uint8_t> aead::open(std::span<const std::uint8_t> nonce,
+                                     std::span<const std::uint8_t> ciphertext,
+                                     std::span<const std::uint8_t> additional_data,
+                                     boost::system::error_code& ec) const
 {
     ec.clear();
     if (!valid())
@@ -359,8 +355,16 @@ std::vector<std::uint8_t> aead::open(
     std::vector<std::uint8_t> output(ciphertext.size());
     std::size_t written = 0;
     ERR_clear_error();
-    if (EVP_AEAD_CTX_open(impl_->context.get(), output.data(), &written, output.size(), nonce.data(), nonce.size(), ciphertext.data(), ciphertext.size(),
-                          additional_data.data(), additional_data.size()) != 1)
+    if (EVP_AEAD_CTX_open(impl_->context.get(),
+                          output.data(),
+                          &written,
+                          output.size(),
+                          nonce.data(),
+                          nonce.size(),
+                          ciphertext.data(),
+                          ciphertext.size(),
+                          additional_data.data(),
+                          additional_data.size()) != 1)
     {
         discard_crypto_errors();
         ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
@@ -422,11 +426,10 @@ reality_certificate parse_reality_certificate(std::span<const std::uint8_t> der,
     return result;
 }
 
-bool verify_ed25519(
-    std::span<const std::uint8_t, 32> public_key,
-    std::span<const std::uint8_t> message,
-    std::span<const std::uint8_t> signature,
-    boost::system::error_code& ec)
+void verify_ed25519(std::span<const std::uint8_t, 32> public_key,
+                    std::span<const std::uint8_t> message,
+                    std::span<const std::uint8_t> signature,
+                    boost::system::error_code& ec)
 {
     ec.clear();
     ERR_clear_error();
@@ -435,21 +438,21 @@ bool verify_ed25519(
     if (!key || !context || EVP_DigestVerifyInit(context.get(), nullptr, nullptr, nullptr, key.get()) != 1)
     {
         set_crypto_error(ec, boost::system::errc::io_error, "Ed25519 verification initialization failed");
-        return false;
+        return;
     }
+
     const int result = EVP_DigestVerify(context.get(), signature.data(), signature.size(), message.data(), message.size());
     if (result == 1)
     {
-        return true;
+        return;
     }
     if (result == 0)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::permission_denied);
         ERR_clear_error();
-        return false;
+        return;
     }
     set_crypto_error(ec, boost::system::errc::io_error, "Ed25519 verification failed");
-    return false;
 }
 
-} // namespace rv::crypto
+}    // namespace rv::crypto

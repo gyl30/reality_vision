@@ -4,14 +4,14 @@
 
 - Boost.Asio `tcp_byte_stream`；
 - REALITY 客户端握手与受限 TLS 1.3 record layer；
-- VLESS TCP，并固定使用 `xtls-rprx-vision` addon；
+- VLESS TCP request 与固定的 `xtls-rprx-vision` addon；
 - XTLS-Vision padding，以及收、发方向独立切换的 Direct splice；
 - 本地 SOCKS5 TCP CONNECT 代理（支持无认证或用户名密码认证，以及域名、IPv4 和 IPv6）；
-- 无方括号格式的 spdlog 会话日志；
+- spdlog 会话日志；
 - 基于真实 Xray 进程的端到端互通测试。
 
 网络层不会把数据主动推给协议层。每一层都持有下层 stream；上层需要数据时才
-`co_await async_read_some(..., ec)`，写入则使用 `co_await async_write_all(..., ec)`。
+`co_await read(..., ec)`，写入则使用 `co_await write(..., ec)`。
 预期的网络、协议和认证失败通过 `boost::system::error_code&` 返回，不依赖异常传播。
 
 所有 C++ 源文件和头文件均平铺在 `src/`。加密实现位于 `src/crypto.cpp`，头文件不暴露任何 BoringSSL 类型；工程没有使用
@@ -39,7 +39,7 @@
 - `TLS_AES_256_GCM_SHA384`；
 - `TLS_CHACHA20_POLY1305_SHA256`；
 - REALITY Ed25519 leaf certificate、HMAC-SHA512、CertificateVerify 和 Finished 校验；
-- VLESS TCP，固定使用 `xtls-rprx-vision`；
+- VLESS TCP 与固定的 `xtls-rprx-vision`；
 - SOCKS5 `CONNECT` 与 RFC 1929 用户名密码认证，每个本地连接独立建立一条远端协议栈；
 - Vision 对内层 TLS 1.3 `0x1301..0x1304` 的 Direct 判定；
 - 非 TLS TCP 和内层 TLS 1.2 通过 Vision `command=1` 回退并继续透明传输；
@@ -124,8 +124,8 @@ CMake 只创建一个 `reality_vision` executable，所有实现源文件直接�
 - `RV_XRAY_EXECUTABLE=/path/to/xray`：启用真实 Xray 互通测试。
 
 协议自测已经编入同一个二进制，也可以直接运行 `./build/reality_vision --self_test`。
-Xray 互通测试覆盖 SOCKS5 非 TLS、TLS 1.2 fallback、TLS 1.3 Direct 和 Vision framing，
-并验证 SOCKS5 正确密码与错误密码；还需要 Python 3 和系统的 OpenSSL 命令行工具。
+Xray 互通测试覆盖 SOCKS5 非 TLS、TLS 1.2 fallback、TLS 1.3 Direct 和 Vision
+framing，并验证 SOCKS5 正确密码与错误密码；还需要 Python 3 和系统的 OpenSSL 命令行工具。
 
 ## 作为 SOCKS5 TCP 代理运行
 
@@ -174,49 +174,49 @@ boost::system::error_code ec;
 auto executor = co_await boost::asio::this_coro::executor;
 
 auto tcp = co_await rv::net::tcp_byte_stream::connect(
-    executor, server_host, server_port, log, ec);
+    executor, server_host, server_port, session_id, ec);
 if (ec || !tcp)
 {
     co_return;
 }
 
 auto reality = co_await rv::reality::reality_stream::connect(
-    std::move(*tcp), reality_config, log, ec);
+    std::move(*tcp), reality_config, session_id, ec);
 if (ec || !reality)
 {
     co_return;
 }
 
 auto vless = co_await rv::vless::vless_stream::connect(
-    std::move(*reality), vless_config, log, ec);
+    std::move(*reality), vless_config, session_id, ec);
 if (ec || !vless)
 {
     co_return;
 }
 
 auto stream = co_await rv::vision::vision_stream::connect(
-    std::move(*vless), vless_config.user_id, log, ec);
+    std::move(*vless), vless_config.user_id, session_id, ec);
 if (ec || !stream)
 {
     co_return;
 }
 
-co_await stream->async_write_all(data, ec);
+co_await stream->write(data, ec);
 if (ec)
 {
     co_return;
 }
 
-const auto count = co_await stream->async_read_some(buffer, ec);
+const auto count = co_await stream->read(buffer, ec);
 if (ec)
 {
     co_return;
 }
 ```
 
-一个连接允许一个读协程和一个写协程同时运行；不支持两个并发读或两个并发写。当前实现
-不在 stream 内部排队或检测同方向并发，调用方必须遵守这一约束。如果 `io_context` 由多个
-线程运行，调用方应让同一连接的操作位于同一个 strand 上。
+一个连接允许一个读协程和一个写协程同时运行；不允许两个并发读或两个并发写。stream 不会
+为同方向操作排队，也不保证检测错误的并发调用。如果 `io_context` 由多个线程运行，调用方应让
+同一连接的操作位于同一个 strand 上。
 
 所有 Asio 操作使用 `redirect_error(use_awaitable, ec)`，因此预期的 socket 错误不会被
 `use_awaitable` 转换成 `system_error`。调用方必须在每次 `co_await` 后检查 `ec`。

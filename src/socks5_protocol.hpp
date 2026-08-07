@@ -15,9 +15,21 @@
 namespace rv::socks5
 {
 
-struct ipv4_address { std::array<std::uint8_t, 4> bytes{}; };
-struct ipv6_address { std::array<std::uint8_t, 16> bytes{}; };
-struct domain_address { std::string name; };
+struct ipv4_address
+{
+    std::array<std::uint8_t, 4> bytes{};
+};
+
+struct ipv6_address
+{
+    std::array<std::uint8_t, 16> bytes{};
+};
+
+struct domain_address
+{
+    std::string name;
+};
+
 using address = std::variant<ipv4_address, domain_address, ipv6_address>;
 
 struct connect_request
@@ -44,21 +56,15 @@ enum class reply : std::uint8_t
     address_type_not_supported = 0x08,
 };
 
-[[nodiscard]] boost::system::error_code decode_connect_request(
-    std::span<const std::uint8_t> wire,
-    connect_request& output);
+[[nodiscard]] boost::system::error_code decode_connect_request(std::span<const std::uint8_t> request_bytes, connect_request& output);
 [[nodiscard]] std::array<std::uint8_t, 10> encode_reply(reply value) noexcept;
 [[nodiscard]] std::string format_destination(const connect_request& request);
 
-[[nodiscard]] boost::asio::awaitable<std::optional<connect_request>> async_negotiate_connect(
-    boost::asio::ip::tcp::socket& socket,
-    const std::optional<credentials>& authentication,
-    boost::system::error_code& ec);
-[[nodiscard]] boost::asio::awaitable<void> async_send_reply(
-    boost::asio::ip::tcp::socket& socket,
-    reply value,
-    boost::system::error_code& ec);
+[[nodiscard]] boost::asio::awaitable<std::optional<connect_request>> negotiate_connect(boost::asio::ip::tcp::socket& socket,
+                                                                                       const std::optional<credentials>& expected_credentials,
+                                                                                       boost::system::error_code& ec);
+[[nodiscard]] boost::asio::awaitable<void> send_reply(boost::asio::ip::tcp::socket& socket, reply value, boost::system::error_code& ec);
 
-} // namespace rv::socks5
+}    // namespace rv::socks5
 
 #endif

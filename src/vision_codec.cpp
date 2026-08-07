@@ -60,7 +60,7 @@ std::size_t padding_length(std::size_t content_length, bool long_padding, boost:
     return std::min(result, maximum);
 }
 
-std::optional<std::size_t> find_server_hello(std::span<const std::uint8_t> input)
+std::optional<std::size_t> find_server_hello_record(std::span<const std::uint8_t> input)
 {
     constexpr std::array<std::uint8_t, 3> prefix{0x16, 0x03, 0x03};
     for (std::size_t offset = 0; offset + 6 <= input.size(); ++offset)
@@ -75,44 +75,45 @@ std::optional<std::size_t> find_server_hello(std::span<const std::uint8_t> input
 
 }    // namespace
 
-bool decode_header(std::span<const std::uint8_t> header,
-                   bool contains_user_id,
-                   std::span<const std::uint8_t, user_id_size> expected_user_id,
-                   frame_header& output,
-                   boost::system::error_code& ec)
+boost::system::error_code decode_header(std::span<const std::uint8_t> header,
+                                        const bool contains_user_id,
+                                        std::span<const std::uint8_t, user_id_size> expected_user_id,
+                                        frame_header& output)
 {
+    using boost::system::errc::make_error_code;
+
     const auto required = contains_user_id ? full_header_size : short_header_size;
     if (header.size() != required)
     {
-        ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
-        return false;
+        return make_error_code(boost::system::errc::bad_message);
     }
+
     const auto offset = contains_user_id ? user_id_size : 0;
     if (contains_user_id && !std::equal(expected_user_id.begin(), expected_user_id.end(), header.begin()))
     {
-        ec = boost::system::errc::make_error_code(boost::system::errc::permission_denied);
-        return false;
+        return make_error_code(boost::system::errc::permission_denied);
     }
+
     const auto command_value = header[offset];
     if (command_value > static_cast<std::uint8_t>(command::direct))
     {
-        ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
-        return false;
+        return make_error_code(boost::system::errc::bad_message);
     }
 
-    output = {
+    frame_header decoded{
         .frame_command = static_cast<command>(command_value),
         .content_length =
             static_cast<std::uint16_t>(static_cast<std::uint16_t>(header[offset + 1]) << 8U | static_cast<std::uint16_t>(header[offset + 2])),
         .padding_length =
             static_cast<std::uint16_t>(static_cast<std::uint16_t>(header[offset + 3]) << 8U | static_cast<std::uint16_t>(header[offset + 4])),
     };
-    if (required + static_cast<std::size_t>(output.content_length) + static_cast<std::size_t>(output.padding_length) > xray_buffer_size)
+    if (required + static_cast<std::size_t>(decoded.content_length) + static_cast<std::size_t>(decoded.padding_length) > xray_buffer_size)
     {
-        ec = boost::system::errc::make_error_code(boost::system::errc::message_size);
-        return false;
+        return make_error_code(boost::system::errc::message_size);
     }
-    return true;
+
+    output = decoded;
+    return {};
 }
 
 std::vector<std::uint8_t> encode_frame(command frame_command,
@@ -149,44 +150,160 @@ std::vector<std::uint8_t> encode_frame(command frame_command,
     return output;
 }
 
-bool contains_tls_client_hello(std::span<const std::uint8_t> input) noexcept
+namespace
 {
-    for (std::size_t offset = 0; offset + 6 <= input.size(); ++offset)
+
+inline constexpr std::size_t maximum_tls_record_payload = (1UL << 14U) + 256UL;
+
+bool is_tls_record_header(const std::array<std::uint8_t, 5>& header, const bool first_record) noexcept
+{
+    const auto type = header[0];
+    const bool valid_type = first_record ? type == 0x16 : type == 0x14 || type == 0x15 || type == 0x16 || type == 0x17;
+    if (!valid_type || header[1] != 0x03 || header[2] < 0x01 || header[2] > 0x03)
     {
-        if (input[offset] == 0x16 && input[offset + 1] == 0x03 && input[offset + 5] == 0x01)
-        {
-            return true;
-        }
+        return false;
     }
-    return false;
+
+    const auto length = static_cast<std::size_t>(header[3]) << 8U | static_cast<std::size_t>(header[4]);
+    return length <= maximum_tls_record_payload && (!first_record || length != 0);
 }
 
-bool starts_tls13_application_data(std::span<const std::uint8_t> input) noexcept
+bool server_hello_supports_direct(const std::span<const std::uint8_t> record)
 {
-    return input.size() >= 3 && input[0] == 0x17 && input[1] == 0x03 && input[2] == 0x03;
+    if (record.size() < 46)
+    {
+        return false;
+    }
+
+    const auto session_id_length = static_cast<std::size_t>(record[43]);
+    const auto cipher_offset = 44 + session_id_length;
+    if (cipher_offset + 2 > record.size())
+    {
+        return false;
+    }
+
+    const auto cipher = static_cast<std::uint16_t>(record[cipher_offset]) << 8U | static_cast<std::uint16_t>(record[cipher_offset + 1]);
+    constexpr std::array<std::uint8_t, 6> tls13_version_extension{0x00, 0x2b, 0x00, 0x02, 0x03, 0x04};
+    const bool has_tls13 = std::search(record.begin(), record.end(), tls13_version_extension.begin(), tls13_version_extension.end()) != record.end();
+    return has_tls13 && cipher >= 0x1301 && cipher <= 0x1304;
 }
 
-bool consists_of_complete_tls13_application_records(std::span<const std::uint8_t> input) noexcept
+}    // namespace
+
+void client_tls_record_tracker::disable_tracking() noexcept
 {
+    if (kind_ == client_stream_kind::undecided)
+    {
+        kind_ = client_stream_kind::non_tls;
+    }
+    else
+    {
+        tracking_failed_ = true;
+    }
+    phase_ = phase::disabled;
+}
+
+bool client_tls_record_tracker::parse_record_header() noexcept
+{
+    if (!is_tls_record_header(header_, first_record_))
+    {
+        disable_tracking();
+        return false;
+    }
+
+    record_type_ = header_[0];
+    remaining_payload_ = static_cast<std::size_t>(header_[3]) << 8U | static_cast<std::size_t>(header_[4]);
+    header_size_ = 0;
+    phase_ = phase::payload;
+    return true;
+}
+
+bool client_tls_record_tracker::consume_record_header(const std::span<const std::uint8_t> input, std::size_t& position) noexcept
+{
+    const auto count = std::min(header_.size() - header_size_, input.size() - position);
+    std::copy_n(input.begin() + static_cast<std::ptrdiff_t>(position), count, header_.begin() + static_cast<std::ptrdiff_t>(header_size_));
+    header_size_ += count;
+    position += count;
+
+    if (header_size_ != header_.size())
+    {
+        return false;
+    }
+    return parse_record_header();
+}
+
+bool client_tls_record_tracker::detect_client_hello(const std::span<const std::uint8_t> input, std::size_t& position) noexcept
+{
+    if (!first_record_ || kind_ != client_stream_kind::undecided)
+    {
+        return true;
+    }
+    if (position == input.size())
+    {
+        return false;
+    }
+    if (input[position] != 0x01)
+    {
+        disable_tracking();
+        return false;
+    }
+
+    kind_ = client_stream_kind::tls;
+    ++position;
+    --remaining_payload_;
+    return true;
+}
+
+client_tls_observation client_tls_record_tracker::observe(const std::span<const std::uint8_t> input) noexcept
+{
+    client_tls_observation observation{
+        .kind = kind_,
+        .encrypted_record_end_offset = std::nullopt,
+        .tracking_failed = tracking_failed_,
+    };
+
+    if (phase_ == phase::disabled || input.empty())
+    {
+        return observation;
+    }
+
     std::size_t position = 0;
     while (position != input.size())
     {
-        if (input.size() - position < 5 || input[position] != 0x17 || input[position + 1] != 0x03 || input[position + 2] != 0x03)
+        if (phase_ == phase::header && !consume_record_header(input, position))
         {
-            return false;
+            break;
         }
-        const auto length = static_cast<std::size_t>(input[position + 3]) << 8U | static_cast<std::size_t>(input[position + 4]);
-        position += 5;
-        if (length > input.size() - position)
+        if (phase_ != phase::payload || !detect_client_hello(input, position))
         {
-            return false;
+            break;
         }
-        position += length;
+
+        const auto count = std::min(remaining_payload_, input.size() - position);
+        position += count;
+        remaining_payload_ -= count;
+        if (remaining_payload_ != 0)
+        {
+            break;
+        }
+
+        const auto completed_record_type = record_type_;
+        first_record_ = false;
+        phase_ = phase::header;
+
+        if (kind_ == client_stream_kind::tls && completed_record_type == 0x17)
+        {
+            observation.encrypted_record_end_offset = position;
+            break;
+        }
     }
-    return !input.empty();
+
+    observation.kind = kind_;
+    observation.tracking_failed = tracking_failed_;
+    return observation;
 }
 
-void server_hello_filter::observe(std::span<const std::uint8_t> input)
+void server_hello_tracker::observe(std::span<const std::uint8_t> input)
 {
     if (done_ || input.empty())
     {
@@ -198,58 +315,53 @@ void server_hello_filter::observe(std::span<const std::uint8_t> input)
         return;
     }
     buffer_.insert(buffer_.end(), input.begin(), input.end());
-    evaluate();
+    evaluate_server_hello();
 }
 
-void server_hello_filter::evaluate()
+bool server_hello_tracker::prepare_server_hello_record()
 {
     if (!record_length_)
     {
-        const auto offset = find_server_hello(buffer_);
+        const auto offset = find_server_hello_record(buffer_);
         if (!offset)
         {
             if (buffer_.size() > 5)
             {
                 buffer_.erase(buffer_.begin(), buffer_.end() - 5);
             }
-            return;
+            return false;
         }
+
         if (*offset != 0)
         {
             buffer_.erase(buffer_.begin(), buffer_.begin() + static_cast<std::ptrdiff_t>(*offset));
         }
         if (buffer_.size() < 5)
         {
-            return;
+            return false;
         }
+
         record_length_ = 5 + (static_cast<std::size_t>(buffer_[3]) << 8U | static_cast<std::size_t>(buffer_[4]));
         if (*record_length_ > 64UL * 1024U)
         {
             done_ = true;
-            return;
+            return false;
         }
     }
-    if (buffer_.size() < *record_length_)
+
+    return buffer_.size() >= *record_length_;
+}
+
+void server_hello_tracker::evaluate_server_hello()
+{
+    if (!prepare_server_hello_record())
     {
         return;
     }
 
     done_ = true;
     const auto record = std::span<const std::uint8_t>(buffer_.data(), *record_length_);
-    if (record.size() < 46)
-    {
-        return;
-    }
-    const auto session_id_length = static_cast<std::size_t>(record[43]);
-    const auto cipher_offset = 44 + session_id_length;
-    if (cipher_offset + 2 > record.size())
-    {
-        return;
-    }
-    const auto cipher = static_cast<std::uint16_t>(record[cipher_offset]) << 8U | static_cast<std::uint16_t>(record[cipher_offset + 1]);
-    constexpr std::array<std::uint8_t, 6> tls13_version_extension{0x00, 0x2b, 0x00, 0x02, 0x03, 0x04};
-    const auto has_tls13 = std::search(record.begin(), record.end(), tls13_version_extension.begin(), tls13_version_extension.end()) != record.end();
-    direct_supported_ = has_tls13 && cipher >= 0x1301 && cipher <= 0x1304;
+    direct_supported_ = server_hello_supports_direct(record);
 }
 
 }    // namespace rv::vision

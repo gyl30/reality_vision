@@ -2,7 +2,6 @@
 
 #include <boost/system/errc.hpp>
 
-#include <cstddef>
 #include <cstdint>
 #include <type_traits>
 #include <variant>
@@ -18,14 +17,12 @@ void put_u16(std::uint16_t value, std::vector<std::uint8_t>& output)
     output.push_back(static_cast<std::uint8_t>(value));
 }
 
-} // namespace
+}    // namespace
 
-std::vector<std::uint8_t> encode_tcp_request(
-    const client_config& config,
-    boost::system::error_code& ec)
+std::vector<std::uint8_t> encode_tcp_request(const client_config& configuration, boost::system::error_code& ec)
 {
     ec.clear();
-    if (config.destination_port == 0)
+    if (configuration.destination_port == 0)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::invalid_argument);
         return {};
@@ -34,7 +31,7 @@ std::vector<std::uint8_t> encode_tcp_request(
     std::vector<std::uint8_t> output;
     output.reserve(64);
     output.push_back(0x00);
-    output.insert(output.end(), config.user_id.begin(), config.user_id.end());
+    output.insert(output.end(), configuration.user_id.begin(), configuration.user_id.end());
 
     constexpr char flow_name[] = "xtls-rprx-vision";
     output.push_back(18);
@@ -43,7 +40,7 @@ std::vector<std::uint8_t> encode_tcp_request(
     output.insert(output.end(), flow_name, flow_name + 16);
 
     output.push_back(0x01);
-    put_u16(config.destination_port, output);
+    put_u16(configuration.destination_port, output);
     std::visit(
         [&output, &ec](const auto& address)
         {
@@ -70,7 +67,7 @@ std::vector<std::uint8_t> encode_tcp_request(
                 output.insert(output.end(), address.bytes.begin(), address.bytes.end());
             }
         },
-        config.destination);
+        configuration.destination);
     if (ec)
     {
         return {};
@@ -78,4 +75,4 @@ std::vector<std::uint8_t> encode_tcp_request(
     return output;
 }
 
-} // namespace rv::vless
+}    // namespace rv::vless

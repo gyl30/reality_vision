@@ -86,8 +86,8 @@ struct handshake_secrets
 
 struct application_keys
 {
-    record_key client;
-    record_key server;
+    record_key client_key;
+    record_key server_key;
 };
 
 [[nodiscard]] std::optional<handshake_secrets> derive_handshake_secrets(

@@ -11,10 +11,13 @@
 namespace rv::net
 {
 
-tcp_byte_stream::tcp_byte_stream(boost::asio::ip::tcp::socket socket, std::string id) : id_(std::move(id)), socket_(std::move(socket)) {}
+tcp_byte_stream::tcp_byte_stream(boost::asio::ip::tcp::socket socket, std::string session_id)
+    : session_id_(std::move(session_id)), socket_(std::move(socket))
+{
+}
 
 boost::asio::awaitable<std::optional<tcp_byte_stream>> tcp_byte_stream::connect(
-    boost::asio::any_io_executor executor, std::string host, std::string service, std::string id, boost::system::error_code& ec)
+    boost::asio::any_io_executor executor, std::string host, std::string service, std::string session_id, boost::system::error_code& ec)
 {
     boost::asio::ip::tcp::resolver resolver(executor);
     const auto endpoints = co_await resolver.async_resolve(host, service, boost::asio::redirect_error(boost::asio::use_awaitable, ec));
@@ -30,11 +33,11 @@ boost::asio::awaitable<std::optional<tcp_byte_stream>> tcp_byte_stream::connect(
         co_return std::nullopt;
     }
 
-    spdlog::info("{} tcp connected to {}:{}", id, endpoint.address().to_string(), endpoint.port());
-    co_return tcp_byte_stream(std::move(socket), std::move(id));
+    spdlog::info("{} tcp connected to {}:{}", session_id, endpoint.address().to_string(), endpoint.port());
+    co_return tcp_byte_stream(std::move(socket), std::move(session_id));
 }
 
-boost::asio::awaitable<std::size_t> tcp_byte_stream::async_read_some(std::span<std::uint8_t> output, boost::system::error_code& ec)
+boost::asio::awaitable<std::size_t> tcp_byte_stream::read(std::span<std::uint8_t> output, boost::system::error_code& ec)
 {
     if (output.empty())
     {
@@ -44,7 +47,7 @@ boost::asio::awaitable<std::size_t> tcp_byte_stream::async_read_some(std::span<s
                                                boost::asio::redirect_error(boost::asio::use_awaitable, ec));
 }
 
-boost::asio::awaitable<void> tcp_byte_stream::async_write_all(std::span<const std::uint8_t> input, boost::system::error_code& ec)
+boost::asio::awaitable<void> tcp_byte_stream::write(std::span<const std::uint8_t> input, boost::system::error_code& ec)
 {
     if (input.empty())
     {

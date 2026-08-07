@@ -16,15 +16,15 @@ namespace rv::reality
 
 struct client_hello_material
 {
-    std::vector<std::uint8_t> handshake;
-    std::array<std::uint8_t, 32> random{};
+    std::vector<std::uint8_t> handshake_bytes;
+    std::array<std::uint8_t, 32> client_random{};
     std::array<std::uint8_t, 32> session_id{};
     std::array<std::uint8_t, 32> x25519_private_key{};
     std::array<std::uint8_t, 32> reality_auth_key{};
 };
 
 [[nodiscard]] std::optional<client_hello_material> build_client_hello(
-    const client_config& config,
+    const client_config& configuration,
     boost::system::error_code& ec,
     std::chrono::system_clock::time_point now = std::chrono::system_clock::now());
 

@@ -24,7 +24,7 @@ boost::asio::awaitable<void> read_exact(net::tcp_byte_stream& stream, std::span<
     std::size_t offset = 0;
     while (offset != output.size())
     {
-        const auto count = co_await stream.async_read_some(output.subspan(offset), ec);
+        const auto count = co_await stream.read(output.subspan(offset), ec);
         if (ec)
         {
             co_return;
@@ -45,54 +45,140 @@ std::size_t handshake_message_length(std::span<const std::uint8_t> input) noexce
 
 }    // namespace
 
-boost::asio::awaitable<std::optional<reality_stream>> reality_stream::connect(net::tcp_byte_stream lower,
-                                                                              client_config config,
-                                                                              std::string log,
+boost::asio::awaitable<std::optional<reality_stream>> reality_stream::connect(net::tcp_byte_stream tcp,
+                                                                              client_config configuration,
+                                                                              std::string session_id,
                                                                               boost::system::error_code& ec)
 {
-    auto result = co_await perform_client_handshake(lower, config, log, ec);
-    if (ec || !result)
+    auto handshake = co_await perform_client_handshake(tcp, configuration, session_id, ec);
+    if (ec)
     {
         co_return std::nullopt;
     }
-    co_return reality_stream(std::move(lower), std::move(result->read_key), std::move(result->write_key), std::move(log));
+
+    co_return reality_stream(std::move(tcp), std::move(handshake->receive_key), std::move(handshake->send_key), std::move(session_id));
 }
 
-reality_stream::reality_stream(net::tcp_byte_stream lower, record_key read_key, record_key write_key, std::string id)
-    : lower_(std::move(lower)), read_key_(std::move(read_key)), write_key_(std::move(write_key)), id_(std::move(id))
+reality_stream::reality_stream(net::tcp_byte_stream tcp, record_key receive_key, record_key send_key, std::string session_id)
+    : tcp_(std::move(tcp)), receive_key_(std::move(receive_key)), send_key_(std::move(send_key)), session_id_(std::move(session_id))
 {
 }
 
-boost::asio::awaitable<std::size_t> reality_stream::async_read_some(std::span<std::uint8_t> output, boost::system::error_code& ec)
+boost::asio::awaitable<std::size_t> reality_stream::read(std::span<std::uint8_t> output, boost::system::error_code& ec)
 {
     if (output.empty())
     {
         co_return 0;
     }
-    if (!plaintext_.empty())
+    if (!plaintext_buffer_.empty())
     {
-        co_return plaintext_.copy_to(output);
-    }
-    if (receive_mode_ == receive_mode::raw)
-    {
-        const auto count = co_await lower_.async_read_some(output, ec);
-        if (ec == boost::asio::error::eof)
-        {
-            receive_mode_ = receive_mode::closed;
-            ec = {};
-            co_return 0;
-        }
-        co_return count;
+        co_return plaintext_buffer_.copy_to(output);
     }
     if (receive_mode_ == receive_mode::closed)
     {
         co_return 0;
     }
+    if (receive_mode_ == receive_mode::raw)
+    {
+        co_return co_await read_raw(output, ec);
+    }
 
+    co_return co_await read_tls(output, ec);
+}
+
+boost::asio::awaitable<std::size_t> reality_stream::read_raw(std::span<std::uint8_t> output, boost::system::error_code& ec)
+{
+    const auto count = co_await tcp_.read(output, ec);
+    if (ec == boost::asio::error::eof)
+    {
+        receive_mode_ = receive_mode::closed;
+        ec.clear();
+        co_return 0;
+    }
+    co_return count;
+}
+
+boost::asio::awaitable<std::optional<reality_stream::encrypted_record>> reality_stream::read_tls_record(boost::system::error_code& ec)
+{
+    encrypted_record record;
+    co_await read_exact(tcp_, record.header, ec);
+    if (ec)
+    {
+        co_return std::nullopt;
+    }
+
+    const auto payload_size = static_cast<std::size_t>(record.header[3]) << 8U | static_cast<std::size_t>(record.header[4]);
+    if (payload_size > max_tls_ciphertext)
+    {
+        ec = boost::system::errc::make_error_code(boost::system::errc::message_size);
+        co_return std::nullopt;
+    }
+
+    record.payload.resize(payload_size);
+    co_await read_exact(tcp_, record.payload, ec);
+    if (ec)
+    {
+        co_return std::nullopt;
+    }
+
+    co_return record;
+}
+
+std::optional<std::size_t> reality_stream::process_decrypted_record(const opened_record& plaintext,
+                                                                    std::span<std::uint8_t> output,
+                                                                    boost::system::error_code& ec)
+{
+    if (plaintext.inner_type == tls_record_application_data)
+    {
+        ignored_tls_record_count_ = 0;
+        plaintext_buffer_.append(plaintext.content, ec);
+        if (ec)
+        {
+            return 0;
+        }
+        if (!plaintext_buffer_.empty())
+        {
+            return plaintext_buffer_.copy_to(output);
+        }
+        return std::nullopt;
+    }
+
+    if (plaintext.inner_type == tls_record_handshake)
+    {
+        post_handshake_buffer_.append(plaintext.content, ec);
+        if (ec)
+        {
+            return 0;
+        }
+        process_post_handshake_messages(ec);
+        if (ec)
+        {
+            return 0;
+        }
+        return std::nullopt;
+    }
+
+    if (plaintext.inner_type == tls_record_alert)
+    {
+        const bool close_notify = plaintext.content.size() == 2 && plaintext.content[0] == 1 && plaintext.content[1] == 0;
+        if (close_notify)
+        {
+            receive_mode_ = receive_mode::closed;
+            return 0;
+        }
+        ec = boost::system::errc::make_error_code(boost::system::errc::connection_aborted);
+        return 0;
+    }
+
+    ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
+    return 0;
+}
+
+boost::asio::awaitable<std::size_t> reality_stream::read_tls(std::span<std::uint8_t> output, boost::system::error_code& ec)
+{
     for (;;)
     {
-        std::array<std::uint8_t, 5> header{};
-        co_await read_exact(lower_, header, ec);
+        auto record = co_await read_tls_record(ec);
         if (ec)
         {
             if (ec == boost::asio::error::eof)
@@ -101,100 +187,62 @@ boost::asio::awaitable<std::size_t> reality_stream::async_read_some(std::span<st
             }
             co_return 0;
         }
-        const auto length = static_cast<std::size_t>(header[3]) << 8U | static_cast<std::size_t>(header[4]);
-        if (length > max_tls_ciphertext)
-        {
-            ec = boost::system::errc::make_error_code(boost::system::errc::message_size);
-            co_return 0;
-        }
-        std::vector<std::uint8_t> payload(length);
-        co_await read_exact(lower_, payload, ec);
-        if (ec)
-        {
-            co_return 0;
-        }
 
-        if (header[0] == tls_record_change_cipher_spec)
+        if (record->header[0] == tls_record_change_cipher_spec)
         {
-            if (++useless_records_ > 3)
+            if (++ignored_tls_record_count_ > 3)
             {
                 ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
                 co_return 0;
             }
             continue;
         }
-        if (header[0] != tls_record_application_data || header[1] != 0x03 || header[2] != 0x03)
+        if (record->header[0] != tls_record_application_data || record->header[1] != 0x03 || record->header[2] != 0x03)
         {
             ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
             co_return 0;
         }
 
-        auto opened = read_key_.open(header, payload, ec);
+        const auto plaintext = receive_key_.open(record->header, record->payload, ec);
         if (ec)
         {
             co_return 0;
         }
-        if (opened.inner_type == tls_record_application_data)
+
+        const auto result = process_decrypted_record(plaintext, output, ec);
+        if (result)
         {
-            useless_records_ = 0;
-            if (!plaintext_.append(opened.content, ec))
-            {
-                co_return 0;
-            }
-            if (!plaintext_.empty())
-            {
-                co_return plaintext_.copy_to(output);
-            }
-            continue;
+            co_return *result;
         }
-        if (opened.inner_type == tls_record_handshake)
-        {
-            if (!post_handshake_.append(opened.content, ec) || !process_post_handshake(ec))
-            {
-                co_return 0;
-            }
-            continue;
-        }
-        if (opened.inner_type == tls_record_alert)
-        {
-            if (opened.content.size() == 2 && opened.content[0] == 1 && opened.content[1] == 0)
-            {
-                receive_mode_ = receive_mode::closed;
-                co_return 0;
-            }
-            ec = boost::system::errc::make_error_code(boost::system::errc::connection_aborted);
-            co_return 0;
-        }
-        ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
-        co_return 0;
     }
 }
 
-boost::asio::awaitable<void> reality_stream::write_tls(std::span<const std::uint8_t> input, boost::system::error_code& ec)
+boost::asio::awaitable<void> reality_stream::write_tls_records(std::span<const std::uint8_t> input, boost::system::error_code& ec)
 {
     std::size_t offset = 0;
     while (offset != input.size())
     {
-        const auto count = std::min(max_tls_plaintext, input.size() - offset);
-        const auto record = write_key_.seal(tls_record_application_data, input.subspan(offset, count), ec);
+        const auto chunk_size = std::min(max_tls_plaintext, input.size() - offset);
+        const auto record = send_key_.seal(tls_record_application_data, input.subspan(offset, chunk_size), ec);
         if (ec)
         {
             co_return;
         }
-        co_await lower_.async_write_all(record, ec);
+
+        co_await tcp_.write(record, ec);
         if (ec)
         {
             co_return;
         }
-        offset += count;
+        offset += chunk_size;
     }
 }
 
-boost::asio::awaitable<void> reality_stream::async_write_all(std::span<const std::uint8_t> input, boost::system::error_code& ec)
+boost::asio::awaitable<void> reality_stream::write(std::span<const std::uint8_t> input, boost::system::error_code& ec)
 {
     if (send_mode_ == send_mode::raw)
     {
-        co_await lower_.async_write_all(input, ec);
+        co_await tcp_.write(input, ec);
         co_return;
     }
     if (send_mode_ != send_mode::tls)
@@ -202,16 +250,17 @@ boost::asio::awaitable<void> reality_stream::async_write_all(std::span<const std
         ec = boost::system::errc::make_error_code(boost::system::errc::state_not_recoverable);
         co_return;
     }
-    co_await write_tls(input, ec);
+
+    co_await write_tls_records(input, ec);
 }
 
-boost::asio::awaitable<void> reality_stream::async_shutdown_send(boost::system::error_code& ec)
+boost::asio::awaitable<void> reality_stream::shutdown_send(boost::system::error_code& ec)
 {
     if (send_mode_ == send_mode::closed)
     {
         co_return;
     }
-    if (send_mode_ == send_mode::draining)
+    if (send_mode_ == send_mode::switching_to_raw)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::operation_in_progress);
         co_return;
@@ -220,35 +269,36 @@ boost::asio::awaitable<void> reality_stream::async_shutdown_send(boost::system::
     if (send_mode_ == send_mode::tls)
     {
         constexpr std::array<std::uint8_t, 2> close_notify{1, 0};
-        const auto record = write_key_.seal(tls_record_alert, close_notify, ec);
+        const auto record = send_key_.seal(tls_record_alert, close_notify, ec);
         if (!ec)
         {
-            co_await lower_.async_write_all(record, ec);
+            co_await tcp_.write(record, ec);
         }
     }
+
     send_mode_ = send_mode::closed;
     boost::system::error_code shutdown_ec;
-    lower_.shutdown_send(shutdown_ec);
+    tcp_.shutdown_send(shutdown_ec);
     if (!ec)
     {
         ec = shutdown_ec;
     }
 }
 
-bool reality_stream::switch_receive_to_raw(boost::system::error_code& ec)
+void reality_stream::switch_receive_to_raw(boost::system::error_code& ec)
 {
-    if (receive_mode_ != receive_mode::tls || !plaintext_.empty() || !post_handshake_.empty())
+    if (receive_mode_ != receive_mode::tls || !plaintext_buffer_.empty() || !post_handshake_buffer_.empty())
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::operation_not_permitted);
-        return false;
+        return;
     }
+
     receive_mode_ = receive_mode::raw;
-    spdlog::info("{} reality receive direction switched to raw", id_);
-    return true;
+    spdlog::info("{} reality receive direction switched to raw", session_id_);
 }
 
-boost::asio::awaitable<void> reality_stream::async_write_final_tls_and_switch(std::span<const std::uint8_t> final_plaintext,
-                                                                              boost::system::error_code& ec)
+boost::asio::awaitable<void> reality_stream::write_final_tls_and_switch_to_raw(std::span<const std::uint8_t> final_plaintext,
+                                                                               boost::system::error_code& ec)
 {
     if (send_mode_ != send_mode::tls)
     {
@@ -256,53 +306,55 @@ boost::asio::awaitable<void> reality_stream::async_write_final_tls_and_switch(st
         co_return;
     }
 
-    send_mode_ = send_mode::draining;
-    co_await write_tls(final_plaintext, ec);
+    send_mode_ = send_mode::switching_to_raw;
+    co_await write_tls_records(final_plaintext, ec);
     if (ec)
     {
         send_mode_ = send_mode::closed;
         co_return;
     }
+
     send_mode_ = send_mode::raw;
-    spdlog::info("{} reality send direction switched to raw", id_);
+    spdlog::info("{} reality send direction switched to raw", session_id_);
 }
 
-bool reality_stream::process_post_handshake(boost::system::error_code& ec)
+void reality_stream::process_post_handshake_messages(boost::system::error_code& ec)
 {
-    while (post_handshake_.size() >= 4)
+    while (post_handshake_buffer_.size() >= 4)
     {
-        const auto length = handshake_message_length(post_handshake_.data());
-        if (length > 1U << 20)
+        const auto message_length = handshake_message_length(post_handshake_buffer_.data());
+        if (message_length > 1U << 20)
         {
             ec = boost::system::errc::make_error_code(boost::system::errc::message_size);
-            return false;
+            return;
         }
-        if (post_handshake_.size() < length)
+        if (post_handshake_buffer_.size() < message_length)
         {
-            return true;
+            return;
         }
-        const auto type = post_handshake_.data()[0];
-        post_handshake_.consume(length);
-        if (type == 4)
+
+        const auto message_type = post_handshake_buffer_.data()[0];
+        post_handshake_buffer_.consume(message_length);
+        if (message_type == 4)
         {
             continue;
         }
-        if (type == 24)
+        if (message_type == 24)
         {
             ec = boost::system::errc::make_error_code(boost::system::errc::operation_not_supported);
-            return false;
+            return;
         }
+
         ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
-        return false;
+        return;
     }
-    return true;
 }
 
 void reality_stream::shutdown() noexcept
 {
     receive_mode_ = receive_mode::closed;
     send_mode_ = send_mode::closed;
-    lower_.shutdown();
+    tcp_.shutdown();
 }
 
 }    // namespace rv::reality

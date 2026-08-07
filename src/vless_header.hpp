@@ -12,9 +12,18 @@
 namespace rv::vless
 {
 
-struct ipv4_address { std::array<std::uint8_t, 4> bytes{}; };
-struct ipv6_address { std::array<std::uint8_t, 16> bytes{}; };
-struct domain_address { std::string name; };
+struct ipv4_address
+{
+    std::array<std::uint8_t, 4> bytes{};
+};
+struct ipv6_address
+{
+    std::array<std::uint8_t, 16> bytes{};
+};
+struct domain_address
+{
+    std::string name;
+};
 using address = std::variant<ipv4_address, domain_address, ipv6_address>;
 
 struct client_config
@@ -24,9 +33,8 @@ struct client_config
     std::uint16_t destination_port{};
 };
 
-[[nodiscard]] std::vector<std::uint8_t> encode_tcp_request(
-    const client_config& config, boost::system::error_code& ec);
+[[nodiscard]] std::vector<std::uint8_t> encode_tcp_request(const client_config& configuration, boost::system::error_code& ec);
 
-} // namespace rv::vless
+}    // namespace rv::vless
 
 #endif

@@ -32,33 +32,70 @@ struct frame_header
     std::uint16_t padding_length{};
 };
 
-[[nodiscard]] bool decode_header(
-    std::span<const std::uint8_t> header,
-    bool contains_user_id,
-    std::span<const std::uint8_t, user_id_size> expected_user_id,
-    frame_header& output,
-    boost::system::error_code& ec);
+[[nodiscard]] boost::system::error_code decode_header(std::span<const std::uint8_t> header,
+                                                      bool contains_user_id,
+                                                      std::span<const std::uint8_t, user_id_size> expected_user_id,
+                                                      frame_header& output);
 
-[[nodiscard]] std::vector<std::uint8_t> encode_frame(
-    command frame_command,
-    std::optional<std::span<const std::uint8_t, user_id_size>> user_id,
-    std::span<const std::uint8_t> content,
-    bool long_padding,
-    boost::system::error_code& ec);
+[[nodiscard]] std::vector<std::uint8_t> encode_frame(command frame_command,
+                                                     std::optional<std::span<const std::uint8_t, user_id_size>> user_id,
+                                                     std::span<const std::uint8_t> content,
+                                                     bool long_padding,
+                                                     boost::system::error_code& ec);
 
-[[nodiscard]] bool contains_tls_client_hello(std::span<const std::uint8_t> input) noexcept;
-[[nodiscard]] bool starts_tls13_application_data(std::span<const std::uint8_t> input) noexcept;
-[[nodiscard]] bool consists_of_complete_tls13_application_records(
-    std::span<const std::uint8_t> input) noexcept;
-
-class server_hello_filter
+enum class client_stream_kind : std::uint8_t
 {
-public:
+    undecided,
+    non_tls,
+    tls
+};
+
+struct client_tls_observation
+{
+    client_stream_kind kind{client_stream_kind::undecided};
+    // Offset one byte past the first complete encrypted TLS record in the current input.
+    std::optional<std::size_t> encrypted_record_end_offset;
+    bool tracking_failed{false};
+};
+
+class client_tls_record_tracker
+{
+   public:
+    [[nodiscard]] client_tls_observation observe(std::span<const std::uint8_t> input) noexcept;
+    [[nodiscard]] bool tls_detected() const noexcept { return kind_ == client_stream_kind::tls; }
+
+   private:
+    enum class phase : std::uint8_t
+    {
+        header,
+        payload,
+        disabled
+    };
+
+    void disable_tracking() noexcept;
+    [[nodiscard]] bool parse_record_header() noexcept;
+    [[nodiscard]] bool consume_record_header(std::span<const std::uint8_t> input, std::size_t& position) noexcept;
+    [[nodiscard]] bool detect_client_hello(std::span<const std::uint8_t> input, std::size_t& position) noexcept;
+
+    std::array<std::uint8_t, 5> header_{};
+    std::size_t header_size_{0};
+    std::size_t remaining_payload_{0};
+    std::uint8_t record_type_{0};
+    client_stream_kind kind_{client_stream_kind::undecided};
+    phase phase_{phase::header};
+    bool first_record_{true};
+    bool tracking_failed_{false};
+};
+
+class server_hello_tracker
+{
+   public:
     void observe(std::span<const std::uint8_t> input);
     [[nodiscard]] bool direct_supported() const noexcept { return direct_supported_; }
 
-private:
-    void evaluate();
+   private:
+    [[nodiscard]] bool prepare_server_hello_record();
+    void evaluate_server_hello();
 
     std::vector<std::uint8_t> buffer_;
     std::optional<std::size_t> record_length_;
@@ -66,6 +103,6 @@ private:
     bool direct_supported_{false};
 };
 
-} // namespace rv::vision
+}    // namespace rv::vision
 
 #endif

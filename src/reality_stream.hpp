@@ -9,25 +9,28 @@
 #include <boost/asio/awaitable.hpp>
 #include <boost/system/error_code.hpp>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <span>
 #include <string>
+#include <vector>
 
 namespace rv::reality
 {
 
-enum class receive_mode : uint8_t
+enum class receive_mode : std::uint8_t
 {
     tls,
     raw,
     closed
 };
-enum class send_mode : uint8_t
+
+enum class send_mode : std::uint8_t
 {
     tls,
-    draining,
+    switching_to_raw,
     raw,
     closed
 };
@@ -35,36 +38,48 @@ enum class send_mode : uint8_t
 class reality_stream
 {
    public:
-    [[nodiscard]] static boost::asio::awaitable<std::optional<reality_stream>> connect(net::tcp_byte_stream lower,
-                                                                                       client_config config,
-                                                                                       std::string log,
+    [[nodiscard]] static boost::asio::awaitable<std::optional<reality_stream>> connect(net::tcp_byte_stream tcp,
+                                                                                       client_config configuration,
+                                                                                       std::string session_id,
                                                                                        boost::system::error_code& ec);
 
-    [[nodiscard]] boost::asio::awaitable<std::size_t> async_read_some(std::span<std::uint8_t> output, boost::system::error_code& ec);
-    [[nodiscard]] boost::asio::awaitable<void> async_write_all(std::span<const std::uint8_t> input, boost::system::error_code& ec);
-    [[nodiscard]] boost::asio::awaitable<void> async_shutdown_send(boost::system::error_code& ec);
+    [[nodiscard]] boost::asio::awaitable<std::size_t> read(std::span<std::uint8_t> output, boost::system::error_code& ec);
+    [[nodiscard]] boost::asio::awaitable<void> write(std::span<const std::uint8_t> input, boost::system::error_code& ec);
+    [[nodiscard]] boost::asio::awaitable<void> shutdown_send(boost::system::error_code& ec);
 
-    [[nodiscard]] bool switch_receive_to_raw(boost::system::error_code& ec);
-    [[nodiscard]] boost::asio::awaitable<void> async_write_final_tls_and_switch(std::span<const std::uint8_t> final_plaintext,
-                                                                                boost::system::error_code& ec);
+    void switch_receive_to_raw(boost::system::error_code& ec);
+    [[nodiscard]] boost::asio::awaitable<void> write_final_tls_and_switch_to_raw(std::span<const std::uint8_t> final_plaintext,
+                                                                                 boost::system::error_code& ec);
 
     void shutdown() noexcept;
 
    private:
-    reality_stream(net::tcp_byte_stream lower, record_key read_key, record_key write_key, std::string id);
+    struct encrypted_record
+    {
+        std::array<std::uint8_t, 5> header{};
+        std::vector<std::uint8_t> payload;
+    };
 
-    [[nodiscard]] boost::asio::awaitable<void> write_tls(std::span<const std::uint8_t> input, boost::system::error_code& ec);
-    [[nodiscard]] bool process_post_handshake(boost::system::error_code& ec);
+    reality_stream(net::tcp_byte_stream tcp, record_key receive_key, record_key send_key, std::string session_id);
 
-    net::tcp_byte_stream lower_;
-    record_key read_key_;
-    record_key write_key_;
-    core::byte_queue plaintext_{max_tls_plaintext + 1};
-    core::byte_queue post_handshake_{1U << 20};
+    [[nodiscard]] boost::asio::awaitable<std::size_t> read_raw(std::span<std::uint8_t> output, boost::system::error_code& ec);
+    [[nodiscard]] boost::asio::awaitable<std::size_t> read_tls(std::span<std::uint8_t> output, boost::system::error_code& ec);
+    [[nodiscard]] boost::asio::awaitable<std::optional<encrypted_record>> read_tls_record(boost::system::error_code& ec);
+    [[nodiscard]] std::optional<std::size_t> process_decrypted_record(const opened_record& plaintext,
+                                                                      std::span<std::uint8_t> output,
+                                                                      boost::system::error_code& ec);
+    [[nodiscard]] boost::asio::awaitable<void> write_tls_records(std::span<const std::uint8_t> input, boost::system::error_code& ec);
+    void process_post_handshake_messages(boost::system::error_code& ec);
+
+    net::tcp_byte_stream tcp_;
+    record_key receive_key_;
+    record_key send_key_;
+    core::byte_queue plaintext_buffer_{max_tls_plaintext + 1};
+    core::byte_queue post_handshake_buffer_{1U << 20};
     receive_mode receive_mode_{receive_mode::tls};
     send_mode send_mode_{send_mode::tls};
-    std::size_t useless_records_{0};
-    std::string id_;
+    std::size_t ignored_tls_record_count_{0};
+    std::string session_id_;
 };
 
 }    // namespace rv::reality

@@ -14,7 +14,7 @@ flowchart TD
 ```
 
 没有后台 reader，也没有通用 packet dispatcher。上层调用
-`async_read_some(output)` 时，下层才读取足够的数据来产生结果。这样可以把背压自然地
+`read(output)` 时，下层才读取足够的数据来产生结果。这样可以把背压自然地
 交给协程调用链。
 
 SOCKS5 服务只负责监听、认证协商和解析 TCP CONNECT 目标。认证未配置时选择无认证，
@@ -36,10 +36,10 @@ SOCKS5 服务只负责监听、认证协商和解析 TCP CONNECT 目标。认证
 | `core::byte_queue` | bounded byte vector + begin offset | 保存跨 TLS record 的 handshake 或明文碎片，限制内存增长 |
 | `crypto::aead` | 私有 PImpl | 封装 BoringSSL `EVP_AEAD_CTX`，不向其他模块暴露 BoringSSL 类型 |
 | `reality::record_key` | AEAD、12-byte IV、sequence | TLS 1.3 单方向 record protection |
-| `reality::reality_stream` | RX/TX mode、read/write key、两个 byte_queue | TLS application records 与 raw TCP 之间切换 |
+| `reality::reality_stream` | RX/TX mode、receive/send key、两个 byte_queue | TLS application records 与 raw TCP 之间切换 |
 | `vless::vless_stream` | response header pending flag | 发送 request header，并在首次读取时消费 response header |
-| `vision::server_hello_filter` | bounded buffer、record length、result | 跨读取片段识别内层 TLS 1.3 ServerHello |
-| `vision::vision_stream` | read phase、frame counters、padding/direct flags | Vision 编解码与两个方向的 Direct 决策 |
+| `vision::server_hello_tracker` | bounded buffer、record length、result | 跨读取片段识别内层 TLS 1.3 ServerHello |
+| `vision::vision_stream` | receive phase、frame counters、padding/direct flags | Vision 编解码与两个方向的 Direct 决策 |
 | `socks5::connect_request` | address variant + port | 表示 SOCKS5 TCP CONNECT 目标，不包含远端协议状态 |
 | `socks5::credentials` | username + password | 可选的本地代理认证配置，不写入日志 |
 
@@ -64,8 +64,8 @@ SOCKS5 服务只负责监听、认证协商和解析 TCP CONNECT 目标。认证
 5. 发送 ClientHello，解析 ServerHello 的 cipher、X25519 share 和 Session ID echo；
 6. 派生 handshake traffic secrets；
 7. 解密并验证 EncryptedExtensions、Certificate、CertificateVerify、Finished；
-8. 发送 client Finished，再派生 application traffic keys；
-9. 将 application RX/TX `record_key` 交给 `reality_stream`。
+8. 在包含 server Finished 的 transcript 上派生 application traffic keys；
+9. 发送 client Finished，并将 application RX/TX `record_key` 交给 `reality_stream`。
 
 Transcript 保存完整 handshake message（包含 4-byte handshake header），不包含 TLS record
 header。ServerHello 之后的 handshake message 可以跨 record，`byte_queue` 负责重组。
@@ -84,9 +84,9 @@ stateDiagram-v2
     }
     state TX {
         [*] --> tls
-        tls --> draining: 写最后一个加密 Vision Direct frame
-        draining --> raw: async_write_all 完成
-        draining --> closed: 写失败
+        tls --> switching_to_raw: 写最后一个加密 Vision Direct frame
+        switching_to_raw --> raw: write 完成
+        switching_to_raw --> closed: 写失败
         raw --> closed: shutdown
     }
 ```
@@ -110,7 +110,7 @@ VLESS request header 使用：
 - big-endian port；
 - IPv4/domain/IPv6 address。
 
-VLESS response header 延迟到首次 `async_read_some()` 时消费，因此发送方向不需要等待
+VLESS response header 延迟到首次 `read()` 时消费，因此发送方向不需要等待
 response header。
 
 Vision 首帧含 16-byte UUID，后续帧使用 5-byte header：
@@ -123,9 +123,11 @@ Vision 首帧含 16-byte UUID，后续帧使用 5-byte header：
 | content | variable | 上层数据 |
 | padding | variable | 当前填充为零，长度由 BoringSSL CSPRNG 决定 |
 
-发送方向观察内层 ClientHello；接收方向重组并检查内层 ServerHello。确认内层 TLS 1.3
-及可 Direct 的 cipher 后，第一组完整 TLS 1.3 application records 使用 `command=2`，然后
-切换发送方向。接收方向只在对端 Direct frame 的 content 与 padding 都完整消费后切换。
+发送方向由增量 TLS record tracker 观察内层 ClientHello，并跨写调用保存部分 5-byte record
+header 与剩余 payload 长度；接收方向重组并检查内层 ServerHello。确认内层 TLS 1.3 及可
+Direct 的 cipher 后，第一个完整的加密 `0x17` record 在其结束边界使用 `command=2`。若该
+边界位于一次写入的中间，边界前数据仍作为最后一个 Vision frame 发送，边界后数据立即走
+REALITY raw。接收方向只在对端 Direct frame 的 content 与 padding 都完整消费后切换。
 
 ## 6. 并发与生命周期约定
 

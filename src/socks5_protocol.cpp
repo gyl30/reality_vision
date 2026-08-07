@@ -1,6 +1,5 @@
 #include "socks5_protocol.hpp"
 
-#include <algorithm>
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/ip/address_v6.hpp>
 #include <boost/asio/read.hpp>
@@ -14,6 +13,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <ranges>
 #include <span>
 #include <string>
 #include <type_traits>
@@ -46,9 +46,10 @@ asio::awaitable<void> write_all(asio::ip::tcp::socket& socket, std::span<const s
     co_await asio::async_write(socket, asio::buffer(input.data(), input.size()), asio::redirect_error(asio::use_awaitable, ec));
 }
 
-std::uint16_t read_port(std::span<const std::uint8_t> wire) noexcept
+std::uint16_t read_port(const std::span<const std::uint8_t> request_bytes) noexcept
 {
-    return static_cast<std::uint16_t>(static_cast<std::uint16_t>(wire[wire.size() - 2]) << 8U | static_cast<std::uint16_t>(wire.back()));
+    return static_cast<std::uint16_t>(static_cast<std::uint16_t>(request_bytes[request_bytes.size() - 2]) << 8U |
+                                      static_cast<std::uint16_t>(request_bytes.back()));
 }
 
 asio::awaitable<void> authenticate_username_password(asio::ip::tcp::socket& socket, const credentials& expected, boost::system::error_code& ec)
@@ -59,13 +60,9 @@ asio::awaitable<void> authenticate_username_password(asio::ip::tcp::socket& sock
     {
         co_return;
     }
-
     if (header[0] != authentication_version || header[1] == 0)
     {
-        constexpr std::array<std::uint8_t, 2> failure{authentication_version, 0x01};
-        boost::system::error_code reply_ec;
-        co_await write_all(socket, failure, reply_ec);
-        ec = boost::system::errc::make_error_code(boost::system::errc::permission_denied);
+        ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
         co_return;
     }
 
@@ -82,17 +79,20 @@ asio::awaitable<void> authenticate_username_password(asio::ip::tcp::socket& sock
     {
         co_return;
     }
-    std::string password(password_length[0], '\0');
-    if (!password.empty())
+    if (password_length[0] == 0)
     {
-        co_await read_exact(socket, std::span(reinterpret_cast<std::uint8_t*>(password.data()), password.size()), ec);
-        if (ec)
-        {
-            co_return;
-        }
+        ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
+        co_return;
     }
 
-    const bool authenticated = !password.empty() && username == expected.username && password == expected.password;
+    std::string password(password_length[0], '\0');
+    co_await read_exact(socket, std::span(reinterpret_cast<std::uint8_t*>(password.data()), password.size()), ec);
+    if (ec)
+    {
+        co_return;
+    }
+
+    const bool authenticated = username == expected.username && password == expected.password;
     const std::array<std::uint8_t, 2> response{
         authentication_version,
         static_cast<std::uint8_t>(authenticated ? 0x00 : 0x01),
@@ -108,63 +108,215 @@ asio::awaitable<void> authenticate_username_password(asio::ip::tcp::socket& sock
     }
 }
 
-}    // namespace
+asio::awaitable<void> negotiate_authentication(asio::ip::tcp::socket& socket,
+                                               const std::optional<credentials>& expected_credentials,
+                                               boost::system::error_code& ec)
+{
+    std::array<std::uint8_t, 2> greeting{};
+    co_await read_exact(socket, greeting, ec);
+    if (ec)
+    {
+        co_return;
+    }
+    if (greeting[0] != version)
+    {
+        ec = boost::system::errc::make_error_code(boost::system::errc::protocol_error);
+        co_return;
+    }
 
-boost::system::error_code decode_connect_request(
-    std::span<const std::uint8_t> wire,
-    connect_request& output)
+    std::vector<std::uint8_t> methods(greeting[1]);
+    co_await read_exact(socket, methods, ec);
+    if (ec)
+    {
+        co_return;
+    }
+
+    const auto selected_method = expected_credentials ? username_password_authentication : no_authentication;
+    const bool supported = std::ranges::find(methods, selected_method) != methods.end();
+    const std::array<std::uint8_t, 2> selection{
+        version,
+        supported ? selected_method : no_acceptable_method,
+    };
+    co_await write_all(socket, selection, ec);
+    if (ec)
+    {
+        co_return;
+    }
+    if (!supported)
+    {
+        ec = boost::system::errc::make_error_code(boost::system::errc::operation_not_supported);
+        co_return;
+    }
+
+    if (expected_credentials)
+    {
+        co_await authenticate_username_password(socket, *expected_credentials, ec);
+    }
+}
+
+asio::awaitable<void> send_reply_ignoring_error(asio::ip::tcp::socket& socket, const reply value)
+{
+    boost::system::error_code ignored;
+    co_await send_reply(socket, value, ignored);
+}
+
+asio::awaitable<void> read_connect_request_header(asio::ip::tcp::socket& socket, std::array<std::uint8_t, 4>& header, boost::system::error_code& ec)
+{
+    co_await read_exact(socket, header, ec);
+    if (ec)
+    {
+        co_return;
+    }
+    if (header[0] != version || header[2] != 0)
+    {
+        co_await send_reply_ignoring_error(socket, reply::general_failure);
+        ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
+        co_return;
+    }
+    if (header[1] != connect_command)
+    {
+        co_await send_reply_ignoring_error(socket, reply::command_not_supported);
+        ec = boost::system::errc::make_error_code(boost::system::errc::operation_not_supported);
+        co_return;
+    }
+    co_return;
+}
+
+asio::awaitable<void> read_connect_request_body(asio::ip::tcp::socket& socket,
+                                                const std::array<std::uint8_t, 4>& header,
+                                                std::vector<std::uint8_t>& request_bytes,
+                                                boost::system::error_code& ec)
+{
+    switch (header[3])
+    {
+        case ipv4_type:
+        {
+            const auto offset = request_bytes.size();
+            request_bytes.resize(offset + 6);
+            co_await read_exact(socket, std::span(request_bytes).subspan(offset), ec);
+            break;
+        }
+        case domain_type:
+        {
+            std::array<std::uint8_t, 1> domain_length{};
+            co_await read_exact(socket, domain_length, ec);
+            if (ec)
+            {
+                co_return;
+            }
+            if (domain_length[0] == 0)
+            {
+                ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
+                co_return;
+            }
+
+            request_bytes.push_back(domain_length[0]);
+            const auto offset = request_bytes.size();
+            request_bytes.resize(offset + static_cast<std::size_t>(domain_length[0]) + 2);
+            co_await read_exact(socket, std::span(request_bytes).subspan(offset), ec);
+            break;
+        }
+        case ipv6_type:
+        {
+            const auto offset = request_bytes.size();
+            request_bytes.resize(offset + 18);
+            co_await read_exact(socket, std::span(request_bytes).subspan(offset), ec);
+            break;
+        }
+        default:
+            co_await send_reply_ignoring_error(socket, reply::address_type_not_supported);
+            ec = boost::system::errc::make_error_code(boost::system::errc::address_family_not_supported);
+            co_return;
+    }
+
+    co_return;
+}
+
+asio::awaitable<std::optional<std::vector<std::uint8_t>>> read_connect_request_bytes(asio::ip::tcp::socket& socket, boost::system::error_code& ec)
+{
+    std::array<std::uint8_t, 4> header{};
+    co_await read_connect_request_header(socket, header, ec);
+    if (ec)
+    {
+        co_return std::nullopt;
+    }
+
+    std::vector<std::uint8_t> request_bytes(header.begin(), header.end());
+    co_await read_connect_request_body(socket, header, request_bytes, ec);
+    if (ec)
+    {
+        co_return std::nullopt;
+    }
+
+    co_return request_bytes;
+}
+
+boost::system::error_code decode_destination(const std::span<const std::uint8_t> request_bytes, address& destination)
 {
     using boost::system::errc::make_error_code;
 
-    if (wire.size() < 7 || wire[0] != version || wire[2] != 0)
+    switch (request_bytes[3])
+    {
+        case ipv4_type:
+        {
+            if (request_bytes.size() != 10)
+            {
+                return make_error_code(boost::system::errc::bad_message);
+            }
+            ipv4_address ipv4;
+            std::copy_n(request_bytes.begin() + 4, ipv4.bytes.size(), ipv4.bytes.begin());
+            destination = ipv4;
+            return {};
+        }
+        case domain_type:
+        {
+            const auto domain_length = static_cast<std::size_t>(request_bytes[4]);
+            if (domain_length == 0 || request_bytes.size() != 7 + domain_length)
+            {
+                return make_error_code(boost::system::errc::bad_message);
+            }
+            destination = domain_address{std::string(reinterpret_cast<const char*>(request_bytes.data() + 5), domain_length)};
+            return {};
+        }
+        case ipv6_type:
+        {
+            if (request_bytes.size() != 22)
+            {
+                return make_error_code(boost::system::errc::bad_message);
+            }
+            ipv6_address ipv6;
+            std::copy_n(request_bytes.begin() + 4, ipv6.bytes.size(), ipv6.bytes.begin());
+            destination = ipv6;
+            return {};
+        }
+        default:
+            return make_error_code(boost::system::errc::address_family_not_supported);
+    }
+}
+
+}    // namespace
+
+boost::system::error_code decode_connect_request(const std::span<const std::uint8_t> request_bytes, connect_request& output)
+{
+    using boost::system::errc::make_error_code;
+
+    if (request_bytes.size() < 7 || request_bytes[0] != version || request_bytes[2] != 0)
     {
         return make_error_code(boost::system::errc::bad_message);
     }
-    if (wire[1] != connect_command)
+    if (request_bytes[1] != connect_command)
     {
         return make_error_code(boost::system::errc::operation_not_supported);
     }
 
     connect_request request;
-    switch (wire[3])
+    auto ec = decode_destination(request_bytes, request.destination);
+    if (ec)
     {
-        case ipv4_type:
-        {
-            if (wire.size() != 10)
-            {
-                return make_error_code(boost::system::errc::bad_message);
-            }
-            ipv4_address address;
-            std::copy_n(wire.begin() + 4, address.bytes.size(), address.bytes.begin());
-            request.destination = address;
-            break;
-        }
-        case domain_type:
-        {
-            const auto length = static_cast<std::size_t>(wire[4]);
-            if (length == 0 || wire.size() != 7 + length)
-            {
-                return make_error_code(boost::system::errc::bad_message);
-            }
-            request.destination = domain_address{std::string(reinterpret_cast<const char*>(wire.data() + 5), length)};
-            break;
-        }
-        case ipv6_type:
-        {
-            if (wire.size() != 22)
-            {
-                return make_error_code(boost::system::errc::bad_message);
-            }
-            ipv6_address address;
-            std::copy_n(wire.begin() + 4, address.bytes.size(), address.bytes.begin());
-            request.destination = address;
-            break;
-        }
-        default:
-            return make_error_code(boost::system::errc::address_family_not_supported);
+        return ec;
     }
 
-    request.port = read_port(wire);
+    request.port = read_port(request_bytes);
     if (request.port == 0)
     {
         return make_error_code(boost::system::errc::invalid_argument);
@@ -174,7 +326,7 @@ boost::system::error_code decode_connect_request(
     return {};
 }
 
-std::array<std::uint8_t, 10> encode_reply(reply value) noexcept
+std::array<std::uint8_t, 10> encode_reply(const reply value) noexcept
 {
     return {
         version,
@@ -216,138 +368,36 @@ std::string format_destination(const connect_request& request)
     return host + ":" + std::to_string(request.port);
 }
 
-asio::awaitable<void> async_send_reply(asio::ip::tcp::socket& socket, reply value, boost::system::error_code& ec)
+asio::awaitable<void> send_reply(asio::ip::tcp::socket& socket, const reply value, boost::system::error_code& ec)
 {
-    const auto wire = encode_reply(value);
-    co_await write_all(socket, wire, ec);
+    const auto request_bytes = encode_reply(value);
+    co_await write_all(socket, request_bytes, ec);
 }
 
-asio::awaitable<std::optional<connect_request>> async_negotiate_connect(asio::ip::tcp::socket& socket,
-                                                                        const std::optional<credentials>& auth,
-                                                                        boost::system::error_code& ec)
+asio::awaitable<std::optional<connect_request>> negotiate_connect(asio::ip::tcp::socket& socket,
+                                                                  const std::optional<credentials>& expected_credentials,
+                                                                  boost::system::error_code& ec)
 {
-    std::array<std::uint8_t, 2> greeting{};
-    co_await read_exact(socket, greeting, ec);
-    if (ec)
-    {
-        co_return std::nullopt;
-    }
-    if (greeting[0] != version)
-    {
-        ec = boost::system::errc::make_error_code(boost::system::errc::protocol_error);
-        co_return std::nullopt;
-    }
-
-    std::vector<std::uint8_t> methods(greeting[1]);
-    co_await read_exact(socket, methods, ec);
+    co_await negotiate_authentication(socket, expected_credentials, ec);
     if (ec)
     {
         co_return std::nullopt;
     }
 
-    const auto selected_method = auth ? username_password_authentication : no_authentication;
-    const bool supports_selected_method = std::ranges::find(methods, selected_method) != methods.end();
-    const std::array<std::uint8_t, 2> selection{
-        version,
-        supports_selected_method ? selected_method : no_acceptable_method,
-    };
-    co_await write_all(socket, selection, ec);
-    if (ec)
-    {
-        co_return std::nullopt;
-    }
-    if (!supports_selected_method)
-    {
-        ec = boost::system::errc::make_error_code(boost::system::errc::operation_not_supported);
-        co_return std::nullopt;
-    }
-    if (auth)
-    {
-        co_await authenticate_username_password(socket, *auth, ec);
-        if (ec)
-        {
-            co_return std::nullopt;
-        }
-    }
-
-    std::array<std::uint8_t, 4> header{};
-    co_await read_exact(socket, header, ec);
-    if (ec)
-    {
-        co_return std::nullopt;
-    }
-    if (header[0] != version || header[2] != 0)
-    {
-        boost::system::error_code reply_ec;
-        co_await async_send_reply(socket, reply::general_failure, reply_ec);
-        ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
-        co_return std::nullopt;
-    }
-    if (header[1] != connect_command)
-    {
-        boost::system::error_code reply_ec;
-        co_await async_send_reply(socket, reply::command_not_supported, reply_ec);
-        ec = boost::system::errc::make_error_code(boost::system::errc::operation_not_supported);
-        co_return std::nullopt;
-    }
-
-    std::vector<std::uint8_t> wire(header.begin(), header.end());
-    switch (header[3])
-    {
-        case ipv4_type:
-        {
-            const auto previous = wire.size();
-            wire.resize(previous + 6);
-            co_await read_exact(socket, std::span(wire).subspan(previous), ec);
-            break;
-        }
-        case domain_type:
-        {
-            std::array<std::uint8_t, 1> length{};
-            co_await read_exact(socket, length, ec);
-            if (ec)
-            {
-                co_return std::nullopt;
-            }
-            if (length[0] == 0)
-            {
-                ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
-                co_return std::nullopt;
-            }
-            wire.push_back(length[0]);
-            const auto previous = wire.size();
-            wire.resize(previous + static_cast<std::size_t>(length[0]) + 2);
-            co_await read_exact(socket, std::span(wire).subspan(previous), ec);
-            break;
-        }
-        case ipv6_type:
-        {
-            const auto previous = wire.size();
-            wire.resize(previous + 18);
-            co_await read_exact(socket, std::span(wire).subspan(previous), ec);
-            break;
-        }
-        default:
-        {
-            boost::system::error_code reply_ec;
-            co_await async_send_reply(socket, reply::address_type_not_supported, reply_ec);
-            ec = boost::system::errc::make_error_code(boost::system::errc::address_family_not_supported);
-            co_return std::nullopt;
-        }
-    }
+    auto request_bytes = co_await read_connect_request_bytes(socket, ec);
     if (ec)
     {
         co_return std::nullopt;
     }
 
     connect_request request;
-    ec = decode_connect_request(wire, request);
+    ec = decode_connect_request(*request_bytes, request);
     if (ec)
     {
-        boost::system::error_code reply_ec;
-        co_await async_send_reply(socket, reply::general_failure, reply_ec);
+        co_await send_reply_ignoring_error(socket, reply::general_failure);
         co_return std::nullopt;
     }
+
     co_return request;
 }
 

@@ -16,14 +16,14 @@ namespace rv::reality
 
 struct handshake_result
 {
-    record_key read_key;
-    record_key write_key;
+    record_key receive_key;
+    record_key send_key;
 };
 
 [[nodiscard]] boost::asio::awaitable<std::optional<handshake_result>> perform_client_handshake(
-    net::tcp_byte_stream& stream,
-    const client_config& config,
-    const std::string& log,
+    net::tcp_byte_stream& tcp,
+    const client_config& configuration,
+    const std::string& session_id,
     boost::system::error_code& ec);
 
 } // namespace rv::reality

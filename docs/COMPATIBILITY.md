@@ -76,6 +76,6 @@ ctest --test-dir build --output-on-failure
 - 当前忽略 REALITY certificate 中可选的 ML-DSA extension，不提供 PQ 附加认证保证。
 - 不实现 session tickets、0-RTT、KeyUpdate 或自动 key update。
 - 指纹是固定 profile，不会根据浏览器版本或站点动态选择。
-- Vision 当前以调用方提供的写入块检测 ClientHello 和完整 application records；普通 TCP
-  分片不影响数据正确性，但极端的上层切片可能使连接保守地使用 `command=1`，从而不进入
-  Direct。后续指纹/流式识别模块可以独立完善这一点。
+- Vision 发送方向使用增量 TLS record tracker，跨多次写调用保存部分 record header、剩余
+  payload 长度和 ClientHello 判定状态。TLS record 被 TCP 拆分、多个 record 合并到同一次写入，
+  或加密 record 从某次写入中间结束时，都能在准确的 record 边界结束 padding 或切换 Direct。
