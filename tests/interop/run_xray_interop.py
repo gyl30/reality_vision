@@ -211,7 +211,9 @@ def socks5_rejects_wrong_password(proxy_port: int) -> None:
             raise RuntimeError("SOCKS5 accepted an incorrect password")
 
 
-def socks5_udp_roundtrip(proxy_port: int, target_port: int, payload: bytes) -> None:
+def open_socks5_udp_association(
+    proxy_port: int,
+) -> tuple[socket.socket, socket.socket, tuple[str, int]]:
     control = socket.create_connection(("127.0.0.1", proxy_port), timeout=5)
     relay = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
@@ -241,15 +243,27 @@ def socks5_udp_roundtrip(proxy_port: int, target_port: int, payload: bytes) -> N
         relay_port = int.from_bytes(reply[8:10], "big")
         if relay_port == 0:
             raise RuntimeError("SOCKS5 UDP ASSOCIATE returned port zero")
+        return control, relay, (relay_host, relay_port)
+    except Exception:
+        relay.close()
+        control.close()
+        raise
 
-        request = (
-            b"\x00\x00\x00\x01"
-            + socket.inet_aton("127.0.0.1")
-            + target_port.to_bytes(2, "big")
-            + payload
-        )
+
+def make_socks5_udp_request(target_port: int, payload: bytes) -> bytes:
+    return (
+        b"\x00\x00\x00\x01"
+        + socket.inet_aton("127.0.0.1")
+        + target_port.to_bytes(2, "big")
+        + payload
+    )
+
+
+def socks5_udp_roundtrip(proxy_port: int, target_port: int, payload: bytes) -> None:
+    control, relay, relay_endpoint = open_socks5_udp_association(proxy_port)
+    try:
         relay.settimeout(15)
-        relay.sendto(request, (relay_host, relay_port))
+        relay.sendto(make_socks5_udp_request(target_port, payload), relay_endpoint)
         response, _ = relay.recvfrom(65535)
         if len(response) < 10 or response[:4] != b"\x00\x00\x00\x01":
             raise RuntimeError(f"invalid SOCKS5 UDP response: {response.hex()}")
@@ -259,6 +273,26 @@ def socks5_udp_roundtrip(proxy_port: int, target_port: int, payload: bytes) -> N
             raise RuntimeError("SOCKS5 UDP response source port mismatch")
         if response[10:] != payload:
             raise RuntimeError("SOCKS5 UDP echo response mismatch")
+    finally:
+        relay.close()
+        control.close()
+
+
+def socks5_udp_request_reaches_xray(
+    proxy_port: int,
+    target_port: int,
+    payload: bytes,
+    xray_log_path: Path,
+    xray_process: subprocess.Popen[bytes],
+) -> None:
+    control, relay, relay_endpoint = open_socks5_udp_association(proxy_port)
+    try:
+        relay.sendto(make_socks5_udp_request(target_port, payload), relay_endpoint)
+        wait_for_text(
+            xray_log_path,
+            f"received request for udp:127.0.0.1:{target_port}",
+            xray_process,
+        )
     finally:
         relay.close()
         control.close()
@@ -594,6 +628,24 @@ def main() -> int:
                             "socks_6 socks5 udp association completed",
                             vision_socks_process,
                         )
+
+                        socks5_udp_request_reaches_xray(
+                            vision_socks_port,
+                            443,
+                            b"xray-reality-socks5-udp443-interoperability",
+                            xray_log_path,
+                            xray_process,
+                        )
+                        wait_for_text(
+                            vision_socks_log_path,
+                            "socks_7_udp_1 vless udp request header sent",
+                            vision_socks_process,
+                        )
+                        wait_for_text(
+                            vision_socks_log_path,
+                            "socks_7 socks5 udp association completed",
+                            vision_socks_process,
+                        )
                         time.sleep(0.1)
 
                         if vision_socks_process.poll() is not None:
@@ -636,12 +688,14 @@ def main() -> int:
                         udp_markers = (
                             "socks_6_udp_1 vless udp request header sent",
                             "socks_6 socks5 udp association completed",
+                            "socks_7_udp_1 vless udp request header sent",
+                            "socks_7 socks5 udp association completed",
                         )
                         missing_udp = [marker for marker in udp_markers if marker not in socks_output]
                         udp_vision_markers = [
                             line
                             for line in socks_output.splitlines()
-                            if "socks_6_udp_1" in line and "vision" in line.lower()
+                            if "_udp_" in line and "vision" in line.lower()
                         ]
                         if (
                             missing_direct
@@ -683,8 +737,8 @@ def main() -> int:
             udp_echo_thread.join(timeout=2)
 
     print(
-        "Xray REALITY, VLESS Vision, VLESS UDP, SOCKS5 authentication, UDP ASSOCIATE, "
-        "destination sniffing, TLS 1.2 fallback, and TLS 1.3 Direct tests passed"
+        "Xray REALITY, VLESS Vision, VLESS UDP including UDP/443, SOCKS5 authentication, "
+        "UDP ASSOCIATE, destination sniffing, TLS 1.2 fallback, and TLS 1.3 Direct tests passed"
     )
     return 0
 

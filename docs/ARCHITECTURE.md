@@ -159,7 +159,7 @@ association 的 UDP socket 和全部上游 flow 一起关闭。
 TPROXY UDP 按 `(client endpoint, original destination)` 建立 flow。每条 flow 额外拥有一个 `IP_TRANSPARENT` reply socket，
 绑定 original destination，使下行 datagram 返回客户端时仍以原目标 IP:port 为源；原目标端口低于 1024 时运行进程还需要
 `CAP_NET_BIND_SERVICE`。单线程 `io_context(1)` 下 flow map、uplink、
-downlink 和 30 秒 cleanup timer 顺序执行；120 秒无活动 flow 被回收。UDP/443 当前在入口处跳过，不创建 flow。
+downlink 和 30 秒 cleanup timer 顺序执行；120 秒无活动 flow 被回收。UDP/443 与其他 UDP 使用相同 flow；当前不解析 QUIC，也不做 QUIC SNI sniff。
 
 stream 不在内部排队或检测同方向并发。调用方必须保证同一时刻最多有一个读操作和一个
 写操作；这些对象也不是线程安全容器。当一个 `io_context` 由多个线程运行时，调用方必须

@@ -42,7 +42,6 @@ using tcp = asio::ip::tcp;
 using udp = asio::ip::udp;
 
 constexpr std::size_t max_udp_packet_size = 65535;
-constexpr std::uint16_t deferred_udp_443_port = 443;
 constexpr auto tproxy_udp_idle_timeout = std::chrono::seconds(120);
 constexpr auto tproxy_udp_cleanup_interval = std::chrono::seconds(30);
 
@@ -334,12 +333,6 @@ asio::awaitable<void> run_socks_udp_relay(const std::shared_ptr<socks_udp_state>
         {
             continue;
         }
-        if (datagram.port == deferred_udp_443_port)
-        {
-            spdlog::debug("{} socks5 udp/443 deferred", session_id);
-            continue;
-        }
-
         auto flow = co_await get_socks_flow(state, configuration, datagram, session_id, ec);
         if (ec)
         {
@@ -704,12 +697,6 @@ asio::awaitable<void> run_tproxy_server(udp::socket socket, app::config configur
         {
             continue;
         }
-        if (destination.port() == deferred_udp_443_port)
-        {
-            spdlog::debug("tproxy udp/443 deferred {} -> {}", format_endpoint(client), format_endpoint(destination));
-            continue;
-        }
-
         auto flow = co_await get_tproxy_flow(state, configuration, client, destination, ec);
         if (ec)
         {

@@ -54,7 +54,7 @@ X25519MLKEM768、ML-DSA 附加校验和 Xray 的 spider fallback。REALITY 身�
 会直接失败，不会把连接当作普通网站 TLS 会话继续使用。
 
 SOCKS5 当前只监听本机回环地址；不支持 `BIND`，支持 `UDP ASSOCIATE` 但不支持 SOCKS5 UDP fragmentation (`FRAG != 0`)。
-透明入站当前支持 Linux IPv4 TCP REDIRECT、TCP TPROXY 和 UDP TPROXY；不实现通用 UDP REDIRECT。IPv6 transparent、DNS 专用劫持和 UDP/443（QUIC）留到后续阶段。
+透明入站当前支持 Linux IPv4 TCP REDIRECT、TCP TPROXY 和 UDP TPROXY；不实现通用 UDP REDIRECT。IPv6 transparent 和 DNS 专用劫持留到后续阶段。UDP/443 可按普通 UDP 转发，但当前不解析或 sniff QUIC。
 
 ## 目录与依赖关系
 
@@ -190,7 +190,7 @@ TCP half-close 传播，另一方向继续排空后再释放连接。
 `UDP ASSOCIATE` 使用同一个 `--socks_port`：TCP 控制连接建立 association，服务端返回一个回环 UDP relay endpoint。
 SOCKS5 UDP header 中的目标地址/端口决定远端 VLESS UDP flow；同一 association 对同一目标复用 flow，不同目标各自建立
 `reality_stream -> vless_udp_stream`。UDP flow 的 VLESS addon 长度为 0，不创建 `vision_stream`，datagram 在 VLESS body 中按
-`uint16_be length + payload` 保持边界。SOCKS5 `FRAG != 0` 当前拒绝。UDP/443 当前阶段直接跳过，不建立上游 flow。
+`uint16_be length + payload` 保持边界。SOCKS5 `FRAG != 0` 当前拒绝。UDP/443 与其他 UDP 使用相同的 VLESS UDP + REALITY 路径，不经过 Vision。
 
 ## 作为 Linux TCP / UDP 透明代理运行
 
@@ -257,8 +257,9 @@ UDP TPROXY 不做 sniff，也不经过 Vision。listener 用 `recvmsg()` 读取 
 `(client endpoint, original destination)` 复用 UDP flow；每条 flow 建立 `REALITY -> VLESS UDP`，下行使用一个
 绑定到 original destination 的透明 UDP socket，把回包以原目标 IP:port 作为源地址送回客户端。空闲 flow 当前在 120 秒后回收。
 
-当前阶段明确不处理 UDP/443；部署规则应避免把 UDP/443 送入本程序，若希望浏览器/HTTP3 回落 TCP，可在系统规则层
-REJECT UDP/443。程序本身不管理 iptables/nftables、policy routing 或 DNS 劫持。Docker bridge 的 UDP TPROXY 还可能受到
+UDP/443 与其他 UDP 一样可以进入 TPROXY 并通过 VLESS UDP + REALITY 转发；当前只保持 datagram 边界，不解析 QUIC Initial、
+不恢复 QUIC SNI，也不创建 Vision stream。若部署上希望浏览器/HTTP3 回落 TCP，仍可在系统规则层 REJECT UDP/443。
+程序本身不管理 iptables/nftables、policy routing 或 DNS 劫持。Docker bridge 的 UDP TPROXY 还可能受到
 `br_netfilter` 路径影响，和 TCP TPROXY 一样应由部署环境验证；本机/路由场景不依赖 Docker bridge。
 
 ## 基本用法
