@@ -308,6 +308,17 @@ def socks5_rejects_wrong_password(proxy_port: int) -> None:
             raise RuntimeError("SOCKS5 accepted an incorrect password")
 
 
+def socks5_rejects_wrong_version(proxy_port: int) -> None:
+    with socket.create_connection(("127.0.0.1", proxy_port), timeout=5) as sock:
+        sock.settimeout(5)
+        sock.sendall(b"\x04\x01\x00")
+        try:
+            if sock.recv(1):
+                raise RuntimeError("SOCKS5 replied to a greeting with the wrong version")
+        except ConnectionResetError:
+            pass
+
+
 def open_socks5_udp_association(
     proxy_port: int,
     username: str | None = SOCKS_USERNAME,
@@ -1138,6 +1149,13 @@ def main() -> int:
                         wait_for_text(
                             vision_socks_log_path,
                             "socks_11 socks5 udp association completed",
+                            vision_socks_process,
+                        )
+
+                        socks5_rejects_wrong_version(vision_socks_port)
+                        wait_for_text(
+                            vision_socks_log_path,
+                            "socks_12 socks5 negotiation failed: Bad message",
                             vision_socks_process,
                         )
                         time.sleep(0.1)

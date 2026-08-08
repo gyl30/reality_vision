@@ -232,7 +232,7 @@ asio::awaitable<void> negotiate_authentication(asio::ip::tcp::socket& socket,
     }
     if (greeting[0] != kVersion)
     {
-        ec = boost::system::errc::make_error_code(boost::system::errc::protocol_error);
+        ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
         co_return;
     }
 
