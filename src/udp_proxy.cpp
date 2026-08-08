@@ -257,7 +257,7 @@ asio::awaitable<void> run_socks_downlink(std::shared_ptr<socks_udp_state> state,
         }
 
         flow->last_activity = std::chrono::steady_clock::now();
-        auto packet = socks5::encode_udp_datagram(flow->remote_address, flow->remote_port, *payload, ec);
+        auto packet = socks5::encode_udp_datagram(flow->remote_address, flow->remote_port, payload, ec);
         if (ec)
         {
             spdlog::warn("{} socks5 udp response encode failed: {}", flow->session_id, ec.message());
@@ -514,7 +514,7 @@ asio::awaitable<void> run_tproxy_downlink(std::shared_ptr<tproxy_udp_flow> flow)
 
         flow->last_activity = std::chrono::steady_clock::now();
         co_await flow->reply_socket.async_send_to(
-            asio::buffer(*payload), flow->client, asio::redirect_error(asio::use_awaitable, ec));
+            asio::buffer(payload), flow->client, asio::redirect_error(asio::use_awaitable, ec));
         if (ec)
         {
             if (ec != asio::error::operation_aborted)

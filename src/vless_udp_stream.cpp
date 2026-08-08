@@ -108,14 +108,14 @@ boost::asio::awaitable<void> vless_udp_stream::write_datagram(std::span<const st
     co_await reality_.write(wire, ec);
 }
 
-boost::asio::awaitable<std::optional<std::vector<std::uint8_t>>> vless_udp_stream::read_datagram(boost::system::error_code& ec)
+boost::asio::awaitable<std::vector<std::uint8_t>> vless_udp_stream::read_datagram(boost::system::error_code& ec)
 {
     if (response_header_pending_)
     {
         co_await read_response_header(ec);
         if (ec)
         {
-            co_return std::nullopt;
+            co_return std::vector<std::uint8_t>{};
         }
     }
 
@@ -123,21 +123,21 @@ boost::asio::awaitable<std::optional<std::vector<std::uint8_t>>> vless_udp_strea
     co_await read_exact(length_bytes, ec);
     if (ec)
     {
-        co_return std::nullopt;
+        co_return std::vector<std::uint8_t>{};
     }
 
     const auto length = static_cast<std::size_t>(length_bytes[0]) << 8U | static_cast<std::size_t>(length_bytes[1]);
     if (length == 0)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
-        co_return std::nullopt;
+        co_return std::vector<std::uint8_t>{};
     }
 
     std::vector<std::uint8_t> payload(length);
     co_await read_exact(payload, ec);
     if (ec)
     {
-        co_return std::nullopt;
+        co_return std::vector<std::uint8_t>{};
     }
     co_return payload;
 }

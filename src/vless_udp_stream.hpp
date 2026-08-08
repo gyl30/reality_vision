@@ -25,7 +25,7 @@ class vless_udp_stream
                                                                                          boost::system::error_code& ec);
 
     [[nodiscard]] boost::asio::awaitable<void> write_datagram(std::span<const std::uint8_t> payload, boost::system::error_code& ec);
-    [[nodiscard]] boost::asio::awaitable<std::optional<std::vector<std::uint8_t>>> read_datagram(boost::system::error_code& ec);
+    [[nodiscard]] boost::asio::awaitable<std::vector<std::uint8_t>> read_datagram(boost::system::error_code& ec);
 
     void shutdown() noexcept;
 
