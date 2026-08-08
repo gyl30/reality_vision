@@ -127,6 +127,37 @@ def encode_socks5_address(target_host: str) -> bytes:
     return b"\x03" + bytes([len(host)]) + host
 
 
+def negotiate_socks5_authentication(
+    sock: socket.socket,
+    username: str | None,
+    password: str | None,
+) -> None:
+    if (username is None) != (password is None):
+        raise ValueError("SOCKS5 username and password must be provided together")
+    if username is None or password is None:
+        sock.sendall(b"\x05\x01\x00")
+        if recv_exact(sock, 2) != b"\x05\x00":
+            raise RuntimeError("SOCKS5 no-authentication negotiation failed")
+        return
+
+    username_bytes = username.encode()
+    password_bytes = password.encode()
+    if not 0 < len(username_bytes) <= 255 or not 0 < len(password_bytes) <= 255:
+        raise ValueError("SOCKS5 credential length is invalid")
+    sock.sendall(b"\x05\x01\x02")
+    if recv_exact(sock, 2) != b"\x05\x02":
+        raise RuntimeError("SOCKS5 username and password negotiation failed")
+    sock.sendall(
+        b"\x01"
+        + bytes([len(username_bytes)])
+        + username_bytes
+        + bytes([len(password_bytes)])
+        + password_bytes
+    )
+    if recv_exact(sock, 2) != b"\x01\x00":
+        raise RuntimeError("SOCKS5 username and password authentication failed")
+
+
 def open_socks5_connection(
     proxy_port: int,
     target_host: str,
@@ -137,27 +168,7 @@ def open_socks5_connection(
     sock = socket.create_connection(("127.0.0.1", proxy_port), timeout=5)
     try:
         sock.settimeout(10)
-        if username is None or password is None:
-            sock.sendall(b"\x05\x01\x00")
-            if recv_exact(sock, 2) != b"\x05\x00":
-                raise RuntimeError("SOCKS5 no-authentication negotiation failed")
-        else:
-            username_bytes = username.encode()
-            password_bytes = password.encode()
-            if not 0 < len(username_bytes) <= 255 or not 0 < len(password_bytes) <= 255:
-                raise ValueError("SOCKS5 credential length is invalid")
-            sock.sendall(b"\x05\x01\x02")
-            if recv_exact(sock, 2) != b"\x05\x02":
-                raise RuntimeError("SOCKS5 username and password negotiation failed")
-            sock.sendall(
-                b"\x01"
-                + bytes([len(username_bytes)])
-                + username_bytes
-                + bytes([len(password_bytes)])
-                + password_bytes
-            )
-            if recv_exact(sock, 2) != b"\x01\x00":
-                raise RuntimeError("SOCKS5 username and password authentication failed")
+        negotiate_socks5_authentication(sock, username, password)
 
         request = (
             b"\x05\x01\x00"
@@ -295,26 +306,14 @@ def socks5_rejects_wrong_password(proxy_port: int) -> None:
 
 def open_socks5_udp_association(
     proxy_port: int,
+    username: str | None = SOCKS_USERNAME,
+    password: str | None = SOCKS_PASSWORD,
 ) -> tuple[socket.socket, socket.socket, tuple[str, int]]:
     control = socket.create_connection(("127.0.0.1", proxy_port), timeout=5)
     relay = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         control.settimeout(10)
-        control.sendall(b"\x05\x01\x02")
-        if recv_exact(control, 2) != b"\x05\x02":
-            raise RuntimeError("SOCKS5 UDP authentication method negotiation failed")
-
-        username = SOCKS_USERNAME.encode()
-        password = SOCKS_PASSWORD.encode()
-        control.sendall(
-            b"\x01"
-            + bytes([len(username)])
-            + username
-            + bytes([len(password)])
-            + password
-        )
-        if recv_exact(control, 2) != b"\x01\x00":
-            raise RuntimeError("SOCKS5 UDP authentication failed")
+        negotiate_socks5_authentication(control, username, password)
 
         relay.bind(("127.0.0.1", 0))
         control.sendall(b"\x05\x03\x00\x01\x00\x00\x00\x00\x00\x00")
@@ -381,8 +380,14 @@ def socks5_udp_roundtrip(
     target_port: int,
     payload: bytes,
     target_host: str = "127.0.0.1",
+    username: str | None = SOCKS_USERNAME,
+    password: str | None = SOCKS_PASSWORD,
 ) -> None:
-    control, relay, relay_endpoint = open_socks5_udp_association(proxy_port)
+    control, relay, relay_endpoint = open_socks5_udp_association(
+        proxy_port,
+        username,
+        password,
+    )
     try:
         relay.settimeout(15)
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as malformed_source:
@@ -929,6 +934,24 @@ def main() -> int:
                             vision_no_auth_socks_process,
                         )
 
+                        socks5_udp_roundtrip(
+                            vision_no_auth_socks_port,
+                            udp_echo_port,
+                            b"xray-reality-socks5-udp-no-auth-interoperability",
+                            username=None,
+                            password=None,
+                        )
+                        wait_for_text(
+                            vision_no_auth_socks_log_path,
+                            "socks_4_udp_1 vless udp request header sent",
+                            vision_no_auth_socks_process,
+                        )
+                        wait_for_text(
+                            vision_no_auth_socks_log_path,
+                            "socks_4 socks5 udp association completed",
+                            vision_no_auth_socks_process,
+                        )
+
                         socks5_echo_roundtrip(
                             vision_socks_port,
                             echo_port,
@@ -1164,7 +1187,7 @@ def main() -> int:
     print(
         "Xray REALITY, VLESS Vision, VLESS UDP including IPv6, UDP/443, flow reuse, and address-type flow isolation, "
         "SOCKS5 IPv6 and TCP half-close, no-authentication and username/password authentication, "
-        "UDP ASSOCIATE, destination sniffing, "
+        "UDP ASSOCIATE with both authentication modes, destination sniffing, "
         "TLS 1.2 fallback, and TLS 1.3 Direct tests passed"
     )
     return 0
