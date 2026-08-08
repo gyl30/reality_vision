@@ -17,6 +17,12 @@
 
 namespace rv::vless
 {
+namespace
+{
+
+constexpr std::size_t kDatagramLengthSize = 2;
+
+}    // namespace
 
 boost::asio::awaitable<std::optional<vless_udp_stream>> vless_udp_stream::connect(reality::reality_stream reality,
                                                                                   client_config configuration,
@@ -58,7 +64,7 @@ boost::asio::awaitable<void> vless_udp_stream::write_datagram(std::span<const st
     }
 
     std::vector<std::uint8_t> wire;
-    wire.reserve(payload.size() + 2);
+    wire.reserve(payload.size() + kDatagramLengthSize);
     core::append_be16(wire, static_cast<std::uint16_t>(payload.size()));
     wire.insert(wire.end(), payload.begin(), payload.end());
     co_await reality_.write(wire, ec);
@@ -78,7 +84,7 @@ boost::asio::awaitable<std::vector<std::uint8_t>> vless_udp_stream::read_datagra
         spdlog::info("{} vless udp response header accepted", session_id_);
     }
 
-    std::array<std::uint8_t, 2> length_bytes{};
+    std::array<std::uint8_t, kDatagramLengthSize> length_bytes{};
     co_await net::read_exact(reality_, length_bytes, ec);
     if (ec)
     {
