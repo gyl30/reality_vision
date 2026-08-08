@@ -9,7 +9,9 @@
 #include "network_address.hpp"
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <span>
 #include <string>
@@ -17,6 +19,9 @@
 
 namespace rv::socks5
 {
+
+inline constexpr std::size_t kMaximumCredentialLength = std::numeric_limits<std::uint8_t>::max();
+inline constexpr std::size_t kIpv4ReplySize = 10;
 
 enum class command : std::uint8_t
 {
@@ -58,7 +63,7 @@ enum class reply : std::uint8_t
 
 [[nodiscard]] boost::system::error_code decode_request(std::span<const std::uint8_t> request_bytes, request& output);
 [[nodiscard]] boost::system::error_code decode_udp_datagram(std::span<const std::uint8_t> packet, udp_datagram& output);
-[[nodiscard]] std::array<std::uint8_t, 10> encode_reply(reply value) noexcept;
+[[nodiscard]] std::array<std::uint8_t, kIpv4ReplySize> encode_reply(reply value) noexcept;
 [[nodiscard]] std::vector<std::uint8_t> encode_udp_datagram(const net::address& source,
                                                             std::uint16_t port,
                                                             std::span<const std::uint8_t> payload,

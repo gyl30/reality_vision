@@ -53,7 +53,8 @@ bool parse_socks_credentials(const po::variables_map& options, std::string usern
         std::cerr << "--socks_username and --socks_password require --socks_port\n";
         return false;
     }
-    if (username.empty() || password.empty() || username.size() > 255 || password.size() > 255)
+    if (username.empty() || password.empty() || username.size() > socks5::kMaximumCredentialLength ||
+        password.size() > socks5::kMaximumCredentialLength)
     {
         std::cerr << "socks5 credentials must contain 1 to 255 bytes\n";
         return false;

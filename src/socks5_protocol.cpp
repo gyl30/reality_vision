@@ -51,8 +51,8 @@ constexpr std::size_t kUdpHeaderPrefixSize = 3;
 constexpr std::size_t kMaximumDomainLength = std::numeric_limits<std::uint8_t>::max();
 constexpr std::size_t kIpv4RequestBodySize = kIpv4AddressSize + kPortSize;
 constexpr std::size_t kIpv6RequestBodySize = kIpv6AddressSize + kPortSize;
-constexpr std::size_t kIpv4ReplySize = kRequestHeaderSize + kIpv4AddressSize + kPortSize;
 constexpr std::size_t kMaximumUdpHeaderSize = kUdpHeaderPrefixSize + 1 + kIpv6AddressSize + kPortSize;
+static_assert(kIpv4ReplySize == kRequestHeaderSize + kIpv4AddressSize + kPortSize);
 
 asio::awaitable<void> read_exact(asio::ip::tcp::socket& socket, std::span<std::uint8_t> output, boost::system::error_code& ec)
 {
@@ -325,7 +325,7 @@ asio::awaitable<void> read_request_body(asio::ip::tcp::socket& socket,
 
             request_bytes.push_back(domain_length[0]);
             const auto offset = request_bytes.size();
-            request_bytes.resize(offset + static_cast<std::size_t>(domain_length[0]) + 2);
+            request_bytes.resize(offset + static_cast<std::size_t>(domain_length[0]) + kPortSize);
             co_await read_exact(socket, std::span(request_bytes).subspan(offset), ec);
             break;
         }
@@ -414,7 +414,7 @@ boost::system::error_code decode_request(const std::span<const std::uint8_t> req
     {
         return ec;
     }
-    if (request_bytes.size() != port_offset + 2)
+    if (request_bytes.size() != port_offset + kPortSize)
     {
         return make_error_code(boost::system::errc::bad_message);
     }
@@ -453,7 +453,7 @@ boost::system::error_code decode_udp_datagram(const std::span<const std::uint8_t
     {
         return ec;
     }
-    if (packet.size() < port_offset + 2)
+    if (packet.size() < port_offset + kPortSize)
     {
         return make_error_code(boost::system::errc::bad_message);
     }
@@ -467,7 +467,7 @@ boost::system::error_code decode_udp_datagram(const std::span<const std::uint8_t
     output = udp_datagram{
         .destination = std::move(destination),
         .port = port,
-        .payload = packet.subspan(port_offset + 2),
+        .payload = packet.subspan(port_offset + kPortSize),
     };
     return {};
 }
