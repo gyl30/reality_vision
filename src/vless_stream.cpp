@@ -1,16 +1,13 @@
 #include "vless_stream.hpp"
 
-#include "stream_io.hpp"
+#include "vless_response.hpp"
 
-#include <boost/system/errc.hpp>
 #include <spdlog/spdlog.h>
 
-#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <span>
 #include <utility>
-#include <vector>
 
 namespace rv::vless
 {
@@ -40,34 +37,6 @@ vless_stream::vless_stream(reality::reality_stream reality, std::string session_
 {
 }
 
-boost::asio::awaitable<void> vless_stream::read_response_header(boost::system::error_code& ec)
-{
-    std::array<std::uint8_t, 2> header{};
-    co_await net::read_exact(reality_, header, ec);
-    if (ec)
-    {
-        co_return;
-    }
-    if (header[0] != 0)
-    {
-        ec = boost::system::errc::make_error_code(boost::system::errc::permission_denied);
-        co_return;
-    }
-
-    if (header[1] != 0)
-    {
-        std::vector<std::uint8_t> addon(header[1]);
-        co_await net::read_exact(reality_, addon, ec);
-        if (ec)
-        {
-            co_return;
-        }
-    }
-
-    response_header_pending_ = false;
-    spdlog::info("{} vless response header accepted", session_id_);
-}
-
 boost::asio::awaitable<std::size_t> vless_stream::read(std::span<std::uint8_t> output, boost::system::error_code& ec)
 {
     ec.clear();
@@ -78,11 +47,13 @@ boost::asio::awaitable<std::size_t> vless_stream::read(std::span<std::uint8_t> o
 
     if (response_header_pending_)
     {
-        co_await read_response_header(ec);
+        co_await vless::read_response_header(reality_, ec);
         if (ec)
         {
             co_return 0;
         }
+        response_header_pending_ = false;
+        spdlog::info("{} vless response header accepted", session_id_);
     }
 
     co_return co_await reality_.read(output, ec);

@@ -2,7 +2,7 @@
 
 #include "byte_order.hpp"
 #include "byte_writer.hpp"
-#include "stream_io.hpp"
+#include "vless_response.hpp"
 
 #include <boost/system/errc.hpp>
 #include <spdlog/spdlog.h>
@@ -44,34 +44,6 @@ vless_udp_stream::vless_udp_stream(reality::reality_stream reality, std::string 
 {
 }
 
-boost::asio::awaitable<void> vless_udp_stream::read_response_header(boost::system::error_code& ec)
-{
-    std::array<std::uint8_t, 2> header{};
-    co_await net::read_exact(reality_, header, ec);
-    if (ec)
-    {
-        co_return;
-    }
-    if (header[0] != 0)
-    {
-        ec = boost::system::errc::make_error_code(boost::system::errc::permission_denied);
-        co_return;
-    }
-
-    if (header[1] != 0)
-    {
-        std::vector<std::uint8_t> addon(header[1]);
-        co_await net::read_exact(reality_, addon, ec);
-        if (ec)
-        {
-            co_return;
-        }
-    }
-
-    response_header_pending_ = false;
-    spdlog::info("{} vless udp response header accepted", session_id_);
-}
-
 boost::asio::awaitable<void> vless_udp_stream::write_datagram(std::span<const std::uint8_t> payload, boost::system::error_code& ec)
 {
     ec.clear();
@@ -97,11 +69,13 @@ boost::asio::awaitable<std::vector<std::uint8_t>> vless_udp_stream::read_datagra
     ec.clear();
     if (response_header_pending_)
     {
-        co_await read_response_header(ec);
+        co_await vless::read_response_header(reality_, ec);
         if (ec)
         {
             co_return std::vector<std::uint8_t>{};
         }
+        response_header_pending_ = false;
+        spdlog::info("{} vless udp response header accepted", session_id_);
     }
 
     std::array<std::uint8_t, 2> length_bytes{};

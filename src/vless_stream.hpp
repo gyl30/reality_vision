@@ -36,8 +36,6 @@ class vless_stream
 
    private:
     vless_stream(reality::reality_stream reality, std::string session_id);
-    [[nodiscard]] boost::asio::awaitable<void> read_response_header(boost::system::error_code& ec);
-
     reality::reality_stream reality_;
     bool response_header_pending_{true};
     std::string session_id_;
