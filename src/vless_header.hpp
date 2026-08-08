@@ -6,15 +6,18 @@
 #include "network_address.hpp"
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
 namespace rv::vless
 {
 
+inline constexpr std::size_t kUserIdSize = 16;
+
 struct client_config
 {
-    std::array<std::uint8_t, 16> user_id{};
+    std::array<std::uint8_t, kUserIdSize> user_id{};
     net::address destination;
     std::uint16_t destination_port{};
 };

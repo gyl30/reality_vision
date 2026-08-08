@@ -4,6 +4,7 @@
 #include "crypto.hpp"
 #include "reality_config.hpp"
 #include "socks5_protocol.hpp"
+#include "vless_header.hpp"
 
 #include <array>
 #include <cstdint>
@@ -22,7 +23,7 @@ struct config
     std::string reality_server_name;
     std::array<std::uint8_t, crypto::kX25519KeySize> reality_server_public_key{};
     std::array<std::uint8_t, reality::kShortIdSize> reality_short_id{};
-    std::array<std::uint8_t, 16> vless_user_id{};
+    std::array<std::uint8_t, vless::kUserIdSize> vless_user_id{};
 
     std::uint16_t socks_listen_port = 0;
     std::uint16_t redirect_listen_port = 0;
