@@ -51,6 +51,34 @@ void expect_error(const boost::system::error_code& ec, boost::system::errc::errc
     expect(ec == boost::system::errc::make_error_code(expected), message);
 }
 
+std::span<const std::uint8_t> test_subspan(
+    const std::span<const std::uint8_t> input,
+    const std::size_t offset,
+    const std::size_t size,
+    const std::string_view message)
+{
+    expect(offset <= input.size() && size <= input.size() - offset, message);
+    return input.subspan(offset, size);
+}
+
+std::uint16_t read_test_u16(const std::span<const std::uint8_t> input, const std::size_t offset, const std::string_view message)
+{
+    const auto bytes = test_subspan(input, offset, 2, message);
+    return static_cast<std::uint16_t>((static_cast<std::uint16_t>(bytes[0]) << 8U) | bytes[1]);
+}
+
+std::size_t read_test_u24(const std::span<const std::uint8_t> input, const std::size_t offset, const std::string_view message)
+{
+    const auto bytes = test_subspan(input, offset, 3, message);
+    return (static_cast<std::size_t>(bytes[0]) << 16U) | (static_cast<std::size_t>(bytes[1]) << 8U) | bytes[2];
+}
+
+template <std::size_t size>
+void expect_bytes(const std::span<const std::uint8_t> actual, const std::array<std::uint8_t, size>& expected, const std::string_view message)
+{
+    expect(actual.size() == expected.size() && std::equal(actual.begin(), actual.end(), expected.begin()), message);
+}
+
 rv::app::config parse_short_id_test_config(const std::string& short_id)
 {
     std::vector<std::string> arguments{
@@ -195,8 +223,107 @@ void test_client_hello()
     config.short_id = {0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef};
     const auto hello = rv::reality::build_client_hello(config, ec, std::chrono::system_clock::time_point(std::chrono::seconds(1'700'000'000)));
     expect(!ec && hello.has_value(), "ClientHello construction failed");
-    expect(hello->handshake_bytes.size() > 100 && hello->handshake_bytes[0] == 1, "ClientHello wire mismatch");
-    expect(std::equal(hello->session_id.begin(), hello->session_id.end(), hello->handshake_bytes.begin() + 39), "ClientHello session ID mismatch");
+
+    const auto wire = std::span<const std::uint8_t>(hello->handshake_bytes);
+    expect(wire.size() > 111 && wire[0] == 0x01, "ClientHello wire mismatch");
+    expect(read_test_u24(wire, 1, "ClientHello length missing") == wire.size() - 4, "ClientHello handshake length mismatch");
+    expect(wire[4] == 0x03 && wire[5] == 0x03, "ClientHello legacy version mismatch");
+    expect(wire[38] == hello->session_id.size(), "ClientHello session ID length mismatch");
+    expect(std::equal(hello->session_id.begin(), hello->session_id.end(), wire.begin() + 39), "ClientHello session ID mismatch");
+
+    constexpr std::array<std::uint16_t, 17> expected_ciphers{
+        0x1301, 0x1303, 0x1302, 0xc02b, 0xc02f, 0xcca9, 0xcca8, 0xc02c, 0xc030, 0xc00a, 0xc009, 0xc013, 0xc014, 0x009c, 0x009d, 0x002f, 0x0035};
+    std::size_t position = 71;
+    expect(read_test_u16(wire, position, "ClientHello cipher length missing") == expected_ciphers.size() * 2, "ClientHello cipher length mismatch");
+    position += 2;
+    for (const auto expected : expected_ciphers)
+    {
+        expect(read_test_u16(wire, position, "ClientHello cipher missing") == expected, "ClientHello cipher order mismatch");
+        position += 2;
+    }
+
+    constexpr std::array<std::uint8_t, 2> expected_compression{1, 0};
+    expect_bytes(test_subspan(wire, position, expected_compression.size(), "ClientHello compression missing"), expected_compression,
+                 "ClientHello compression mismatch");
+    position += 2;
+
+    const auto extensions_length = read_test_u16(wire, position, "ClientHello extensions length missing");
+    position += 2;
+    expect(extensions_length == wire.size() - position, "ClientHello extensions length mismatch");
+
+    constexpr std::array<std::uint16_t, 15> expected_extension_types{
+        0x0000, 0x0017, 0xff01, 0x000a, 0x000b, 0x0023, 0x0010, 0x0005, 0x0022, 0x0033, 0x002b, 0x000d, 0x002d, 0x001c, 0xfe0d};
+    std::array<std::span<const std::uint8_t>, expected_extension_types.size()> extension_data{};
+    for (std::size_t index = 0; index != expected_extension_types.size(); ++index)
+    {
+        expect(read_test_u16(wire, position, "ClientHello extension type missing") == expected_extension_types[index],
+               "ClientHello extension order mismatch");
+        position += 2;
+        const auto extension_length = read_test_u16(wire, position, "ClientHello extension length missing");
+        position += 2;
+        extension_data[index] = test_subspan(wire, position, extension_length, "ClientHello extension truncated");
+        position += extension_length;
+    }
+    expect(position == wire.size(), "ClientHello contains unexpected extensions");
+
+    const auto sni = extension_data[0];
+    expect(sni.size() == 20, "ClientHello SNI size mismatch");
+    expect(read_test_u16(sni, 0, "ClientHello SNI list missing") == 18 && sni[2] == 0x00 &&
+               read_test_u16(sni, 3, "ClientHello SNI name length missing") == config.server_name.size() &&
+               std::equal(config.server_name.begin(), config.server_name.end(), sni.begin() + 5),
+           "ClientHello SNI mismatch");
+
+    constexpr std::array<std::uint8_t, 14> expected_groups{
+        0x00, 0x0c, 0x00, 0x1d, 0x00, 0x17, 0x00, 0x18, 0x00, 0x19, 0x01, 0x00, 0x01, 0x01};
+    expect_bytes(extension_data[3], expected_groups, "ClientHello supported groups mismatch");
+
+    constexpr std::array<std::uint8_t, 14> expected_alpn{
+        0x00, 0x0c, 0x02, 'h', '2', 0x08, 'h', 't', 't', 'p', '/', '1', '.', '1'};
+    expect_bytes(extension_data[6], expected_alpn, "ClientHello ALPN mismatch");
+
+    expect(extension_data[1].empty() && extension_data[5].empty(), "ClientHello empty extension mismatch");
+    constexpr std::array<std::uint8_t, 1> expected_renegotiation{0x00};
+    expect_bytes(extension_data[2], expected_renegotiation, "ClientHello renegotiation extension mismatch");
+    constexpr std::array<std::uint8_t, 2> expected_point_formats{0x01, 0x00};
+    expect_bytes(extension_data[4], expected_point_formats, "ClientHello point formats mismatch");
+    constexpr std::array<std::uint8_t, 5> expected_status_request{0x01, 0x00, 0x00, 0x00, 0x00};
+    expect_bytes(extension_data[7], expected_status_request, "ClientHello status request mismatch");
+    constexpr std::array<std::uint8_t, 10> expected_delegated_credentials{
+        0x00, 0x08, 0x04, 0x03, 0x05, 0x03, 0x06, 0x03, 0x02, 0x03};
+    expect_bytes(extension_data[8], expected_delegated_credentials, "ClientHello delegated credentials mismatch");
+
+    const auto key_share = extension_data[9];
+    expect(key_share.size() == 107 && read_test_u16(key_share, 0, "ClientHello key share list missing") == 105,
+           "ClientHello key share length mismatch");
+    expect(read_test_u16(key_share, 2, "ClientHello X25519 group missing") == 0x001d &&
+               read_test_u16(key_share, 4, "ClientHello X25519 length missing") == 32,
+           "ClientHello X25519 key share mismatch");
+    expect(read_test_u16(key_share, 38, "ClientHello P-256 group missing") == 0x0017 &&
+               read_test_u16(key_share, 40, "ClientHello P-256 length missing") == 65 && key_share[42] == 0x04,
+           "ClientHello P-256 key share mismatch");
+
+    constexpr std::array<std::uint8_t, 5> expected_versions{0x04, 0x03, 0x04, 0x03, 0x03};
+    expect_bytes(extension_data[10], expected_versions, "ClientHello supported versions mismatch");
+
+    constexpr std::array<std::uint8_t, 24> expected_signatures{
+        0x00, 0x16, 0x04, 0x03, 0x05, 0x03, 0x06, 0x03, 0x08, 0x04, 0x08, 0x05,
+        0x08, 0x06, 0x04, 0x01, 0x05, 0x01, 0x06, 0x01, 0x02, 0x03, 0x02, 0x01};
+    expect_bytes(extension_data[11], expected_signatures, "ClientHello signature algorithms mismatch");
+
+    constexpr std::array<std::uint8_t, 2> expected_psk_modes{0x01, 0x01};
+    expect_bytes(extension_data[12], expected_psk_modes, "ClientHello PSK mode mismatch");
+
+    constexpr std::array<std::uint8_t, 2> expected_record_size_limit{0x40, 0x01};
+    expect_bytes(extension_data[13], expected_record_size_limit, "ClientHello record size limit mismatch");
+
+    const auto ech = extension_data[14];
+    expect(ech.size() == 281 && ech[0] == 0x00, "ClientHello ECH size mismatch");
+    expect(read_test_u16(ech, 1, "ClientHello ECH KDF missing") == 0x0001, "ClientHello ECH KDF mismatch");
+    const auto aead_id = read_test_u16(ech, 3, "ClientHello ECH AEAD missing");
+    expect(aead_id == 0x0001 || aead_id == 0x0003, "ClientHello ECH AEAD mismatch");
+    expect(read_test_u16(ech, 6, "ClientHello ECH encapsulated length missing") == 32 &&
+               read_test_u16(ech, 40, "ClientHello ECH payload length missing") == 239,
+           "ClientHello ECH payload shape mismatch");
 }
 
 void test_vless_header()
@@ -206,19 +333,67 @@ void test_vless_header()
     config.user_id.fill(0x11);
     config.destination = rv::vless::domain_address{"example.com"};
     config.destination_port = 443;
+
     const auto request = rv::vless::encode_tcp_request(config, ec);
-    expect(!ec && !request.empty(), "VLESS request encoding failed");
-    expect(request[17] == 18 && request[36] == 0x01, "VLESS TCP Vision header mismatch");
+    std::vector<std::uint8_t> expected_tcp{0x00};
+    expected_tcp.insert(expected_tcp.end(), config.user_id.begin(), config.user_id.end());
+    constexpr std::array<std::uint8_t, 3> vision_prefix{0x12, 0x0a, 0x10};
+    expected_tcp.insert(expected_tcp.end(), vision_prefix.begin(), vision_prefix.end());
+    constexpr std::string_view vision_flow = "xtls-rprx-vision";
+    expected_tcp.insert(expected_tcp.end(), vision_flow.begin(), vision_flow.end());
+    constexpr std::array<std::uint8_t, 5> tcp_destination_prefix{0x01, 0x01, 0xbb, 0x02, 0x0b};
+    expected_tcp.insert(expected_tcp.end(), tcp_destination_prefix.begin(), tcp_destination_prefix.end());
+    constexpr std::string_view domain = "example.com";
+    expected_tcp.insert(expected_tcp.end(), domain.begin(), domain.end());
+    expect(!ec && request == expected_tcp, "VLESS TCP Vision header mismatch");
 
     config.destination_port = 53;
     const auto udp_request = rv::vless::encode_udp_request(config, ec);
-    expect(!ec && udp_request.size() == 34, "VLESS UDP request encoding failed");
-    expect(udp_request[17] == 0x00 && udp_request[18] == 0x02, "VLESS UDP request unexpectedly contains Vision flow");
-    expect(udp_request[19] == 0x00 && udp_request[20] == 53, "VLESS UDP request port mismatch");
+    std::vector<std::uint8_t> expected_udp{0x00};
+    expected_udp.insert(expected_udp.end(), config.user_id.begin(), config.user_id.end());
+    constexpr std::array<std::uint8_t, 6> udp_destination_prefix{0x00, 0x02, 0x00, 0x35, 0x02, 0x0b};
+    expected_udp.insert(expected_udp.end(), udp_destination_prefix.begin(), udp_destination_prefix.end());
+    expected_udp.insert(expected_udp.end(), domain.begin(), domain.end());
+    expect(!ec && udp_request == expected_udp, "VLESS UDP header mismatch");
+
+    config.destination = rv::vless::ipv4_address{{192, 0, 2, 1}};
+    const auto ipv4_request = rv::vless::encode_udp_request(config, ec);
+    expect(!ec, "VLESS IPv4 encoding failed");
+    constexpr std::array<std::uint8_t, 7> expected_ipv4_suffix{0x00, 0x35, 0x01, 192, 0, 2, 1};
+    expect(ipv4_request.size() >= expected_ipv4_suffix.size() &&
+               std::equal(expected_ipv4_suffix.begin(), expected_ipv4_suffix.end(), ipv4_request.end() - expected_ipv4_suffix.size()),
+           "VLESS IPv4 address mismatch");
+
+    config.destination = rv::vless::ipv6_address{{0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}};
+    config.destination_port = 443;
+    const auto ipv6_request = rv::vless::encode_udp_request(config, ec);
+    expect(!ec, "VLESS IPv6 encoding failed");
+    constexpr std::array<std::uint8_t, 19> expected_ipv6_suffix{
+        0x01, 0xbb, 0x03, 0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
+    expect(ipv6_request.size() >= expected_ipv6_suffix.size() &&
+               std::equal(expected_ipv6_suffix.begin(), expected_ipv6_suffix.end(), ipv6_request.end() - expected_ipv6_suffix.size()),
+           "VLESS IPv6 address mismatch");
 
     config.destination = rv::vless::domain_address{};
     static_cast<void>(rv::vless::encode_tcp_request(config, ec));
-    expect_error(ec, boost::system::errc::invalid_argument, "VLESS invalid domain returned wrong error");
+    expect_error(ec, boost::system::errc::invalid_argument, "VLESS empty domain returned wrong error");
+
+    config.destination = rv::vless::domain_address{std::string("bad\0domain", 10)};
+    static_cast<void>(rv::vless::encode_tcp_request(config, ec));
+    expect_error(ec, boost::system::errc::invalid_argument, "VLESS embedded NUL domain returned wrong error");
+
+    config.destination = rv::vless::domain_address{std::string(255, 'a')};
+    const auto maximum_domain_request = rv::vless::encode_tcp_request(config, ec);
+    expect(!ec && !maximum_domain_request.empty(), "VLESS maximum domain length rejected");
+
+    config.destination = rv::vless::domain_address{std::string(256, 'a')};
+    static_cast<void>(rv::vless::encode_tcp_request(config, ec));
+    expect_error(ec, boost::system::errc::invalid_argument, "VLESS oversized domain returned wrong error");
+
+    config.destination = rv::vless::domain_address{"example.com"};
+    config.destination_port = 0;
+    static_cast<void>(rv::vless::encode_tcp_request(config, ec));
+    expect_error(ec, boost::system::errc::invalid_argument, "VLESS zero port returned wrong error");
 }
 
 void put_test_u16(const std::size_t value, std::vector<std::uint8_t>& output)
