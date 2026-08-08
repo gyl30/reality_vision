@@ -1,6 +1,8 @@
 #ifndef REALITY_VISION_RV_REALITY_CONFIG_HPP
 #define REALITY_VISION_RV_REALITY_CONFIG_HPP
 
+#include "crypto.hpp"
+
 #include <array>
 #include <cstdint>
 #include <string>
@@ -23,7 +25,7 @@ struct client_version
 struct client_config
 {
     std::string server_name;
-    std::array<std::uint8_t, 32> server_public_key{};
+    std::array<std::uint8_t, crypto::kX25519KeySize> server_public_key{};
     std::array<std::uint8_t, 8> short_id{};
     client_version version{};
     client_hello_profile profile{client_hello_profile::kFirefox120};

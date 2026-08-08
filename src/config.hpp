@@ -1,6 +1,7 @@
 #ifndef REALITY_VISION_CONFIG_HPP
 #define REALITY_VISION_CONFIG_HPP
 
+#include "crypto.hpp"
 #include "socks5_protocol.hpp"
 
 #include <array>
@@ -18,7 +19,7 @@ struct config
     std::string reality_server_host;
     std::uint16_t reality_server_port = 0;
     std::string reality_server_name;
-    std::array<std::uint8_t, 32> reality_server_public_key{};
+    std::array<std::uint8_t, crypto::kX25519KeySize> reality_server_public_key{};
     std::array<std::uint8_t, 8> reality_short_id{};
     std::array<std::uint8_t, 16> vless_user_id{};
 
