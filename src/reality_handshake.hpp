@@ -26,6 +26,6 @@ struct handshake_result
     const std::string& session_id,
     boost::system::error_code& ec);
 
-} // namespace rv::reality
+}    // namespace rv::reality
 
 #endif

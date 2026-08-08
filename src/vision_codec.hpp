@@ -53,7 +53,7 @@ enum class client_stream_kind : std::uint8_t
 struct client_tls_observation
 {
     client_stream_kind kind{client_stream_kind::undecided};
-    // Offset one byte past the first complete encrypted TLS record in the current input.
+    // 当前输入中第一个完整加密 TLS record 结束位置的后一字节偏移。
     std::optional<std::size_t> encrypted_record_end_offset;
     bool tracking_failed{false};
 };

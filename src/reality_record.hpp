@@ -114,6 +114,6 @@ struct application_keys
     std::size_t output_length,
     boost::system::error_code& ec);
 
-} // namespace rv::reality
+}    // namespace rv::reality
 
 #endif

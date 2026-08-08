@@ -88,6 +88,6 @@ private:
     std::size_t size_limit_;
 };
 
-} // namespace rv::core
+}    // namespace rv::core
 
 #endif

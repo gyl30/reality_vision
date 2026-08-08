@@ -841,7 +841,7 @@ boost::asio::awaitable<std::optional<parsed_server_hello>> receive_server_hello(
     if (!crypto::constant_time_equal(server_hello.session_id, client_hello.session_id))
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::permission_denied);
-        spdlog::error("{} REALITY server did not echo the authenticated session ID", session_id);
+        spdlog::error("{} reality server did not echo the authenticated session id", session_id);
         co_return std::nullopt;
     }
 

@@ -98,6 +98,6 @@ void verify_ed25519(
     std::span<const std::uint8_t> signature,
     boost::system::error_code& ec);
 
-} // namespace rv::crypto
+}    // namespace rv::crypto
 
 #endif

@@ -33,6 +33,6 @@ struct client_hello_material
     std::span<const std::uint8_t> payload,
     boost::system::error_code& ec);
 
-} // namespace rv::reality
+}    // namespace rv::reality
 
 #endif
