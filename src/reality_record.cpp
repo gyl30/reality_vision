@@ -82,6 +82,17 @@ std::size_t parse_handshake_message_size(const std::span<const std::uint8_t> hea
     return tls::kHandshakeHeaderSize + body_size;
 }
 
+bool is_valid_handshake_fragment(const std::uint8_t content_type,
+                                 const std::span<const std::uint8_t> fragment,
+                                 const bool continuation_pending) noexcept
+{
+    if (content_type == tls::kRecordHandshake)
+    {
+        return !fragment.empty();
+    }
+    return !continuation_pending;
+}
+
 bool is_compatibility_change_cipher_spec(const std::span<const std::uint8_t, tls::kRecordHeaderSize> header,
                                          const std::span<const std::uint8_t> payload) noexcept
 {

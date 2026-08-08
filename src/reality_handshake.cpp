@@ -127,6 +127,11 @@ boost::asio::awaitable<handshake_message> read_plain_handshake_message(net::tcp_
         {
             co_return handshake_message{};
         }
+        if (!is_valid_handshake_fragment(record.type, record.payload, !queue.empty()))
+        {
+            ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
+            co_return handshake_message{};
+        }
         if (record.type == tls::kRecordChangeCipherSpec)
         {
             if (!is_compatibility_change_cipher_spec(record.header, record.payload))
@@ -188,6 +193,11 @@ boost::asio::awaitable<handshake_message> read_encrypted_handshake_message(net::
         auto opened = key.open(record.header, record.payload, ec);
         if (ec)
         {
+            co_return handshake_message{};
+        }
+        if (!is_valid_handshake_fragment(opened.inner_type, opened.content, !queue.empty()))
+        {
+            ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
             co_return handshake_message{};
         }
         if (opened.inner_type == tls::kRecordAlert)
@@ -608,7 +618,7 @@ boost::asio::awaitable<void> read_server_handshake_flight(net::tcp_byte_stream& 
                                                           std::vector<std::uint8_t>& transcript,
                                                           boost::system::error_code& ec)
 {
-    core::byte_queue encrypted_handshake(tls::kMaximumHandshakeMessageSize);
+    core::byte_queue encrypted_handshake(tls::kMaximumHandshakeBufferSize);
     std::array<std::uint8_t, crypto::kEd25519PublicKeySize> certificate_public_key{};
 
     auto message = co_await read_encrypted_handshake_message(tcp, secrets.server_key, encrypted_handshake, ec);
@@ -687,7 +697,7 @@ boost::asio::awaitable<std::optional<parsed_server_hello>> receive_server_hello(
                                                                                 const std::string& session_id,
                                                                                 boost::system::error_code& ec)
 {
-    core::byte_queue plain_handshake(tls::kMaximumHandshakeMessageSize);
+    core::byte_queue plain_handshake(tls::kMaximumHandshakeBufferSize);
     auto message = co_await read_plain_handshake_message(tcp, plain_handshake, ec);
     if (ec)
     {

@@ -35,6 +35,7 @@ struct cipher_suite_properties
 [[nodiscard]] cipher_suite_properties cipher_properties(cipher_suite suite) noexcept;
 [[nodiscard]] bool is_valid_record_payload_size(std::uint8_t outer_type, std::size_t payload_size) noexcept;
 [[nodiscard]] std::size_t parse_handshake_message_size(std::span<const std::uint8_t> header, boost::system::error_code& ec);
+[[nodiscard]] bool is_valid_handshake_fragment(std::uint8_t content_type, std::span<const std::uint8_t> fragment, bool continuation_pending) noexcept;
 [[nodiscard]] bool is_compatibility_change_cipher_spec(std::span<const std::uint8_t, tls::kRecordHeaderSize> header,
                                                        std::span<const std::uint8_t> payload) noexcept;
 [[nodiscard]] std::optional<std::uint8_t> parse_alert_description(std::span<const std::uint8_t> content, boost::system::error_code& ec);

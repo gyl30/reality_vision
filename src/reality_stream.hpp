@@ -75,7 +75,7 @@ class reality_stream
     record_key receive_key_;
     record_key send_key_;
     core::byte_queue plaintext_buffer_{tls::kMaximumPlaintextSize};
-    core::byte_queue post_handshake_buffer_{tls::kMaximumHandshakeMessageSize};
+    core::byte_queue post_handshake_buffer_{tls::kMaximumHandshakeBufferSize};
     receive_mode receive_mode_{receive_mode::kTls};
     send_mode send_mode_{send_mode::kTls};
     std::size_t ignored_tls_record_count_{0};

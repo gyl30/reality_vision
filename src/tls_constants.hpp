@@ -20,6 +20,7 @@ inline constexpr std::size_t kMaximumPlaintextSize = 1U << 14U;
 inline constexpr std::size_t kMaximumInnerPlaintextSize = kMaximumPlaintextSize + 1U;
 inline constexpr std::size_t kMaximumCiphertextSize = kMaximumPlaintextSize + 256U;
 inline constexpr std::size_t kMaximumHandshakeMessageSize = 1U << 20U;
+inline constexpr std::size_t kMaximumHandshakeBufferSize = kMaximumHandshakeMessageSize + kMaximumPlaintextSize;
 
 inline constexpr std::uint8_t kRecordChangeCipherSpec = 20;
 inline constexpr std::uint8_t kRecordAlert = 21;

@@ -325,7 +325,21 @@ void test_tls_control_records()
     expect(rv::reality::is_valid_record_payload_size(0x17, 16640), "TLS rejected maximum ciphertext record payload");
     expect(!rv::reality::is_valid_record_payload_size(0x17, 16641), "TLS accepted oversized ciphertext record payload");
 
+    constexpr std::array<std::uint8_t, 1> kHandshakeFragment{0x01};
+    constexpr std::array<std::uint8_t, 1> kCompatibilityCcs{0x01};
+    expect(rv::reality::is_valid_handshake_fragment(0x16, kHandshakeFragment, false), "TLS rejected a non-empty handshake fragment");
+    expect(!rv::reality::is_valid_handshake_fragment(0x16, {}, false), "TLS accepted an empty handshake fragment");
+    expect(!rv::reality::is_valid_handshake_fragment(0x14, kCompatibilityCcs, true), "TLS interleaved CCS with a handshake message");
+    expect(!rv::reality::is_valid_handshake_fragment(0x17, kHandshakeFragment, true), "TLS interleaved application data with a handshake message");
+
+    rv::core::byte_queue handshake_queue(rv::tls::kMaximumHandshakeBufferSize);
+    std::vector<std::uint8_t> partial_handshake(1048575, 0);
+    std::vector<std::uint8_t> following_record(16384, 0);
     boost::system::error_code ec;
+    handshake_queue.append(partial_handshake, ec);
+    handshake_queue.append(following_record, ec);
+    expect(!ec && handshake_queue.size() == 1064959, "TLS handshake buffer rejected a maximum fragmented message");
+
     constexpr std::array<std::uint8_t, 4> kMaximumHandshakeHeader{0x0b, 0x0f, 0xff, 0xfc};
     expect(rv::reality::parse_handshake_message_size(kMaximumHandshakeHeader, ec) == 1048576 && !ec, "TLS rejected maximum handshake message");
 
