@@ -9,6 +9,9 @@ namespace rv::tls
 
 inline constexpr std::size_t kRecordHeaderSize = 5;
 inline constexpr std::size_t kHandshakeHeaderSize = 4;
+inline constexpr std::size_t kRecordVersionOffset = 1;
+inline constexpr std::size_t kRecordLengthOffset = 3;
+inline constexpr std::size_t kHandshakeLengthOffset = 1;
 inline constexpr std::size_t kRandomSize = 32;
 inline constexpr std::size_t kX25519KeyShareSize = 32;
 inline constexpr std::size_t kMaximumHandshakeBodyLength = (1U << 24U) - 1U;

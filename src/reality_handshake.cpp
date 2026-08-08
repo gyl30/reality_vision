@@ -77,7 +77,7 @@ boost::asio::awaitable<tls_record> read_tls_record(net::tcp_byte_stream& stream,
     }
 
     record.type = record.header[0];
-    const auto length = static_cast<std::size_t>(core::read_be16(record.header.data() + 3));
+    const auto length = static_cast<std::size_t>(core::read_be16(record.header.data() + tls::kRecordLengthOffset));
     if (length > tls::kMaximumCiphertextSize)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::message_size);
@@ -95,7 +95,7 @@ std::optional<handshake_message> pop_handshake_message(core::byte_queue& queue, 
         return std::nullopt;
     }
     const auto data = queue.data();
-    const auto body_length = static_cast<std::size_t>(core::read_be24(data.data() + 1));
+    const auto body_length = static_cast<std::size_t>(core::read_be24(data.data() + tls::kHandshakeLengthOffset));
     if (body_length > tls::kMaximumHandshakeMessageSize)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::message_size);
@@ -133,7 +133,7 @@ boost::asio::awaitable<handshake_message> read_plain_handshake_message(net::tcp_
         {
             continue;
         }
-        if (record.type != tls::kRecordHandshake || record.header[1] != static_cast<std::uint8_t>(tls::kLegacyVersion >> 8U))
+        if (record.type != tls::kRecordHandshake || record.header[tls::kRecordVersionOffset] != static_cast<std::uint8_t>(tls::kLegacyVersion >> 8U))
         {
             ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
             co_return handshake_message{};
@@ -171,7 +171,7 @@ boost::asio::awaitable<handshake_message> read_encrypted_handshake_message(net::
         {
             continue;
         }
-        if (record.type != tls::kRecordApplicationData || core::read_be16(record.header.data() + 1) != tls::kLegacyVersion)
+        if (record.type != tls::kRecordApplicationData || core::read_be16(record.header.data() + tls::kRecordVersionOffset) != tls::kLegacyVersion)
         {
             ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
             co_return handshake_message{};

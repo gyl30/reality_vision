@@ -19,6 +19,8 @@ namespace rv::sniff
 namespace
 {
 
+constexpr std::uint16_t kMinimumRecordVersion = 0x0300;
+
 [[nodiscard]] result make_result(const status state, std::string domain = {}) { return {.state = state, .domain = std::move(domain)}; }
 
 [[nodiscard]] bool is_valid_domain(const std::span<const std::uint8_t> input) noexcept
@@ -94,14 +96,14 @@ namespace
         return std::nullopt;
     }
 
-    const auto body_size = static_cast<std::size_t>(core::read_be24(handshake.data() + 1));
+    const auto body_size = static_cast<std::size_t>(core::read_be24(handshake.data() + tls::kHandshakeLengthOffset));
     if (handshake.size() < tls::kHandshakeHeaderSize + body_size)
     {
         return std::nullopt;
     }
 
     core::byte_reader reader(handshake.subspan(tls::kHandshakeHeaderSize, body_size));
-    if (!reader.skip(2 + 32))
+    if (!reader.skip(2 + tls::kRandomSize))
     {
         return std::nullopt;
     }
@@ -143,12 +145,13 @@ namespace
     {
         return make_result(status::kNeedMore);
     }
-    if (input[0] != tls::kRecordHandshake || input[1] != 0x03 || input[2] > 0x03)
+    const auto record_version = core::read_be16(input.data() + tls::kRecordVersionOffset);
+    if (input[0] != tls::kRecordHandshake || record_version < kMinimumRecordVersion || record_version > tls::kLegacyVersion)
     {
         return make_result(status::kNoMatch);
     }
 
-    const auto payload_size = static_cast<std::size_t>(core::read_be16(input.data() + 3));
+    const auto payload_size = static_cast<std::size_t>(core::read_be16(input.data() + tls::kRecordLengthOffset));
     if (payload_size == 0 || payload_size > tls::kMaximumPlaintextSize)
     {
         return make_result(status::kNoMatch);

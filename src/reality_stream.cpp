@@ -21,9 +21,11 @@ namespace rv::reality
 namespace
 {
 
+constexpr std::array<std::uint8_t, 2> kCloseNotify{1, 0};
+
 std::size_t handshake_message_length(std::span<const std::uint8_t> input) noexcept
 {
-    return tls::kHandshakeHeaderSize + static_cast<std::size_t>(core::read_be24(input.data() + 1));
+    return tls::kHandshakeHeaderSize + static_cast<std::size_t>(core::read_be24(input.data() + tls::kHandshakeLengthOffset));
 }
 
 }    // namespace
@@ -91,7 +93,7 @@ boost::asio::awaitable<std::optional<reality_stream::encrypted_record>> reality_
         co_return std::nullopt;
     }
 
-    const auto payload_size = static_cast<std::size_t>(core::read_be16(record.header.data() + 3));
+    const auto payload_size = static_cast<std::size_t>(core::read_be16(record.header.data() + tls::kRecordLengthOffset));
     if (payload_size > tls::kMaximumCiphertextSize)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::message_size);
@@ -144,7 +146,7 @@ std::optional<std::size_t> reality_stream::process_decrypted_record(const opened
 
     if (plaintext.inner_type == tls::kRecordAlert)
     {
-        const bool close_notify = plaintext.content.size() == 2 && plaintext.content[0] == 1 && plaintext.content[1] == 0;
+        const bool close_notify = std::ranges::equal(plaintext.content, kCloseNotify);
         if (close_notify)
         {
             receive_mode_ = receive_mode::kClosed;
@@ -181,7 +183,8 @@ boost::asio::awaitable<std::size_t> reality_stream::read_tls(std::span<std::uint
             }
             continue;
         }
-        if (record->header[0] != tls::kRecordApplicationData || core::read_be16(record->header.data() + 1) != tls::kLegacyVersion)
+        if (record->header[0] != tls::kRecordApplicationData ||
+            core::read_be16(record->header.data() + tls::kRecordVersionOffset) != tls::kLegacyVersion)
         {
             ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
             co_return 0;
@@ -254,7 +257,6 @@ boost::asio::awaitable<void> reality_stream::shutdown_send(boost::system::error_
 
     if (send_mode_ == send_mode::kTls)
     {
-        constexpr std::array<std::uint8_t, 2> kCloseNotify{1, 0};
         const auto record = send_key_.seal(tls::kRecordAlert, kCloseNotify, ec);
         if (!ec)
         {

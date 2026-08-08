@@ -75,7 +75,7 @@ std::optional<std::size_t> find_server_hello_record(std::span<const std::uint8_t
 {
     for (std::size_t offset = 0; offset + tls::kRecordHeaderSize + 1 <= input.size(); ++offset)
     {
-        if (input[offset] == tls::kRecordHandshake && core::read_be16(input.data() + offset + 1) == tls::kLegacyVersion &&
+        if (input[offset] == tls::kRecordHandshake && core::read_be16(input.data() + offset + tls::kRecordVersionOffset) == tls::kLegacyVersion &&
             input[offset + tls::kRecordHeaderSize] == tls::kHandshakeServerHello)
         {
             return offset;
@@ -166,13 +166,13 @@ bool is_tls_record_header(const std::array<std::uint8_t, tls::kRecordHeaderSize>
     const bool valid_type = first_record ? type == tls::kRecordHandshake
                                          : type == tls::kRecordChangeCipherSpec || type == tls::kRecordAlert || type == tls::kRecordHandshake ||
                                                type == tls::kRecordApplicationData;
-    const auto version = core::read_be16(header.data() + 1);
+    const auto version = core::read_be16(header.data() + tls::kRecordVersionOffset);
     if (!valid_type || version < kMinimumRecordVersion || version > tls::kLegacyVersion)
     {
         return false;
     }
 
-    const auto length = static_cast<std::size_t>(core::read_be16(header.data() + 3));
+    const auto length = static_cast<std::size_t>(core::read_be16(header.data() + tls::kRecordLengthOffset));
     return length <= tls::kMaximumCiphertextSize && (!first_record || length != 0);
 }
 
@@ -269,7 +269,7 @@ bool client_tls_record_tracker::parse_record_header() noexcept
     }
 
     record_type_ = header_[0];
-    remaining_payload_ = static_cast<std::size_t>(core::read_be16(header_.data() + 3));
+    remaining_payload_ = static_cast<std::size_t>(core::read_be16(header_.data() + tls::kRecordLengthOffset));
     header_size_ = 0;
     phase_ = phase::kPayload;
     return true;
@@ -398,7 +398,7 @@ bool server_hello_tracker::prepare_server_hello_record()
             return false;
         }
 
-        record_length_ = tls::kRecordHeaderSize + static_cast<std::size_t>(core::read_be16(buffer_.data() + 3));
+        record_length_ = tls::kRecordHeaderSize + static_cast<std::size_t>(core::read_be16(buffer_.data() + tls::kRecordLengthOffset));
         if (*record_length_ > kMaximumServerHelloRecordSize)
         {
             done_ = true;

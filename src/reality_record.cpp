@@ -159,8 +159,8 @@ std::vector<std::uint8_t> record_key::seal(std::uint8_t inner_type, std::span<co
     const auto ciphertext_length = inner.size() + crypto::kAeadTagSize;
     std::array<std::uint8_t, tls::kRecordHeaderSize> header{};
     header[0] = tls::kRecordApplicationData;
-    core::write_be16(header.data() + 1, tls::kLegacyVersion);
-    core::write_be16(header.data() + 3, static_cast<std::uint16_t>(ciphertext_length));
+    core::write_be16(header.data() + tls::kRecordVersionOffset, tls::kLegacyVersion);
+    core::write_be16(header.data() + tls::kRecordLengthOffset, static_cast<std::uint16_t>(ciphertext_length));
     const auto nonce = next_nonce(ec);
     if (ec)
     {
