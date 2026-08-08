@@ -1,5 +1,6 @@
 #include "vision_codec.hpp"
 
+#include "byte_order.hpp"
 #include "crypto.hpp"
 
 #include <boost/system/errc.hpp>
@@ -32,8 +33,7 @@ std::uint32_t uniform_below(std::uint32_t bound, boost::system::error_code& ec)
         {
             return 0;
         }
-        const auto value = static_cast<std::uint32_t>(bytes[0]) << 24U | static_cast<std::uint32_t>(bytes[1]) << 16U |
-                           static_cast<std::uint32_t>(bytes[2]) << 8U | static_cast<std::uint32_t>(bytes[3]);
+        const auto value = core::read_be32(bytes.data());
         if (value >= threshold)
         {
             return value % bound;
@@ -102,10 +102,8 @@ boost::system::error_code decode_header(std::span<const std::uint8_t> header,
 
     frame_header decoded{
         .frame_command = static_cast<command>(command_value),
-        .content_length =
-            static_cast<std::uint16_t>(static_cast<std::uint16_t>(header[offset + 1]) << 8U | static_cast<std::uint16_t>(header[offset + 2])),
-        .padding_length =
-            static_cast<std::uint16_t>(static_cast<std::uint16_t>(header[offset + 3]) << 8U | static_cast<std::uint16_t>(header[offset + 4])),
+        .content_length = core::read_be16(header.data() + offset + 1),
+        .padding_length = core::read_be16(header.data() + offset + 3),
     };
     if (required + static_cast<std::size_t>(decoded.content_length) + static_cast<std::size_t>(decoded.padding_length) > xray_buffer_size)
     {
@@ -164,7 +162,7 @@ bool is_tls_record_header(const std::array<std::uint8_t, 5>& header, const bool 
         return false;
     }
 
-    const auto length = static_cast<std::size_t>(header[3]) << 8U | static_cast<std::size_t>(header[4]);
+    const auto length = static_cast<std::size_t>(core::read_be16(header.data() + 3));
     return length <= maximum_tls_record_payload && (!first_record || length != 0);
 }
 
@@ -182,7 +180,7 @@ bool server_hello_supports_direct(const std::span<const std::uint8_t> record)
         return false;
     }
 
-    const auto cipher = static_cast<std::uint16_t>(record[cipher_offset]) << 8U | static_cast<std::uint16_t>(record[cipher_offset + 1]);
+    const auto cipher = core::read_be16(record.data() + cipher_offset);
     constexpr std::array<std::uint8_t, 6> tls13_version_extension{0x00, 0x2b, 0x00, 0x02, 0x03, 0x04};
     const bool has_tls13 = std::search(record.begin(), record.end(), tls13_version_extension.begin(), tls13_version_extension.end()) != record.end();
     return has_tls13 && cipher >= 0x1301 && cipher <= 0x1304;
@@ -212,7 +210,7 @@ bool client_tls_record_tracker::parse_record_header() noexcept
     }
 
     record_type_ = header_[0];
-    remaining_payload_ = static_cast<std::size_t>(header_[3]) << 8U | static_cast<std::size_t>(header_[4]);
+    remaining_payload_ = static_cast<std::size_t>(core::read_be16(header_.data() + 3));
     header_size_ = 0;
     phase_ = phase::payload;
     return true;
@@ -341,7 +339,7 @@ bool server_hello_tracker::prepare_server_hello_record()
             return false;
         }
 
-        record_length_ = 5 + (static_cast<std::size_t>(buffer_[3]) << 8U | static_cast<std::size_t>(buffer_[4]));
+        record_length_ = 5 + static_cast<std::size_t>(core::read_be16(buffer_.data() + 3));
         if (*record_length_ > 64UL * 1024U)
         {
             done_ = true;

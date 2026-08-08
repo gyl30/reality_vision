@@ -1,7 +1,9 @@
 #include "protocol_tests.hpp"
 
 #include "base64.hpp"
+#include "byte_order.hpp"
 #include "byte_queue.hpp"
+#include "byte_reader.hpp"
 #include "config.hpp"
 #include "crypto.hpp"
 #include "hex.hpp"
@@ -65,13 +67,13 @@ std::span<const std::uint8_t> test_subspan(
 std::uint16_t read_test_u16(const std::span<const std::uint8_t> input, const std::size_t offset, const std::string_view message)
 {
     const auto bytes = test_subspan(input, offset, 2, message);
-    return static_cast<std::uint16_t>((static_cast<std::uint16_t>(bytes[0]) << 8U) | bytes[1]);
+    return rv::core::read_be16(bytes.data());
 }
 
 std::size_t read_test_u24(const std::span<const std::uint8_t> input, const std::size_t offset, const std::string_view message)
 {
     const auto bytes = test_subspan(input, offset, 3, message);
-    return (static_cast<std::size_t>(bytes[0]) << 16U) | (static_cast<std::size_t>(bytes[1]) << 8U) | bytes[2];
+    return static_cast<std::size_t>(rv::core::read_be24(bytes.data()));
 }
 
 template <std::size_t size>
@@ -160,6 +162,29 @@ void test_byte_queue()
     queue.append(oversized, ec);
     expect(ec == boost::system::errc::make_error_code(boost::system::errc::message_size), "byte_queue accepted oversized append");
     expect_error(ec, boost::system::errc::message_size, "byte_queue returned wrong error");
+}
+
+void test_byte_reader()
+{
+    constexpr std::array<std::uint8_t, 11> input{0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 1, 2, 3, 4};
+    rv::core::byte_reader reader(input);
+
+    std::uint8_t value8 = 0;
+    std::uint16_t value16 = 0;
+    std::uint32_t value24 = 0;
+    expect(reader.read_u8(value8) && value8 == 0x12, "byte_reader u8 mismatch");
+    expect(reader.read_u16(value16) && value16 == 0x3456, "byte_reader u16 mismatch");
+    expect(reader.read_u24(value24) && value24 == 0x789abc, "byte_reader u24 mismatch");
+
+    const auto bytes = reader.read_bytes(2);
+    expect(bytes && (*bytes)[0] == 0xde && (*bytes)[1] == 1, "byte_reader bytes mismatch");
+    expect(reader.skip(2), "byte_reader skip failed");
+    expect(reader.remaining() == 1, "byte_reader remaining mismatch");
+    expect(!reader.read_bytes(2), "byte_reader accepted truncated bytes");
+    expect(reader.read_u8(value8) && value8 == 4 && reader.empty(), "byte_reader final byte mismatch");
+    expect(!reader.read_u8(value8), "byte_reader accepted read past end");
+
+    expect(rv::core::read_be32(input.data()) == 0x12345678U, "byte_order u32 mismatch");
 }
 
 void test_hkdf_rfc5869()
@@ -798,6 +823,7 @@ int run_protocol_tests()
         std::pair{"text codecs", &test_text_codecs},
         std::pair{"short id config", &test_short_id_config},
         std::pair{"byte queue", &test_byte_queue},
+        std::pair{"byte reader", &test_byte_reader},
         std::pair{"HKDF", &test_hkdf_rfc5869},
         std::pair{"TLS records", &test_record_roundtrip},
         std::pair{"ClientHello", &test_client_hello},

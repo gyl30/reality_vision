@@ -1,5 +1,8 @@
 #include "sniffer.hpp"
 
+#include "byte_order.hpp"
+#include "byte_reader.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -19,70 +22,9 @@ constexpr std::size_t tls_record_header_size = 5;
 constexpr std::size_t tls_handshake_header_size = 4;
 constexpr std::size_t maximum_tls_record_payload = 1U << 14U;
 
-class byte_reader
-{
-   public:
-    explicit byte_reader(const std::span<const std::uint8_t> input) : input_(input) {}
-
-    [[nodiscard]] bool take_u8(std::uint8_t& value) noexcept
-    {
-        if (remaining() < 1)
-        {
-            return false;
-        }
-        value = input_[position_++];
-        return true;
-    }
-
-    [[nodiscard]] bool take_u16(std::uint16_t& value) noexcept
-    {
-        if (remaining() < 2)
-        {
-            return false;
-        }
-        value = static_cast<std::uint16_t>((static_cast<std::uint16_t>(input_[position_]) << 8U) |
-                                           static_cast<std::uint16_t>(input_[position_ + 1]));
-        position_ += 2;
-        return true;
-    }
-
-    [[nodiscard]] bool skip(const std::size_t size) noexcept
-    {
-        if (remaining() < size)
-        {
-            return false;
-        }
-        position_ += size;
-        return true;
-    }
-
-    [[nodiscard]] std::optional<std::span<const std::uint8_t>> take(const std::size_t size) noexcept
-    {
-        if (remaining() < size)
-        {
-            return std::nullopt;
-        }
-        const auto output = input_.subspan(position_, size);
-        position_ += size;
-        return output;
-    }
-
-    [[nodiscard]] std::size_t remaining() const noexcept { return input_.size() - position_; }
-
-   private:
-    std::span<const std::uint8_t> input_;
-    std::size_t position_{0};
-};
-
 [[nodiscard]] result make_result(const status state, std::string domain = {})
 {
     return {.state = state, .domain = std::move(domain)};
-}
-
-[[nodiscard]] std::size_t read_u24(const std::span<const std::uint8_t> input, const std::size_t offset) noexcept
-{
-    return (static_cast<std::size_t>(input[offset]) << 16U) | (static_cast<std::size_t>(input[offset + 1]) << 8U) |
-           static_cast<std::size_t>(input[offset + 2]);
 }
 
 [[nodiscard]] bool is_valid_domain(const std::span<const std::uint8_t> input) noexcept
@@ -102,9 +44,9 @@ class byte_reader
 
 [[nodiscard]] std::optional<std::string> parse_server_name(const std::span<const std::uint8_t> extension)
 {
-    byte_reader reader(extension);
+    core::byte_reader reader(extension);
     std::uint16_t list_size = 0;
-    if (!reader.take_u16(list_size) || reader.remaining() != list_size)
+    if (!reader.read_u16(list_size) || reader.remaining() != list_size)
     {
         return std::nullopt;
     }
@@ -113,11 +55,11 @@ class byte_reader
     {
         std::uint8_t name_type = 0;
         std::uint16_t name_size = 0;
-        if (!reader.take_u8(name_type) || !reader.take_u16(name_size))
+        if (!reader.read_u8(name_type) || !reader.read_u16(name_size))
         {
             return std::nullopt;
         }
-        const auto name = reader.take(name_size);
+        const auto name = reader.read_bytes(name_size);
         if (!name)
         {
             return std::nullopt;
@@ -133,16 +75,16 @@ class byte_reader
 
 [[nodiscard]] std::optional<std::string> find_server_name(const std::span<const std::uint8_t> extensions)
 {
-    byte_reader reader(extensions);
+    core::byte_reader reader(extensions);
     while (reader.remaining() != 0)
     {
         std::uint16_t type = 0;
         std::uint16_t size = 0;
-        if (!reader.take_u16(type) || !reader.take_u16(size))
+        if (!reader.read_u16(type) || !reader.read_u16(size))
         {
             return std::nullopt;
         }
-        const auto extension = reader.take(size);
+        const auto extension = reader.read_bytes(size);
         if (!extension)
         {
             return std::nullopt;
@@ -162,42 +104,42 @@ class byte_reader
         return std::nullopt;
     }
 
-    const auto body_size = read_u24(handshake, 1);
+    const auto body_size = static_cast<std::size_t>(core::read_be24(handshake.data() + 1));
     if (handshake.size() < tls_handshake_header_size + body_size)
     {
         return std::nullopt;
     }
 
-    byte_reader reader(handshake.subspan(tls_handshake_header_size, body_size));
+    core::byte_reader reader(handshake.subspan(tls_handshake_header_size, body_size));
     if (!reader.skip(2 + 32))
     {
         return std::nullopt;
     }
 
     std::uint8_t session_id_size = 0;
-    if (!reader.take_u8(session_id_size) || !reader.skip(session_id_size))
+    if (!reader.read_u8(session_id_size) || !reader.skip(session_id_size))
     {
         return std::nullopt;
     }
 
     std::uint16_t cipher_suites_size = 0;
-    if (!reader.take_u16(cipher_suites_size) || !reader.skip(cipher_suites_size))
+    if (!reader.read_u16(cipher_suites_size) || !reader.skip(cipher_suites_size))
     {
         return std::nullopt;
     }
 
     std::uint8_t compression_methods_size = 0;
-    if (!reader.take_u8(compression_methods_size) || !reader.skip(compression_methods_size))
+    if (!reader.read_u8(compression_methods_size) || !reader.skip(compression_methods_size))
     {
         return std::nullopt;
     }
 
     std::uint16_t extensions_size = 0;
-    if (!reader.take_u16(extensions_size))
+    if (!reader.read_u16(extensions_size))
     {
         return std::nullopt;
     }
-    const auto extensions = reader.take(extensions_size);
+    const auto extensions = reader.read_bytes(extensions_size);
     if (!extensions)
     {
         return std::nullopt;
@@ -216,7 +158,7 @@ class byte_reader
         return make_result(status::no_match);
     }
 
-    const auto payload_size = static_cast<std::size_t>((static_cast<std::uint16_t>(input[3]) << 8U) | input[4]);
+    const auto payload_size = static_cast<std::size_t>(core::read_be16(input.data() + 3));
     if (payload_size == 0 || payload_size > maximum_tls_record_payload)
     {
         return make_result(status::no_match);

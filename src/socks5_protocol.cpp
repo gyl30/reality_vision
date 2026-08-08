@@ -1,5 +1,7 @@
 #include "socks5_protocol.hpp"
 
+#include "byte_order.hpp"
+
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/ip/address_v6.hpp>
 #include <boost/asio/read.hpp>
@@ -44,11 +46,6 @@ asio::awaitable<void> read_exact(asio::ip::tcp::socket& socket, std::span<std::u
 asio::awaitable<void> write_all(asio::ip::tcp::socket& socket, std::span<const std::uint8_t> input, boost::system::error_code& ec)
 {
     co_await asio::async_write(socket, asio::buffer(input.data(), input.size()), asio::redirect_error(asio::use_awaitable, ec));
-}
-
-std::uint16_t read_u16(const std::span<const std::uint8_t> input, const std::size_t offset) noexcept
-{
-    return static_cast<std::uint16_t>(static_cast<std::uint16_t>(input[offset]) << 8U | static_cast<std::uint16_t>(input[offset + 1]));
 }
 
 void put_u16(const std::uint16_t value, std::vector<std::uint8_t>& output)
@@ -412,7 +409,7 @@ boost::system::error_code decode_request(const std::span<const std::uint8_t> req
         return make_error_code(boost::system::errc::bad_message);
     }
 
-    const auto port = read_u16(request_bytes, port_offset);
+    const auto port = core::read_be16(request_bytes.data() + port_offset);
     if (requested_command == command::connect && port == 0)
     {
         return make_error_code(boost::system::errc::invalid_argument);
@@ -451,7 +448,7 @@ boost::system::error_code decode_udp_datagram(const std::span<const std::uint8_t
         return make_error_code(boost::system::errc::bad_message);
     }
 
-    const auto port = read_u16(packet, port_offset);
+    const auto port = core::read_be16(packet.data() + port_offset);
     if (port == 0)
     {
         return make_error_code(boost::system::errc::invalid_argument);

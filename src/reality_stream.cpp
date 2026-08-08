@@ -1,5 +1,6 @@
 #include "reality_stream.hpp"
 
+#include "byte_order.hpp"
 #include "reality_handshake.hpp"
 
 #include <boost/asio/error.hpp>
@@ -40,7 +41,7 @@ boost::asio::awaitable<void> read_exact(net::tcp_byte_stream& stream, std::span<
 
 std::size_t handshake_message_length(std::span<const std::uint8_t> input) noexcept
 {
-    return 4 + (static_cast<std::size_t>(input[1]) << 16U | static_cast<std::size_t>(input[2]) << 8U | static_cast<std::size_t>(input[3]));
+    return 4 + static_cast<std::size_t>(core::read_be24(input.data() + 1));
 }
 
 }    // namespace
@@ -107,7 +108,7 @@ boost::asio::awaitable<std::optional<reality_stream::encrypted_record>> reality_
         co_return std::nullopt;
     }
 
-    const auto payload_size = static_cast<std::size_t>(record.header[3]) << 8U | static_cast<std::size_t>(record.header[4]);
+    const auto payload_size = static_cast<std::size_t>(core::read_be16(record.header.data() + 3));
     if (payload_size > max_tls_ciphertext)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::message_size);

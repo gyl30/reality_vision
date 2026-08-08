@@ -1,5 +1,7 @@
 #include "vless_udp_stream.hpp"
 
+#include "byte_order.hpp"
+
 #include <boost/asio/error.hpp>
 #include <boost/system/errc.hpp>
 #include <spdlog/spdlog.h>
@@ -126,7 +128,7 @@ boost::asio::awaitable<std::vector<std::uint8_t>> vless_udp_stream::read_datagra
         co_return std::vector<std::uint8_t>{};
     }
 
-    const auto length = static_cast<std::size_t>(length_bytes[0]) << 8U | static_cast<std::size_t>(length_bytes[1]);
+    const auto length = static_cast<std::size_t>(core::read_be16(length_bytes.data()));
     if (length == 0)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);

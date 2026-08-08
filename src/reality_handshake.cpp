@@ -1,6 +1,8 @@
 #include "reality_handshake.hpp"
 
+#include "byte_order.hpp"
 #include "byte_queue.hpp"
+#include "byte_reader.hpp"
 #include "crypto.hpp"
 #include "reality_client_hello.hpp"
 
@@ -63,55 +65,6 @@ struct parsed_server_hello
 
 void set_bad_message_error(boost::system::error_code& ec) { ec = boost::system::errc::make_error_code(boost::system::errc::bad_message); }
 
-void take_bytes(std::span<const std::uint8_t> input,
-                std::size_t& position,
-                const std::size_t length,
-                std::span<const std::uint8_t>& output,
-                boost::system::error_code& ec)
-{
-    if (position > input.size() || length > input.size() - position)
-    {
-        set_bad_message_error(ec);
-        output = {};
-        return;
-    }
-    output = input.subspan(position, length);
-    position += length;
-}
-
-void take_u8(std::span<const std::uint8_t> input, std::size_t& position, std::uint8_t& output, boost::system::error_code& ec)
-{
-    std::span<const std::uint8_t> bytes;
-    take_bytes(input, position, 1, bytes, ec);
-    if (ec)
-    {
-        return;
-    }
-    output = bytes[0];
-}
-
-void take_u16(std::span<const std::uint8_t> input, std::size_t& position, std::uint16_t& output, boost::system::error_code& ec)
-{
-    std::span<const std::uint8_t> bytes;
-    take_bytes(input, position, 2, bytes, ec);
-    if (ec)
-    {
-        return;
-    }
-    output = static_cast<std::uint16_t>(static_cast<std::uint16_t>(bytes[0]) << 8U | static_cast<std::uint16_t>(bytes[1]));
-}
-
-void take_u24(std::span<const std::uint8_t> input, std::size_t& position, std::size_t& output, boost::system::error_code& ec)
-{
-    std::span<const std::uint8_t> bytes;
-    take_bytes(input, position, 3, bytes, ec);
-    if (ec)
-    {
-        return;
-    }
-    output = static_cast<std::size_t>(bytes[0]) << 16U | static_cast<std::size_t>(bytes[1]) << 8U | static_cast<std::size_t>(bytes[2]);
-}
-
 boost::asio::awaitable<void> read_exact(net::tcp_byte_stream& stream, std::span<std::uint8_t> output, boost::system::error_code& ec)
 {
     std::size_t offset = 0;
@@ -141,7 +94,7 @@ boost::asio::awaitable<tls_record> read_tls_record(net::tcp_byte_stream& stream,
     }
 
     record.type = record.header[0];
-    const auto length = static_cast<std::size_t>(record.header[3]) << 8U | static_cast<std::size_t>(record.header[4]);
+    const auto length = static_cast<std::size_t>(core::read_be16(record.header.data() + 3));
     if (length > max_tls_ciphertext)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::message_size);
@@ -159,7 +112,7 @@ std::optional<handshake_message> pop_handshake_message(core::byte_queue& queue, 
         return std::nullopt;
     }
     const auto data = queue.data();
-    const auto body_length = static_cast<std::size_t>(data[1]) << 16U | static_cast<std::size_t>(data[2]) << 8U | static_cast<std::size_t>(data[3]);
+    const auto body_length = static_cast<std::size_t>(core::read_be24(data.data() + 1));
     if (body_length > maximum_handshake_message)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::message_size);
@@ -266,68 +219,53 @@ boost::asio::awaitable<handshake_message> read_encrypted_handshake_message(net::
 
 void parse_server_key_share(const std::span<const std::uint8_t> extension_data, parsed_server_hello& server_hello, boost::system::error_code& ec)
 {
-    std::size_t position = 0;
+    core::byte_reader reader(extension_data);
     std::uint16_t group = 0;
     std::uint16_t share_length = 0;
-
-    take_u16(extension_data, position, group, ec);
-    if (ec)
-    {
-        return;
-    }
-    take_u16(extension_data, position, share_length, ec);
-    if (ec)
-    {
-        return;
-    }
-
-    std::span<const std::uint8_t> share;
-    take_bytes(extension_data, position, share_length, share, ec);
-    if (ec)
-    {
-        return;
-    }
-
-    if (position != extension_data.size() || group != 0x001d || share.size() != server_hello.x25519_key_share.size())
+    if (!reader.read_u16(group) || !reader.read_u16(share_length))
     {
         set_bad_message_error(ec);
         return;
     }
 
-    std::copy(share.begin(), share.end(), server_hello.x25519_key_share.begin());
+    const auto share = reader.read_bytes(share_length);
+    if (!share || !reader.empty() || group != 0x001d || share->size() != server_hello.x25519_key_share.size())
+    {
+        set_bad_message_error(ec);
+        return;
+    }
+
+    std::copy(share->begin(), share->end(), server_hello.x25519_key_share.begin());
 }
 
-void parse_server_hello_extensions(const std::span<const std::uint8_t> extensions, parsed_server_hello& server_hello, boost::system::error_code& ec)
+void parse_server_hello_extensions(const std::span<const std::uint8_t> extensions,
+                                   parsed_server_hello& server_hello,
+                                   boost::system::error_code& ec)
 {
     bool tls13_seen = false;
     bool key_share_seen = false;
-    std::size_t position = 0;
+    core::byte_reader reader(extensions);
 
-    while (position < extensions.size())
+    while (!reader.empty())
     {
         std::uint16_t type = 0;
         std::uint16_t length = 0;
-        take_u16(extensions, position, type, ec);
-        if (ec)
+        if (!reader.read_u16(type) || !reader.read_u16(length))
         {
-            return;
-        }
-        take_u16(extensions, position, length, ec);
-        if (ec)
-        {
+            set_bad_message_error(ec);
             return;
         }
 
-        std::span<const std::uint8_t> extension_data;
-        take_bytes(extensions, position, length, extension_data, ec);
-        if (ec)
+        const auto extension_data = reader.read_bytes(length);
+        if (!extension_data)
         {
+            set_bad_message_error(ec);
             return;
         }
 
         if (type == 0x002b)
         {
-            if (extension_data.size() != 2 || extension_data[0] != 0x03 || extension_data[1] != 0x04)
+            if (extension_data->size() != 2 || (*extension_data)[0] != 0x03 || (*extension_data)[1] != 0x04)
             {
                 set_bad_message_error(ec);
                 return;
@@ -338,7 +276,7 @@ void parse_server_hello_extensions(const std::span<const std::uint8_t> extension
 
         if (type == 0x0033)
         {
-            parse_server_key_share(extension_data, server_hello, ec);
+            parse_server_key_share(*extension_data, server_hello, ec);
             if (ec)
             {
                 return;
@@ -366,52 +304,44 @@ parsed_server_hello parse_server_hello(const handshake_message& message, boost::
                                                                0x02, 0x1e, 0x65, 0xb8, 0x91, 0xc2, 0xa2, 0x11, 0x16, 0x7a, 0xbb,
                                                                0x8c, 0x5e, 0x07, 0x9e, 0x09, 0xe2, 0xc8, 0xa8, 0x33, 0x9c};
 
-    const auto body = handshake_body(message);
-    std::size_t position = 0;
-
+    core::byte_reader reader(handshake_body(message));
     std::uint16_t legacy_version = 0;
-    take_u16(body, position, legacy_version, ec);
-    if (ec)
-    {
-        return result;
-    }
-    if (legacy_version != 0x0303)
+    if (!reader.read_u16(legacy_version) || legacy_version != 0x0303)
     {
         set_bad_message_error(ec);
         return result;
     }
 
-    std::span<const std::uint8_t> random;
-    take_bytes(body, position, 32, random, ec);
-    if (ec)
+    const auto random = reader.read_bytes(32);
+    if (!random)
     {
+        set_bad_message_error(ec);
         return result;
     }
-    if (std::equal(random.begin(), random.end(), hello_retry_request.begin()))
+    if (std::equal(random->begin(), random->end(), hello_retry_request.begin()))
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::operation_not_supported);
         return result;
     }
 
     std::uint8_t session_length = 0;
-    take_u8(body, position, session_length, ec);
-    if (ec)
+    if (!reader.read_u8(session_length))
     {
+        set_bad_message_error(ec);
         return result;
     }
-
-    std::span<const std::uint8_t> session;
-    take_bytes(body, position, session_length, session, ec);
-    if (ec)
+    const auto session = reader.read_bytes(session_length);
+    if (!session)
     {
+        set_bad_message_error(ec);
         return result;
     }
-    result.session_id.assign(session.begin(), session.end());
+    result.session_id.assign(session->begin(), session->end());
 
     std::uint16_t suite_value = 0;
-    take_u16(body, position, suite_value, ec);
-    if (ec)
+    if (!reader.read_u16(suite_value))
     {
+        set_bad_message_error(ec);
         return result;
     }
     result.suite = parse_cipher_suite(suite_value, ec);
@@ -421,135 +351,105 @@ parsed_server_hello parse_server_hello(const handshake_message& message, boost::
     }
 
     std::uint8_t compression = 0;
-    take_u8(body, position, compression, ec);
-    if (ec)
-    {
-        return result;
-    }
-    if (compression != 0)
+    if (!reader.read_u8(compression) || compression != 0)
     {
         set_bad_message_error(ec);
         return result;
     }
 
     std::uint16_t extensions_length = 0;
-    take_u16(body, position, extensions_length, ec);
-    if (ec)
+    if (!reader.read_u16(extensions_length))
     {
+        set_bad_message_error(ec);
         return result;
     }
-
-    std::span<const std::uint8_t> extensions;
-    take_bytes(body, position, extensions_length, extensions, ec);
-    if (ec)
-    {
-        return result;
-    }
-    if (position != body.size())
+    const auto extensions = reader.read_bytes(extensions_length);
+    if (!extensions || !reader.empty())
     {
         set_bad_message_error(ec);
         return result;
     }
 
-    parse_server_hello_extensions(extensions, result, ec);
+    parse_server_hello_extensions(*extensions, result, ec);
     return result;
 }
 
 std::vector<std::uint8_t> parse_leaf_certificate(const handshake_message& message, boost::system::error_code& ec)
 {
-    const auto body = handshake_body(message);
-    std::size_t position = 0;
-
+    core::byte_reader reader(handshake_body(message));
     std::uint8_t context_length = 0;
-    take_u8(body, position, context_length, ec);
-    if (ec)
+    if (!reader.read_u8(context_length))
     {
+        set_bad_message_error(ec);
         return {};
     }
-
-    std::span<const std::uint8_t> context;
-    take_bytes(body, position, context_length, context, ec);
-    if (ec)
-    {
-        return {};
-    }
-
-    std::size_t list_length = 0;
-    take_u24(body, position, list_length, ec);
-    if (ec)
-    {
-        return {};
-    }
-
-    std::span<const std::uint8_t> list;
-    take_bytes(body, position, list_length, list, ec);
-    if (ec)
-    {
-        return {};
-    }
-    if (position != body.size())
+    const auto context = reader.read_bytes(context_length);
+    if (!context)
     {
         set_bad_message_error(ec);
         return {};
     }
 
-    std::size_t list_position = 0;
-    std::size_t certificate_length = 0;
-    take_u24(list, list_position, certificate_length, ec);
-    if (ec)
+    std::uint32_t list_length = 0;
+    if (!reader.read_u24(list_length))
     {
+        set_bad_message_error(ec);
+        return {};
+    }
+    const auto list = reader.read_bytes(list_length);
+    if (!list || !reader.empty())
+    {
+        set_bad_message_error(ec);
         return {};
     }
 
-    std::span<const std::uint8_t> certificate;
-    take_bytes(list, list_position, certificate_length, certificate, ec);
-    if (ec)
+    core::byte_reader list_reader(*list);
+    std::uint32_t certificate_length = 0;
+    if (!list_reader.read_u24(certificate_length))
     {
+        set_bad_message_error(ec);
+        return {};
+    }
+    const auto certificate = list_reader.read_bytes(certificate_length);
+    if (!certificate)
+    {
+        set_bad_message_error(ec);
         return {};
     }
 
     std::uint16_t certificate_extensions_length = 0;
-    take_u16(list, list_position, certificate_extensions_length, ec);
-    if (ec)
+    if (!list_reader.read_u16(certificate_extensions_length))
     {
+        set_bad_message_error(ec);
         return {};
     }
-
-    std::span<const std::uint8_t> certificate_extensions;
-    take_bytes(list, list_position, certificate_extensions_length, certificate_extensions, ec);
-    if (ec)
-    {
-        return {};
-    }
-
-    if (certificate.empty())
+    const auto certificate_extensions = list_reader.read_bytes(certificate_extensions_length);
+    if (!certificate_extensions)
     {
         set_bad_message_error(ec);
         return {};
     }
 
-    return {certificate.begin(), certificate.end()};
+    if (certificate->empty())
+    {
+        set_bad_message_error(ec);
+        return {};
+    }
+
+    return {certificate->begin(), certificate->end()};
 }
 
 void validate_encrypted_extensions(const handshake_message& message, boost::system::error_code& ec)
 {
-    const auto body = handshake_body(message);
-    std::size_t position = 0;
+    core::byte_reader reader(handshake_body(message));
     std::uint16_t length = 0;
-    take_u16(body, position, length, ec);
-    if (ec)
+    if (!reader.read_u16(length))
     {
+        set_bad_message_error(ec);
         return;
     }
-
-    std::span<const std::uint8_t> extensions;
-    take_bytes(body, position, length, extensions, ec);
-    if (ec)
-    {
-        return;
-    }
-
-    if (position != body.size())
+    const auto extensions = reader.read_bytes(length);
+    if (!extensions || !reader.empty())
     {
         set_bad_message_error(ec);
     }
@@ -561,30 +461,16 @@ void verify_certificate_verify(const handshake_message& message,
                                std::span<const std::uint8_t> transcript,
                                boost::system::error_code& ec)
 {
-    const auto body = handshake_body(message);
-    std::size_t position = 0;
+    core::byte_reader reader(handshake_body(message));
     std::uint16_t algorithm = 0;
     std::uint16_t signature_length = 0;
-
-    take_u16(body, position, algorithm, ec);
-    if (ec)
+    if (!reader.read_u16(algorithm) || !reader.read_u16(signature_length))
     {
+        set_bad_message_error(ec);
         return;
     }
-    take_u16(body, position, signature_length, ec);
-    if (ec)
-    {
-        return;
-    }
-
-    std::span<const std::uint8_t> signature;
-    take_bytes(body, position, signature_length, signature, ec);
-    if (ec)
-    {
-        return;
-    }
-
-    if (position != body.size() || algorithm != 0x0807)
+    const auto signature = reader.read_bytes(signature_length);
+    if (!signature || !reader.empty() || algorithm != 0x0807)
     {
         set_bad_message_error(ec);
         return;
@@ -601,7 +487,7 @@ void verify_certificate_verify(const handshake_message& message,
         return;
     }
     signed_message.insert(signed_message.end(), transcript_hash.begin(), transcript_hash.end());
-    crypto::verify_ed25519(public_key, signed_message, signature, ec);
+    crypto::verify_ed25519(public_key, signed_message, *signature, ec);
 }
 
 std::vector<std::uint8_t> make_handshake_message(std::uint8_t type, std::span<const std::uint8_t> body, boost::system::error_code& ec)
