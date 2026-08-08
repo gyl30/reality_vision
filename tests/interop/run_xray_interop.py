@@ -47,6 +47,26 @@ class UdpEchoServer(socketserver.ThreadingUDPServer):
     daemon_threads = True
 
 
+class P256ServerHelloHandler(socketserver.BaseRequestHandler):
+    def handle(self) -> None:
+        header = recv_exact(self.request, 5)
+        if header[:3] != b"\x16\x03\x01":
+            raise RuntimeError(f"invalid REALITY test ClientHello record: {header.hex()}")
+        client_hello = recv_exact(self.request, int.from_bytes(header[3:5], "big"))
+        if len(client_hello) <= 39 or client_hello[0] != 0x01:
+            raise RuntimeError("invalid REALITY test ClientHello handshake")
+        session_id_length = client_hello[38]
+        session_id = client_hello[39 : 39 + session_id_length]
+        if len(session_id) != session_id_length:
+            raise RuntimeError("truncated REALITY test ClientHello session ID")
+        self.request.sendall(make_p256_server_hello(session_id))
+
+
+class P256ServerHelloServer(socketserver.ThreadingTCPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+
+
 def reserve_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
@@ -441,6 +461,61 @@ def generate_x25519_key_pair(xray: Path) -> tuple[str, str]:
     return private_match.group(1), public_match.group(1)
 
 
+def make_p256_server_hello(session_id: bytes) -> bytes:
+    extensions = bytes.fromhex("002b00020304003300450017004104") + bytes([0x22]) * 64
+    body = (
+        b"\x03\x03"
+        + bytes([0x11]) * 32
+        + bytes([len(session_id)])
+        + session_id
+        + b"\x13\x01\x00"
+        + len(extensions).to_bytes(2, "big")
+        + extensions
+    )
+    handshake = b"\x02" + len(body).to_bytes(3, "big") + body
+    return b"\x16\x03\x03" + len(handshake).to_bytes(2, "big") + handshake
+
+
+def trigger_socks5_connect_failure(proxy_port: int) -> None:
+    with socket.create_connection(("127.0.0.1", proxy_port), timeout=5) as sock:
+        sock.settimeout(10)
+        sock.sendall(b"\x05\x01\x00")
+        if recv_exact(sock, 2) != b"\x05\x00":
+            raise RuntimeError("REALITY error test SOCKS5 negotiation failed")
+        sock.sendall(b"\x05\x01\x00\x03\x09localhost\x00\x50")
+        reply = recv_exact(sock, 4)
+        if reply[0] != 0x05 or reply[1] == 0x00:
+            raise RuntimeError(f"REALITY error test expected SOCKS5 failure: {reply.hex()}")
+
+
+def test_p256_key_share_error(client: Path, public_key: str, work_dir: Path) -> None:
+    log_path = work_dir / "p256-key-share.log"
+    socks_port = reserve_port()
+    process: subprocess.Popen[bytes] | None = None
+    with P256ServerHelloServer(("127.0.0.1", 0), P256ServerHelloHandler) as server:
+        server_port = int(server.server_address[1])
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with log_path.open("wb") as log:
+                process = subprocess.Popen(
+                    [
+                        str(client), "--server", "127.0.0.1", "--port", str(server_port),
+                        "--server_name", SERVER_NAME, "--server_public_key", public_key,
+                        "--short_id", SHORT_ID, "--uuid", USER_ID, "--socks_port", str(socks_port),
+                    ],
+                    stdout=log,
+                    stderr=subprocess.STDOUT,
+                )
+                wait_for_text(log_path, "socks5 tcp proxy listening", process)
+                trigger_socks5_connect_failure(socks_port)
+                wait_for_text(log_path, "socks_1 upstream connection failed: Operation not supported", process)
+        finally:
+            stop_process(process)
+            server.shutdown()
+            thread.join(timeout=2)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--xray", required=True, type=Path)
@@ -460,6 +535,7 @@ def main() -> int:
     vision_socks_log_path = work_dir / "vision-socks.log"
     vision_no_auth_socks_log_path = work_dir / "vision-no-auth-socks.log"
     private_key, public_key = generate_x25519_key_pair(args.xray)
+    test_p256_key_share_error(args.client, public_key, work_dir)
 
     subprocess.run(
         [

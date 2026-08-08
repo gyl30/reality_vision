@@ -67,8 +67,6 @@ struct parsed_server_hello
     std::array<std::uint8_t, tls::kX25519KeyShareSize> x25519_key_share{};
 };
 
-void set_bad_message_error(boost::system::error_code& ec) { ec = boost::system::errc::make_error_code(boost::system::errc::bad_message); }
-
 boost::asio::awaitable<tls_record> read_tls_record(net::tcp_byte_stream& stream, boost::system::error_code& ec)
 {
     tls_record record;
@@ -138,7 +136,7 @@ boost::asio::awaitable<handshake_message> read_plain_handshake_message(net::tcp_
         if (record.type != tls::kRecordHandshake ||
             record.header[1] != static_cast<std::uint8_t>(tls::kLegacyVersion >> 8U))
         {
-            set_bad_message_error(ec);
+            ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
             co_return handshake_message{};
         }
         queue.append(record.payload, ec);
@@ -176,7 +174,7 @@ boost::asio::awaitable<handshake_message> read_encrypted_handshake_message(net::
         }
         if (record.type != tls::kRecordApplicationData || core::read_be16(record.header.data() + 1) != tls::kLegacyVersion)
         {
-            set_bad_message_error(ec);
+            ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
             co_return handshake_message{};
         }
 
@@ -192,7 +190,7 @@ boost::asio::awaitable<handshake_message> read_encrypted_handshake_message(net::
         }
         if (opened.inner_type != tls::kRecordHandshake)
         {
-            set_bad_message_error(ec);
+            ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
             co_return handshake_message{};
         }
         queue.append(opened.content, ec);
@@ -210,14 +208,24 @@ void parse_server_key_share(const std::span<const std::uint8_t> extension_data, 
     std::uint16_t share_length = 0;
     if (!reader.read_u16(group) || !reader.read_u16(share_length))
     {
-        set_bad_message_error(ec);
+        ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
         return;
     }
 
     const auto share = reader.read_bytes(share_length);
-    if (!share || !reader.empty() || group != tls::kNamedGroupX25519 || share->size() != server_hello.x25519_key_share.size())
+    if (!share || !reader.empty())
     {
-        set_bad_message_error(ec);
+        ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
+        return;
+    }
+    if (group == tls::kNamedGroupSecp256r1 && share->size() == crypto::kP256PublicKeySize)
+    {
+        ec = boost::system::errc::make_error_code(boost::system::errc::operation_not_supported);
+        return;
+    }
+    if (group != tls::kNamedGroupX25519 || share->size() != server_hello.x25519_key_share.size())
+    {
+        ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
         return;
     }
 
@@ -238,14 +246,14 @@ void parse_server_hello_extensions(const std::span<const std::uint8_t> extension
         std::uint16_t length = 0;
         if (!reader.read_u16(type) || !reader.read_u16(length))
         {
-            set_bad_message_error(ec);
+            ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
             return;
         }
 
         const auto extension_data = reader.read_bytes(length);
         if (!extension_data)
         {
-            set_bad_message_error(ec);
+            ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
             return;
         }
 
@@ -253,7 +261,7 @@ void parse_server_hello_extensions(const std::span<const std::uint8_t> extension
         {
             if (extension_data->size() != 2 || core::read_be16(extension_data->data()) != tls::kTls13Version)
             {
-                set_bad_message_error(ec);
+                ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
                 return;
             }
             tls13_seen = true;
@@ -273,7 +281,7 @@ void parse_server_hello_extensions(const std::span<const std::uint8_t> extension
 
     if (!tls13_seen || !key_share_seen)
     {
-        set_bad_message_error(ec);
+        ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
     }
 }
 
@@ -282,7 +290,7 @@ parsed_server_hello parse_server_hello(const handshake_message& message, boost::
     parsed_server_hello result;
     if (message.type != tls::kHandshakeServerHello)
     {
-        set_bad_message_error(ec);
+        ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
         return result;
     }
 
@@ -291,14 +299,14 @@ parsed_server_hello parse_server_hello(const handshake_message& message, boost::
     std::uint16_t legacy_version = 0;
     if (!reader.read_u16(legacy_version) || legacy_version != tls::kLegacyVersion)
     {
-        set_bad_message_error(ec);
+        ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
         return result;
     }
 
     const auto random = reader.read_bytes(tls::kRandomSize);
     if (!random)
     {
-        set_bad_message_error(ec);
+        ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
         return result;
     }
     if (std::equal(random->begin(), random->end(), kHelloRetryRequestRandom.begin()))
@@ -310,13 +318,13 @@ parsed_server_hello parse_server_hello(const handshake_message& message, boost::
     std::uint8_t session_length = 0;
     if (!reader.read_u8(session_length))
     {
-        set_bad_message_error(ec);
+        ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
         return result;
     }
     const auto session = reader.read_bytes(session_length);
     if (!session)
     {
-        set_bad_message_error(ec);
+        ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
         return result;
     }
     result.session_id.assign(session->begin(), session->end());
@@ -324,7 +332,7 @@ parsed_server_hello parse_server_hello(const handshake_message& message, boost::
     std::uint16_t suite_value = 0;
     if (!reader.read_u16(suite_value))
     {
-        set_bad_message_error(ec);
+        ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
         return result;
     }
     result.suite = parse_cipher_suite(suite_value, ec);
@@ -336,20 +344,20 @@ parsed_server_hello parse_server_hello(const handshake_message& message, boost::
     std::uint8_t compression = 0;
     if (!reader.read_u8(compression) || compression != tls::kNullCompressionMethod)
     {
-        set_bad_message_error(ec);
+        ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
         return result;
     }
 
     std::uint16_t extensions_length = 0;
     if (!reader.read_u16(extensions_length))
     {
-        set_bad_message_error(ec);
+        ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
         return result;
     }
     const auto extensions = reader.read_bytes(extensions_length);
     if (!extensions || !reader.empty())
     {
-        set_bad_message_error(ec);
+        ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
         return result;
     }
 
@@ -363,25 +371,25 @@ std::vector<std::uint8_t> parse_leaf_certificate(const handshake_message& messag
     std::uint8_t context_length = 0;
     if (!reader.read_u8(context_length))
     {
-        set_bad_message_error(ec);
+        ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
         return {};
     }
     if (!reader.skip(context_length))
     {
-        set_bad_message_error(ec);
+        ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
         return {};
     }
 
     std::uint32_t list_length = 0;
     if (!reader.read_u24(list_length))
     {
-        set_bad_message_error(ec);
+        ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
         return {};
     }
     const auto list = reader.read_bytes(list_length);
     if (!list || !reader.empty())
     {
-        set_bad_message_error(ec);
+        ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
         return {};
     }
 
@@ -389,31 +397,31 @@ std::vector<std::uint8_t> parse_leaf_certificate(const handshake_message& messag
     std::uint32_t certificate_length = 0;
     if (!list_reader.read_u24(certificate_length))
     {
-        set_bad_message_error(ec);
+        ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
         return {};
     }
     const auto certificate = list_reader.read_bytes(certificate_length);
     if (!certificate)
     {
-        set_bad_message_error(ec);
+        ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
         return {};
     }
 
     std::uint16_t certificate_extensions_length = 0;
     if (!list_reader.read_u16(certificate_extensions_length))
     {
-        set_bad_message_error(ec);
+        ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
         return {};
     }
     if (!list_reader.skip(certificate_extensions_length))
     {
-        set_bad_message_error(ec);
+        ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
         return {};
     }
 
     if (certificate->empty())
     {
-        set_bad_message_error(ec);
+        ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
         return {};
     }
 
@@ -426,12 +434,12 @@ void validate_encrypted_extensions(const handshake_message& message, boost::syst
     std::uint16_t length = 0;
     if (!reader.read_u16(length))
     {
-        set_bad_message_error(ec);
+        ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
         return;
     }
     if (!reader.skip(length) || !reader.empty())
     {
-        set_bad_message_error(ec);
+        ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
     }
 }
 
@@ -446,14 +454,14 @@ void verify_certificate_verify(const handshake_message& message,
     std::uint16_t signature_length = 0;
     if (!reader.read_u16(algorithm) || !reader.read_u16(signature_length))
     {
-        set_bad_message_error(ec);
+        ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
         return;
     }
     const auto signature = reader.read_bytes(signature_length);
     if (!signature || !reader.empty() || algorithm != kSignatureSchemeEd25519 ||
         signature->size() != crypto::kEd25519SignatureSize)
     {
-        set_bad_message_error(ec);
+        ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
         return;
     }
 
@@ -493,7 +501,7 @@ void accept_encrypted_extensions(const handshake_message& message, std::vector<s
 {
     if (message.type != tls::kHandshakeEncryptedExtensions)
     {
-        set_bad_message_error(ec);
+        ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
         return;
     }
 
@@ -513,7 +521,7 @@ void accept_server_certificate(const handshake_message& message,
 {
     if (message.type != tls::kHandshakeCertificate)
     {
-        set_bad_message_error(ec);
+        ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
         return;
     }
 
@@ -553,7 +561,7 @@ void accept_certificate_verify(const handshake_message& message,
 {
     if (message.type != tls::kHandshakeCertificateVerify)
     {
-        set_bad_message_error(ec);
+        ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
         return;
     }
 
@@ -573,7 +581,7 @@ void accept_server_finished(const handshake_message& message,
 {
     if (message.type != tls::kHandshakeFinished)
     {
-        set_bad_message_error(ec);
+        ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
         return;
     }
 

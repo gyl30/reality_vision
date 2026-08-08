@@ -32,7 +32,6 @@ constexpr std::uint16_t kExtensionPskKeyExchangeModes = 0x002d;
 constexpr std::uint16_t kExtensionRecordSizeLimit = 0x001c;
 constexpr std::uint16_t kExtensionEncryptedClientHello = 0xfe0d;
 
-constexpr std::uint16_t kNamedGroupSecp256r1 = 0x0017;
 constexpr std::uint16_t kNamedGroupSecp384r1 = 0x0018;
 constexpr std::uint16_t kNamedGroupSecp521r1 = 0x0019;
 constexpr std::uint16_t kNamedGroupFfdhe2048 = 0x0100;
@@ -124,7 +123,7 @@ std::vector<std::uint8_t> key_share_extension(
     core::append_be16(shares, tls::kNamedGroupX25519);
     core::append_be16(shares, static_cast<std::uint16_t>(x25519_public.size()));
     shares.insert(shares.end(), x25519_public.begin(), x25519_public.end());
-    core::append_be16(shares, kNamedGroupSecp256r1);
+    core::append_be16(shares, tls::kNamedGroupSecp256r1);
     core::append_be16(shares, static_cast<std::uint16_t>(p256_public.size()));
     shares.insert(shares.end(), p256_public.begin(), p256_public.end());
 
@@ -244,7 +243,7 @@ std::vector<std::uint8_t> firefox_120_extensions(const client_config& configurat
 
     constexpr std::array<std::uint16_t, 6> kSupportedGroups{
         tls::kNamedGroupX25519,
-        kNamedGroupSecp256r1,
+        tls::kNamedGroupSecp256r1,
         kNamedGroupSecp384r1,
         kNamedGroupSecp521r1,
         kNamedGroupFfdhe2048,
