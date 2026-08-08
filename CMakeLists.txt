@@ -24,6 +24,7 @@ add_executable(
   src/main.cpp
   src/network_address.cpp
   src/protocol_tests.cpp
+  src/proxy_common.cpp
   src/reality_client_hello.cpp
   src/reality_handshake.cpp
   src/reality_record.cpp

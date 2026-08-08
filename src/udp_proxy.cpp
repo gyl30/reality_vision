@@ -1,10 +1,8 @@
 #include "udp_proxy.hpp"
 
 #include "network_address.hpp"
+#include "proxy_common.hpp"
 
-#include "reality_config.hpp"
-#include "reality_stream.hpp"
-#include "tcp_byte_stream.hpp"
 #include "transparent.hpp"
 #include "vless_header.hpp"
 #include "vless_udp_stream.hpp"
@@ -77,13 +75,7 @@ asio::awaitable<void> run_udp_flow_cleanup(std::shared_ptr<State> state, CloseFl
     }
 }
 
-struct proxy_target
-{
-    net::address destination;
-    std::uint16_t port{};
-};
-
-proxy_target make_proxy_target(const net::address& destination, const std::uint16_t port)
+proxy::target make_proxy_target(const net::address& destination, const std::uint16_t port)
 {
     return {
         .destination = destination,
@@ -91,7 +83,7 @@ proxy_target make_proxy_target(const net::address& destination, const std::uint1
     };
 }
 
-proxy_target make_proxy_target(const udp::endpoint& destination)
+proxy::target make_proxy_target(const udp::endpoint& destination)
 {
     return {
         .destination = net::ipv4_address{destination.address().to_v4().to_bytes()},
@@ -130,31 +122,12 @@ std::string format_endpoint(const udp::endpoint& endpoint)
     return endpoint.address().to_string() + ":" + std::to_string(endpoint.port());
 }
 
-asio::awaitable<std::optional<reality::reality_stream>> connect_reality(const app::config& configuration,
-                                                                         const std::string& session_id,
-                                                                         boost::system::error_code& ec)
-{
-    const auto executor = co_await asio::this_coro::executor;
-    auto tcp_stream = co_await net::tcp_byte_stream::connect(
-        executor, configuration.reality_server_host, std::to_string(configuration.reality_server_port), session_id, ec);
-    if (ec)
-    {
-        co_return std::nullopt;
-    }
-
-    reality::client_config reality_configuration;
-    reality_configuration.server_name = configuration.reality_server_name;
-    reality_configuration.server_public_key = configuration.reality_server_public_key;
-    reality_configuration.short_id = configuration.reality_short_id;
-    co_return co_await reality::reality_stream::connect(std::move(*tcp_stream), std::move(reality_configuration), session_id, ec);
-}
-
 asio::awaitable<std::optional<vless::vless_udp_stream>> connect_udp_upstream(const app::config& configuration,
-                                                                             const proxy_target& target,
+                                                                             const proxy::target& target,
                                                                              const std::string& session_id,
                                                                              boost::system::error_code& ec)
 {
-    auto reality_stream = co_await connect_reality(configuration, session_id, ec);
+    auto reality_stream = co_await proxy::connect_reality(configuration, session_id, ec);
     if (ec)
     {
         co_return std::nullopt;

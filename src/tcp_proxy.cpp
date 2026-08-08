@@ -1,12 +1,11 @@
 #include "tcp_proxy.hpp"
 
 #include "network_address.hpp"
+#include "proxy_common.hpp"
 
-#include "reality_config.hpp"
 #include "reality_stream.hpp"
 #include "socks5_protocol.hpp"
 #include "sniffer.hpp"
-#include "tcp_byte_stream.hpp"
 #include "transparent.hpp"
 #include "udp_proxy.hpp"
 #include "vision_stream.hpp"
@@ -50,12 +49,6 @@ enum class transparent_mode : std::uint8_t
 {
     kRedirect,
     kTproxy,
-};
-
-struct proxy_target
-{
-    rv::net::address destination;
-    std::uint16_t port{};
 };
 
 struct initial_client_data
@@ -172,17 +165,17 @@ boost::asio::awaitable<void> relay_with_initial_data(tcp::socket& client_socket,
     co_await relay_bidirectional(client_socket, upstream, ec);
 }
 
-proxy_target make_proxy_target(const rv::socks5::request& request)
+rv::proxy::target make_proxy_target(const rv::socks5::request& request)
 {
-    return proxy_target{
+    return rv::proxy::target{
         .destination = request.destination,
         .port = request.port,
     };
 }
 
-proxy_target make_proxy_target(const tcp::endpoint& endpoint)
+rv::proxy::target make_proxy_target(const tcp::endpoint& endpoint)
 {
-    return proxy_target{
+    return rv::proxy::target{
         .destination = rv::net::ipv4_address{endpoint.address().to_v4().to_bytes()},
         .port = endpoint.port(),
     };
@@ -193,28 +186,9 @@ std::string format_endpoint(const tcp::endpoint& endpoint)
     return endpoint.address().to_string() + ":" + std::to_string(endpoint.port());
 }
 
-boost::asio::awaitable<std::optional<rv::reality::reality_stream>> connect_reality(const rv::app::config& configuration,
-                                                                                   const std::string& session_id,
-                                                                                   boost::system::error_code& ec)
-{
-    const auto executor = co_await boost::asio::this_coro::executor;
-    auto tcp_stream = co_await rv::net::tcp_byte_stream::connect(
-        executor, configuration.reality_server_host, std::to_string(configuration.reality_server_port), session_id, ec);
-    if (ec)
-    {
-        co_return std::nullopt;
-    }
-
-    rv::reality::client_config reality_configuration;
-    reality_configuration.server_name = configuration.reality_server_name;
-    reality_configuration.server_public_key = configuration.reality_server_public_key;
-    reality_configuration.short_id = configuration.reality_short_id;
-    co_return co_await rv::reality::reality_stream::connect(std::move(*tcp_stream), std::move(reality_configuration), session_id, ec);
-}
-
 boost::asio::awaitable<std::optional<rv::vision::vision_stream>> connect_vision(rv::reality::reality_stream reality,
                                                                                 const rv::app::config& configuration,
-                                                                                const proxy_target& target,
+                                                                                const rv::proxy::target& target,
                                                                                 const std::string& session_id,
                                                                                 boost::system::error_code& ec)
 {
@@ -296,7 +270,7 @@ boost::asio::awaitable<initial_client_data> sniff_initial_client_data(tcp::socke
     return !std::holds_alternative<rv::net::domain_address>(request.destination);
 }
 
-void apply_sniffed_destination(proxy_target& target, const initial_client_data& initial_data, const std::string& session_id)
+void apply_sniffed_destination(rv::proxy::target& target, const initial_client_data& initial_data, const std::string& session_id)
 {
     if (!initial_data.domain)
     {
@@ -338,7 +312,7 @@ boost::asio::awaitable<void> run_socks_connect_session(tcp::socket& client_socke
     boost::system::error_code ec;
     spdlog::info("{} socks5 connect {}", session_id, rv::net::format_address_port(request.destination, request.port));
 
-    auto reality = co_await connect_reality(configuration, session_id, ec);
+    auto reality = co_await rv::proxy::connect_reality(configuration, session_id, ec);
     if (ec)
     {
         const auto upstream_ec = ec;
@@ -456,7 +430,7 @@ boost::asio::awaitable<void> run_transparent_session(tcp::socket client_socket,
     }
 
     spdlog::info("{} transparent connect {}", session_id, format_endpoint(original_destination));
-    auto reality = co_await connect_reality(configuration, session_id, ec);
+    auto reality = co_await rv::proxy::connect_reality(configuration, session_id, ec);
     if (ec)
     {
         spdlog::warn("{} upstream connection failed: {}", session_id, ec.message());
