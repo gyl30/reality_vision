@@ -19,6 +19,38 @@ namespace rv::reality
 namespace
 {
 
+constexpr std::uint16_t kExtensionExtendedMasterSecret = 0x0017;
+constexpr std::uint16_t kExtensionRenegotiationInfo = 0xff01;
+constexpr std::uint16_t kExtensionSupportedGroups = 0x000a;
+constexpr std::uint16_t kExtensionEcPointFormats = 0x000b;
+constexpr std::uint16_t kExtensionSessionTicket = 0x0023;
+constexpr std::uint16_t kExtensionAlpn = 0x0010;
+constexpr std::uint16_t kExtensionStatusRequest = 0x0005;
+constexpr std::uint16_t kExtensionDelegatedCredentials = 0x0022;
+constexpr std::uint16_t kExtensionSignatureAlgorithms = 0x000d;
+constexpr std::uint16_t kExtensionPskKeyExchangeModes = 0x002d;
+constexpr std::uint16_t kExtensionRecordSizeLimit = 0x001c;
+constexpr std::uint16_t kExtensionEncryptedClientHello = 0xfe0d;
+
+constexpr std::uint16_t kNamedGroupSecp256r1 = 0x0017;
+constexpr std::uint16_t kNamedGroupSecp384r1 = 0x0018;
+constexpr std::uint16_t kNamedGroupSecp521r1 = 0x0019;
+constexpr std::uint16_t kNamedGroupFfdhe2048 = 0x0100;
+constexpr std::uint16_t kNamedGroupFfdhe3072 = 0x0101;
+
+constexpr std::uint8_t kServerNameTypeHostName = 0;
+constexpr std::size_t kServerNameEntryOverhead = 3;
+constexpr std::uint8_t kEchClientHelloOuter = 0;
+constexpr std::uint16_t kHpkeKdfHkdfSha256 = 0x0001;
+constexpr std::uint16_t kHpkeAeadAes128Gcm = 0x0001;
+constexpr std::uint16_t kHpkeAeadChacha20Poly1305 = 0x0003;
+constexpr std::size_t kGreaseEchPayloadSize = 239;
+constexpr std::size_t kP256KeyShareSize = 65;
+
+constexpr std::size_t kRealitySaltSize = 20;
+constexpr std::size_t kRealityNonceSize = tls::kRandomSize - kRealitySaltSize;
+static_assert(kRealityNonceSize == 12);
+
 void append_u16_vector(std::span<const std::uint16_t> values, std::vector<std::uint8_t>& output, boost::system::error_code& ec)
 {
     if (values.size() > std::numeric_limits<std::uint16_t>::max() / 2U)
@@ -51,13 +83,15 @@ void push_extension(std::vector<std::uint8_t>& output, std::uint16_t type, std::
 
 std::vector<std::uint8_t> server_name_extension(const std::string& server_name, boost::system::error_code& ec)
 {
-    if (server_name.empty() || server_name.size() > std::numeric_limits<std::uint16_t>::max() - 3U || server_name.find('\0') != std::string::npos)
+    if (server_name.empty() ||
+        server_name.size() > std::numeric_limits<std::uint16_t>::max() - kServerNameEntryOverhead ||
+        server_name.find('\0') != std::string::npos)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::invalid_argument);
         return {};
     }
     std::vector<std::uint8_t> name;
-    name.push_back(0);
+    name.push_back(kServerNameTypeHostName);
     core::append_be16(name, static_cast<std::uint16_t>(server_name.size()));
     name.insert(name.end(), server_name.begin(), server_name.end());
 
@@ -82,13 +116,15 @@ std::vector<std::uint8_t> alpn_extension()
     return output;
 }
 
-std::vector<std::uint8_t> key_share_extension(const std::array<std::uint8_t, tls::kX25519KeyShareSize>& x25519_public, const std::array<std::uint8_t, 65>& p256_public)
+std::vector<std::uint8_t> key_share_extension(
+    const std::array<std::uint8_t, tls::kX25519KeyShareSize>& x25519_public,
+    const std::array<std::uint8_t, kP256KeyShareSize>& p256_public)
 {
     std::vector<std::uint8_t> shares;
     core::append_be16(shares, tls::kNamedGroupX25519);
     core::append_be16(shares, static_cast<std::uint16_t>(x25519_public.size()));
     shares.insert(shares.end(), x25519_public.begin(), x25519_public.end());
-    core::append_be16(shares, 0x0017);
+    core::append_be16(shares, kNamedGroupSecp256r1);
     core::append_be16(shares, static_cast<std::uint16_t>(p256_public.size()));
     shares.insert(shares.end(), p256_public.begin(), p256_public.end());
 
@@ -111,7 +147,7 @@ void push_server_name_extension(std::vector<std::uint8_t>& extensions,
     {
         return;
     }
-    push_extension(extensions, 0x0000, data, ec);
+    push_extension(extensions, tls::kExtensionServerName, data, ec);
 }
 
 void push_u16_list_extension(std::vector<std::uint8_t>& extensions,
@@ -157,9 +193,10 @@ std::vector<std::uint8_t> grease_ech_extension(boost::system::error_code& ec)
     {
         return {};
     }
-    const std::uint16_t aead_id = (choices[0] & 1U) == 0 ? 0x0001 : 0x0003;
+    const std::uint16_t aead_id =
+        (choices[0] & 1U) == 0 ? kHpkeAeadAes128Gcm : kHpkeAeadChacha20Poly1305;
     const auto encapsulated = crypto::make_x25519_key_pair();
-    std::vector<std::uint8_t> payload(239);
+    std::vector<std::uint8_t> payload(kGreaseEchPayloadSize);
     crypto::random_bytes(payload, ec);
     if (ec)
     {
@@ -168,8 +205,8 @@ std::vector<std::uint8_t> grease_ech_extension(boost::system::error_code& ec)
 
     std::vector<std::uint8_t> output;
     output.reserve(1 + 4 + 1 + 2 + encapsulated.public_key.size() + 2 + payload.size());
-    output.push_back(0x00);
-    core::append_be16(output, 0x0001);
+    output.push_back(kEchClientHelloOuter);
+    core::append_be16(output, kHpkeKdfHkdfSha256);
     core::append_be16(output, aead_id);
     output.push_back(choices[1]);
     core::append_be16(output, static_cast<std::uint16_t>(encapsulated.public_key.size()));
@@ -190,7 +227,7 @@ void push_grease_ech_extension(std::vector<std::uint8_t>& extensions, boost::sys
     {
         return;
     }
-    push_extension(extensions, 0xfe0d, data, ec);
+    push_extension(extensions, kExtensionEncryptedClientHello, data, ec);
 }
 
 std::vector<std::uint8_t> firefox_120_extensions(const client_config& configuration,
@@ -200,41 +237,48 @@ std::vector<std::uint8_t> firefox_120_extensions(const client_config& configurat
     std::vector<std::uint8_t> extensions;
 
     push_server_name_extension(extensions, configuration.server_name, ec);
-    push_extension(extensions, 0x0017, {}, ec);
+    push_extension(extensions, kExtensionExtendedMasterSecret, {}, ec);
 
-    constexpr std::array<std::uint8_t, 1> kRenegotiation{0};
-    push_extension(extensions, 0xff01, kRenegotiation, ec);
+    constexpr std::array<std::uint8_t, 1> kRenegotiationInfo{0};
+    push_extension(extensions, kExtensionRenegotiationInfo, kRenegotiationInfo, ec);
 
-    constexpr std::array<std::uint16_t, 6> kGroups{0x001d, 0x0017, 0x0018, 0x0019, 0x0100, 0x0101};
-    push_u16_list_extension(extensions, 0x000a, kGroups, ec);
+    constexpr std::array<std::uint16_t, 6> kSupportedGroups{
+        tls::kNamedGroupX25519,
+        kNamedGroupSecp256r1,
+        kNamedGroupSecp384r1,
+        kNamedGroupSecp521r1,
+        kNamedGroupFfdhe2048,
+        kNamedGroupFfdhe3072,
+    };
+    push_u16_list_extension(extensions, kExtensionSupportedGroups, kSupportedGroups, ec);
 
-    constexpr std::array<std::uint8_t, 2> kPointFormats{1, 0};
-    push_extension(extensions, 0x000b, kPointFormats, ec);
-    push_extension(extensions, 0x0023, {}, ec);
+    constexpr std::array<std::uint8_t, 2> kEcPointFormats{1, 0};
+    push_extension(extensions, kExtensionEcPointFormats, kEcPointFormats, ec);
+    push_extension(extensions, kExtensionSessionTicket, {}, ec);
 
     const auto alpn = alpn_extension();
-    push_extension(extensions, 0x0010, alpn, ec);
+    push_extension(extensions, kExtensionAlpn, alpn, ec);
 
     constexpr std::array<std::uint8_t, 5> kStatusRequest{1, 0, 0, 0, 0};
-    push_extension(extensions, 0x0005, kStatusRequest, ec);
+    push_extension(extensions, kExtensionStatusRequest, kStatusRequest, ec);
 
-    constexpr std::array<std::uint16_t, 4> kDelegatedAlgorithms{0x0403, 0x0503, 0x0603, 0x0203};
-    push_u16_list_extension(extensions, 0x0022, kDelegatedAlgorithms, ec);
+    constexpr std::array<std::uint16_t, 4> kDelegatedCredentialAlgorithms{0x0403, 0x0503, 0x0603, 0x0203};
+    push_u16_list_extension(extensions, kExtensionDelegatedCredentials, kDelegatedCredentialAlgorithms, ec);
 
     push_key_share_extension(extensions, x25519_public, ec);
 
-    constexpr std::array<std::uint8_t, 5> kVersions{4, 0x03, 0x04, 0x03, 0x03};
-    push_extension(extensions, 0x002b, kVersions, ec);
+    constexpr std::array<std::uint8_t, 5> kSupportedVersions{4, 0x03, 0x04, 0x03, 0x03};
+    push_extension(extensions, tls::kExtensionSupportedVersions, kSupportedVersions, ec);
 
     constexpr std::array<std::uint16_t, 11> kSignatureAlgorithms{
         0x0403, 0x0503, 0x0603, 0x0804, 0x0805, 0x0806, 0x0401, 0x0501, 0x0601, 0x0203, 0x0201};
-    push_u16_list_extension(extensions, 0x000d, kSignatureAlgorithms, ec);
+    push_u16_list_extension(extensions, kExtensionSignatureAlgorithms, kSignatureAlgorithms, ec);
 
-    constexpr std::array<std::uint8_t, 2> kPskModes{1, 1};
-    push_extension(extensions, 0x002d, kPskModes, ec);
+    constexpr std::array<std::uint8_t, 2> kPskKeyExchangeModes{1, 1};
+    push_extension(extensions, kExtensionPskKeyExchangeModes, kPskKeyExchangeModes, ec);
 
     constexpr std::array<std::uint8_t, 2> kRecordSizeLimit{0x40, 0x01};
-    push_extension(extensions, 0x001c, kRecordSizeLimit, ec);
+    push_extension(extensions, kExtensionRecordSizeLimit, kRecordSizeLimit, ec);
 
     push_grease_ech_extension(extensions, ec);
     if (ec)
@@ -245,7 +289,7 @@ std::vector<std::uint8_t> firefox_120_extensions(const client_config& configurat
 }
 
 std::vector<std::uint8_t> build_firefox_120_handshake(const client_config& configuration,
-                                                      const std::array<std::uint8_t, 32>& random,
+                                                      const std::array<std::uint8_t, tls::kRandomSize>& random,
                                                       const std::array<std::uint8_t, 32>& session_id,
                                                       const std::array<std::uint8_t, tls::kX25519KeyShareSize>& x25519_public_key,
                                                       boost::system::error_code& ec)
@@ -302,7 +346,7 @@ void derive_reality_auth_key(client_hello_material& material, const client_confi
         return;
     }
 
-    const auto salt = std::span<const std::uint8_t>(material.client_random.data(), 20);
+    const auto salt = std::span<const std::uint8_t>(material.client_random.data(), kRealitySaltSize);
     auto pseudorandom_key = crypto::hkdf_extract(crypto::hash_algorithm::kSha256, salt, shared_secret, ec);
     crypto::cleanse(shared_secret);
     if (ec)
@@ -369,7 +413,8 @@ void authenticate_client_hello(client_hello_material& material,
         return;
     }
 
-    const auto nonce = std::span<const std::uint8_t>(material.client_random.data() + 20, 12);
+    const auto nonce =
+        std::span<const std::uint8_t>(material.client_random.data() + kRealitySaltSize, kRealityNonceSize);
     const auto sealed_session_id = reality_aead.seal(nonce, authentication, material.handshake_bytes, ec);
     if (ec)
     {
