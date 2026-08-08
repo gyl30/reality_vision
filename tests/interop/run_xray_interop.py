@@ -356,6 +356,26 @@ def make_socks5_udp_domain_request(target_port: int, payload: bytes) -> bytes:
     )
 
 
+def exchange_socks5_udp_datagram(
+    relay: socket.socket,
+    relay_endpoint: tuple[str, int],
+    target_host: str,
+    target_port: int,
+    payload: bytes,
+) -> None:
+    address = encode_socks5_address(target_host)
+    relay.sendto(
+        make_socks5_udp_request(target_host, target_port, payload),
+        relay_endpoint,
+    )
+    response, _ = relay.recvfrom(65535)
+    header = b"\x00\x00\x00" + address + target_port.to_bytes(2, "big")
+    if not response.startswith(header):
+        raise RuntimeError(f"invalid SOCKS5 UDP response: {response.hex()}")
+    if response[len(header) :] != payload:
+        raise RuntimeError("SOCKS5 UDP echo response mismatch")
+
+
 def socks5_udp_roundtrip(
     proxy_port: int,
     target_port: int,
@@ -370,17 +390,13 @@ def socks5_udp_roundtrip(
             malformed_source.sendto(b"\x00", relay_endpoint)
         time.sleep(0.05)
 
-        address = encode_socks5_address(target_host)
-        relay.sendto(
-            make_socks5_udp_request(target_host, target_port, payload),
+        exchange_socks5_udp_datagram(
+            relay,
             relay_endpoint,
+            target_host,
+            target_port,
+            payload,
         )
-        response, _ = relay.recvfrom(65535)
-        header = b"\x00\x00\x00" + address + target_port.to_bytes(2, "big")
-        if not response.startswith(header):
-            raise RuntimeError(f"invalid SOCKS5 UDP response: {response.hex()}")
-        if response[len(header) :] != payload:
-            raise RuntimeError("SOCKS5 UDP echo response mismatch")
     finally:
         relay.close()
         control.close()
@@ -412,6 +428,39 @@ def wait_for_text_count(
     raise RuntimeError(
         f"timed out waiting for {marker!r} {count} times\n{tail(path)}"
     )
+
+
+def socks5_udp_datagrams_share_flow(
+    proxy_port: int,
+    target_port: int,
+    client_log_path: Path,
+) -> None:
+    marker = "vless udp request header sent"
+    initial_count = count_text(client_log_path, marker)
+    payloads = (
+        b"a",
+        bytes(range(256)),
+        bytes((index * 37) % 256 for index in range(4097)),
+    )
+    control, relay, relay_endpoint = open_socks5_udp_association(proxy_port)
+    try:
+        relay.settimeout(15)
+        for payload in payloads:
+            exchange_socks5_udp_datagram(
+                relay,
+                relay_endpoint,
+                "127.0.0.1",
+                target_port,
+                payload,
+            )
+        flow_count = count_text(client_log_path, marker) - initial_count
+        if flow_count != 1:
+            raise RuntimeError(
+                f"SOCKS5 UDP datagrams created {flow_count} upstream flows"
+            )
+    finally:
+        relay.close()
+        control.close()
 
 
 def socks5_udp_address_types_use_distinct_flows(
@@ -991,6 +1040,17 @@ def main() -> int:
                             "socks_9 socks5 udp association completed",
                             vision_socks_process,
                         )
+
+                        socks5_udp_datagrams_share_flow(
+                            vision_socks_port,
+                            udp_echo_port,
+                            vision_socks_log_path,
+                        )
+                        wait_for_text(
+                            vision_socks_log_path,
+                            "socks_10 socks5 udp association completed",
+                            vision_socks_process,
+                        )
                         time.sleep(0.1)
 
                         if vision_socks_process.poll() is not None:
@@ -1046,6 +1106,8 @@ def main() -> int:
                             "socks_8 socks5 udp association completed",
                             "socks_9_udp_1 vless udp request header sent",
                             "socks_9 socks5 udp association completed",
+                            "socks_10_udp_1 vless udp request header sent",
+                            "socks_10 socks5 udp association completed",
                         )
                         missing_udp = [marker for marker in udp_markers if marker not in socks_output]
                         udp_vision_markers = [
@@ -1100,7 +1162,7 @@ def main() -> int:
             ipv6_udp_echo_thread.join(timeout=2)
 
     print(
-        "Xray REALITY, VLESS Vision, VLESS UDP including IPv6, UDP/443, and address-type flow isolation, "
+        "Xray REALITY, VLESS Vision, VLESS UDP including IPv6, UDP/443, flow reuse, and address-type flow isolation, "
         "SOCKS5 IPv6 and TCP half-close, no-authentication and username/password authentication, "
         "UDP ASSOCIATE, destination sniffing, "
         "TLS 1.2 fallback, and TLS 1.3 Direct tests passed"
