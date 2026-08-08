@@ -281,33 +281,31 @@ void apply_sniffed_destination(rv::proxy::target& target, const initial_client_d
     spdlog::info("{} sniffed destination {}:{}", session_id, *initial_data.domain, target.port);
 }
 
-rv::socks5::reply map_error_to_socks_reply(const boost::system::error_code& ec)
-{
-    if (ec == boost::asio::error::connection_refused)
-    {
-        return rv::socks5::reply::kConnectionRefused;
-    }
-    if (ec == boost::asio::error::network_unreachable)
-    {
-        return rv::socks5::reply::kNetworkUnreachable;
-    }
-    if (ec == boost::asio::error::host_unreachable || ec == boost::asio::error::host_not_found || ec == boost::asio::error::host_not_found_try_again)
-    {
-        return rv::socks5::reply::kHostUnreachable;
-    }
-    return rv::socks5::reply::kGeneralFailure;
-}
-
 boost::asio::awaitable<void> send_upstream_failure_reply(tcp::socket& client_socket, const boost::system::error_code& upstream_ec)
 {
+    auto response = rv::socks5::reply::kGeneralFailure;
+    if (upstream_ec == boost::asio::error::connection_refused)
+    {
+        response = rv::socks5::reply::kConnectionRefused;
+    }
+    else if (upstream_ec == boost::asio::error::network_unreachable)
+    {
+        response = rv::socks5::reply::kNetworkUnreachable;
+    }
+    else if (upstream_ec == boost::asio::error::host_unreachable || upstream_ec == boost::asio::error::host_not_found ||
+             upstream_ec == boost::asio::error::host_not_found_try_again)
+    {
+        response = rv::socks5::reply::kHostUnreachable;
+    }
+
     boost::system::error_code ignored;
-    co_await rv::socks5::send_reply(client_socket, map_error_to_socks_reply(upstream_ec), ignored);
+    co_await rv::socks5::send_reply(client_socket, response, ignored);
 }
 
 boost::asio::awaitable<void> run_socks_connect_session(tcp::socket& client_socket,
-                                                        const rv::app::config& configuration,
-                                                        const rv::socks5::request& request,
-                                                        const std::string& session_id)
+                                                       const rv::app::config& configuration,
+                                                       const rv::socks5::request& request,
+                                                       const std::string& session_id)
 {
     boost::system::error_code ec;
     spdlog::info("{} socks5 connect {}", session_id, rv::net::format_address_port(request.destination, request.port));
