@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable
 import json
 from pathlib import Path
 import re
@@ -74,7 +75,7 @@ class Ipv6UdpEchoServer(UdpEchoServer):
     address_family = socket.AF_INET6
 
 
-class P256ServerHelloHandler(socketserver.BaseRequestHandler):
+class ServerHelloHandler(socketserver.BaseRequestHandler):
     def handle(self) -> None:
         header = recv_exact(self.request, 5)
         if header[:3] != b"\x16\x03\x01":
@@ -86,12 +87,20 @@ class P256ServerHelloHandler(socketserver.BaseRequestHandler):
         session_id = client_hello[39 : 39 + session_id_length]
         if len(session_id) != session_id_length:
             raise RuntimeError("truncated REALITY test ClientHello session ID")
-        self.request.sendall(make_p256_server_hello(session_id))
+        self.request.sendall(self.server.response_factory(session_id))
 
 
-class P256ServerHelloServer(socketserver.ThreadingTCPServer):
+class ServerHelloServer(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
     daemon_threads = True
+
+    def __init__(
+        self,
+        server_address: tuple[str, int],
+        response_factory: Callable[[bytes], bytes],
+    ) -> None:
+        self.response_factory = response_factory
+        super().__init__(server_address, ServerHelloHandler)
 
 
 def reserve_listener() -> socket.socket:
@@ -646,6 +655,22 @@ def make_p256_server_hello(session_id: bytes) -> bytes:
     return b"\x16\x03\x03" + len(handshake).to_bytes(2, "big") + handshake
 
 
+def make_short_session_id_server_hello(session_id: bytes) -> bytes:
+    short_session_id = session_id[:-1]
+    extensions = bytes.fromhex("002b0002030400330024001d0020") + bytes([0x22]) * 32
+    body = (
+        b"\x03\x03"
+        + bytes([0x11]) * 32
+        + bytes([len(short_session_id)])
+        + short_session_id
+        + b"\x13\x01\x00"
+        + len(extensions).to_bytes(2, "big")
+        + extensions
+    )
+    handshake = b"\x02" + len(body).to_bytes(3, "big") + body
+    return b"\x16\x03\x03" + len(handshake).to_bytes(2, "big") + handshake
+
+
 def trigger_socks5_connect_failure(proxy_port: int) -> None:
     with socket.create_connection(("127.0.0.1", proxy_port), timeout=5) as sock:
         sock.settimeout(10)
@@ -658,11 +683,18 @@ def trigger_socks5_connect_failure(proxy_port: int) -> None:
             raise RuntimeError(f"REALITY error test expected SOCKS5 failure: {reply.hex()}")
 
 
-def test_p256_key_share_error(client: Path, public_key: str, work_dir: Path) -> None:
-    log_path = work_dir / "p256-key-share.log"
+def test_server_hello_error(
+    client: Path,
+    public_key: str,
+    work_dir: Path,
+    response_factory: Callable[[bytes], bytes],
+    log_name: str,
+    expected_error: str,
+) -> None:
+    log_path = work_dir / log_name
     process: subprocess.Popen[bytes] | None = None
     with (
-        P256ServerHelloServer(("127.0.0.1", 0), P256ServerHelloHandler) as server,
+        ServerHelloServer(("127.0.0.1", 0), response_factory) as server,
         reserve_listener() as socks_reservation,
     ):
         socks_port = int(socks_reservation.getsockname()[1])
@@ -683,7 +715,7 @@ def test_p256_key_share_error(client: Path, public_key: str, work_dir: Path) -> 
                 )
                 wait_for_text(log_path, "socks5 tcp proxy listening", process)
                 trigger_socks5_connect_failure(socks_port)
-                wait_for_text(log_path, "socks_1 upstream connection failed: Operation not supported", process)
+                wait_for_text(log_path, f"socks_1 upstream connection failed: {expected_error}", process)
         finally:
             stop_process(process)
             server.shutdown()
@@ -709,7 +741,22 @@ def main() -> int:
     vision_socks_log_path = work_dir / "vision-socks.log"
     vision_no_auth_socks_log_path = work_dir / "vision-no-auth-socks.log"
     private_key, public_key = generate_x25519_key_pair(args.xray)
-    test_p256_key_share_error(args.client, public_key, work_dir)
+    test_server_hello_error(
+        args.client,
+        public_key,
+        work_dir,
+        make_p256_server_hello,
+        "p256-key-share.log",
+        "Operation not supported",
+    )
+    test_server_hello_error(
+        args.client,
+        public_key,
+        work_dir,
+        make_short_session_id_server_hello,
+        "short-session-id.log",
+        "Bad message",
+    )
 
     subprocess.run(
         [
