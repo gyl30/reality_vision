@@ -25,7 +25,6 @@ class byte_queue
 
     void append(std::span<const std::uint8_t> input, boost::system::error_code& ec)
     {
-        ec.clear();
         if (input.size() > size_limit_ - size())
         {
             ec = boost::system::errc::make_error_code(boost::system::errc::message_size);

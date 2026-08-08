@@ -75,7 +75,6 @@ std::vector<std::uint8_t> encode_request(const client_config& configuration,
                                          const bool vision_flow,
                                          boost::system::error_code& ec)
 {
-    ec.clear();
     if (configuration.destination_port == 0)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::invalid_argument);

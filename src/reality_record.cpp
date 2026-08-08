@@ -29,7 +29,6 @@ std::vector<std::uint8_t> derive_secret(crypto::hash_algorithm hash,
 
 cipher_suite parse_cipher_suite(std::uint16_t value, boost::system::error_code& ec)
 {
-    ec.clear();
     switch (value)
     {
         case static_cast<std::uint16_t>(cipher_suite::kTlsAes128GcmSha256):
@@ -70,7 +69,6 @@ bool is_compatibility_change_cipher_spec(const std::span<const std::uint8_t, tls
 
 std::optional<std::uint8_t> parse_alert_description(const std::span<const std::uint8_t> content, boost::system::error_code& ec)
 {
-    ec.clear();
     if (content.size() != 2)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
@@ -86,7 +84,6 @@ std::vector<std::uint8_t> hkdf_expand_label(crypto::hash_algorithm hash,
                                             std::size_t output_length,
                                             boost::system::error_code& ec)
 {
-    ec.clear();
     constexpr std::array<std::uint8_t, 6> kPrefix{'t', 'l', 's', '1', '3', ' '};
     constexpr std::size_t kMaximumLabelLength = std::numeric_limits<std::uint8_t>::max() - kPrefix.size();
     if (output_length > std::numeric_limits<std::uint16_t>::max() || label.size() > kMaximumLabelLength ||
@@ -109,7 +106,6 @@ std::vector<std::uint8_t> hkdf_expand_label(crypto::hash_algorithm hash,
 
 record_key::record_key(cipher_suite suite, std::span<const std::uint8_t> traffic_secret, boost::system::error_code& ec)
 {
-    ec.clear();
     const auto properties = cipher_properties(suite);
     if (properties.key_length == 0)
     {
@@ -142,7 +138,6 @@ record_key::record_key(cipher_suite suite, std::span<const std::uint8_t> traffic
 
 std::array<std::uint8_t, tls::kRecordIvSize> record_key::next_nonce(boost::system::error_code& ec)
 {
-    ec.clear();
     if (sequence_exhausted_)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::value_too_large);
@@ -166,7 +161,6 @@ std::array<std::uint8_t, tls::kRecordIvSize> record_key::next_nonce(boost::syste
 
 std::vector<std::uint8_t> record_key::seal(std::uint8_t inner_type, std::span<const std::uint8_t> plaintext, boost::system::error_code& ec)
 {
-    ec.clear();
     if (plaintext.size() > tls::kMaximumPlaintextSize)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::message_size);
@@ -200,7 +194,6 @@ opened_record record_key::open(std::span<const std::uint8_t, tls::kRecordHeaderS
                                std::span<const std::uint8_t> ciphertext,
                                boost::system::error_code& ec)
 {
-    ec.clear();
     if (ciphertext.size() <= crypto::kAeadTagSize || ciphertext.size() > tls::kMaximumCiphertextSize)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
@@ -239,7 +232,6 @@ std::optional<handshake_secrets> derive_handshake_secrets(cipher_suite suite,
                                                           std::span<const std::uint8_t> transcript,
                                                           boost::system::error_code& ec)
 {
-    ec.clear();
     const auto properties = cipher_properties(suite);
     if (properties.key_length == 0)
     {
@@ -318,7 +310,6 @@ std::optional<application_keys> derive_application_keys(cipher_suite suite,
                                                         std::span<const std::uint8_t> transcript,
                                                         boost::system::error_code& ec)
 {
-    ec.clear();
     const auto properties = cipher_properties(suite);
     if (properties.key_length == 0)
     {
@@ -360,7 +351,6 @@ std::vector<std::uint8_t> finished_verify_data(cipher_suite suite,
                                                std::span<const std::uint8_t> transcript,
                                                boost::system::error_code& ec)
 {
-    ec.clear();
     const auto properties = cipher_properties(suite);
     if (properties.key_length == 0)
     {

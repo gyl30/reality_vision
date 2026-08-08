@@ -263,6 +263,7 @@ void test_record_roundtrip()
         const auto tamper_header = std::span<const std::uint8_t, 5>(tampered.data(), 5);
         static_cast<void>(tamper_reader.open(tamper_header, std::span(tampered).subspan(5), ec));
         expect_error(ec, boost::system::errc::bad_message, "TLS tamper returned wrong error");
+        ec.clear();
     }
 
     constexpr std::array<std::uint8_t, 3> kKeyLabel{'k', 'e', 'y'};
@@ -303,7 +304,7 @@ void test_tls_control_records()
     expect(!rv::reality::is_compatibility_change_cipher_spec(kCompatibilityCcsHeader, kLongCcsPayload),
            "TLS accepted compatibility CCS with trailing payload");
 
-    boost::system::error_code ec = boost::system::errc::make_error_code(boost::system::errc::invalid_argument);
+    boost::system::error_code ec;
     constexpr std::array<std::uint8_t, 2> kCloseNotify{0x01, 0x00};
     const auto close_notify = rv::reality::parse_alert_description(kCloseNotify, ec);
     expect(!ec && close_notify == 0, "TLS close notify parse failed");
@@ -312,6 +313,7 @@ void test_tls_control_records()
     constexpr std::array<std::uint8_t, 3> kLongAlert{0x02, 0x28, 0x00};
     static_cast<void>(rv::reality::parse_alert_description(kTruncatedAlert, ec));
     expect_error(ec, boost::system::errc::bad_message, "TLS accepted truncated alert");
+    ec.clear();
     static_cast<void>(rv::reality::parse_alert_description(kLongAlert, ec));
     expect_error(ec, boost::system::errc::bad_message, "TLS accepted alert with trailing bytes");
 }
@@ -330,6 +332,7 @@ void test_finished_verification()
     rv::reality::verify_finished_data(
         rv::reality::cipher_suite::kTlsAes128GcmSha256, secret, kTranscript, std::span(verify_data).first(verify_data.size() - 1), ec);
     expect_error(ec, boost::system::errc::bad_message, "Finished length returned wrong error");
+    ec.clear();
 
     auto invalid_verify_data = verify_data;
     invalid_verify_data[0] ^= 0x80;
@@ -497,10 +500,12 @@ void test_vless_header()
     config.destination = rv::net::domain_address{};
     static_cast<void>(rv::vless::encode_tcp_request(config, ec));
     expect_error(ec, boost::system::errc::invalid_argument, "VLESS empty domain returned wrong error");
+    ec.clear();
 
     config.destination = rv::net::domain_address{std::string("bad\0domain", 10)};
     static_cast<void>(rv::vless::encode_tcp_request(config, ec));
     expect_error(ec, boost::system::errc::invalid_argument, "VLESS embedded NUL domain returned wrong error");
+    ec.clear();
 
     config.destination = rv::net::domain_address{std::string(255, 'a')};
     const auto maximum_domain_request = rv::vless::encode_tcp_request(config, ec);
@@ -509,6 +514,7 @@ void test_vless_header()
     config.destination = rv::net::domain_address{std::string(256, 'a')};
     static_cast<void>(rv::vless::encode_tcp_request(config, ec));
     expect_error(ec, boost::system::errc::invalid_argument, "VLESS oversized domain returned wrong error");
+    ec.clear();
 
     config.destination = rv::net::domain_address{"example.com"};
     config.destination_port = 0;
@@ -917,6 +923,7 @@ void test_socks5_udp_codec()
     ec = rv::socks5::decode_udp_datagram(kNulDomain, datagram);
     expect_error(ec, boost::system::errc::bad_message, "SOCKS5 UDP accepted domain containing NUL");
 
+    ec.clear();
     const rv::net::domain_address invalid_domain{std::string("a\0b", 3)};
     const auto invalid_encoded = rv::socks5::encode_udp_datagram(invalid_domain, 53, {}, ec);
     expect(invalid_encoded.empty(), "SOCKS5 UDP encoded domain containing NUL");

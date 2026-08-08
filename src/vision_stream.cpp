@@ -167,7 +167,6 @@ boost::asio::awaitable<void> vision_stream::finish_received_frame(boost::system:
 
 boost::asio::awaitable<std::size_t> vision_stream::read(std::span<std::uint8_t> output, boost::system::error_code& ec)
 {
-    ec.clear();
     if (output.empty())
     {
         co_return 0;
@@ -276,7 +275,6 @@ boost::asio::awaitable<void> vision_stream::write_vision_frames(const std::span<
 
 boost::asio::awaitable<void> vision_stream::write(const std::span<const std::uint8_t> input, boost::system::error_code& ec)
 {
-    ec.clear();
     if (input.empty())
     {
         co_return;
@@ -332,7 +330,6 @@ boost::asio::awaitable<void> vision_stream::end_padding_before_shutdown(boost::s
 
 boost::asio::awaitable<void> vision_stream::shutdown_send(boost::system::error_code& ec)
 {
-    ec.clear();
     co_await end_padding_before_shutdown(ec);
     if (ec)
     {

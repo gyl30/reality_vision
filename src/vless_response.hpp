@@ -22,8 +22,6 @@ namespace rv::vless
     constexpr std::uint8_t kVersion = 0;
     constexpr std::size_t kMaximumAddonLength = std::numeric_limits<std::uint8_t>::max();
 
-    ec.clear();
-
     std::array<std::uint8_t, 2> header{};
     co_await net::read_exact(reality, header, ec);
     if (ec)

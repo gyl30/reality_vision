@@ -39,7 +39,6 @@ vless_stream::vless_stream(reality::reality_stream reality, std::string session_
 
 boost::asio::awaitable<std::size_t> vless_stream::read(std::span<std::uint8_t> output, boost::system::error_code& ec)
 {
-    ec.clear();
     if (output.empty())
     {
         co_return 0;
@@ -68,7 +67,6 @@ boost::asio::awaitable<void> vless_stream::shutdown_send(boost::system::error_co
 
 void vless_stream::switch_receive_to_raw(boost::system::error_code& ec)
 {
-    ec.clear();
     if (response_header_pending_)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::operation_not_permitted);

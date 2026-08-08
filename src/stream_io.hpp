@@ -15,7 +15,6 @@ namespace rv::net
 template <typename Stream>
 [[nodiscard]] boost::asio::awaitable<void> read_exact(Stream& stream, std::span<std::uint8_t> output, boost::system::error_code& ec)
 {
-    ec.clear();
     std::size_t offset = 0;
     while (offset != output.size())
     {

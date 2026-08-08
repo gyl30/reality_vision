@@ -364,7 +364,6 @@ asio::awaitable<std::optional<std::vector<std::uint8_t>>> read_request_bytes(asi
 
 std::vector<std::uint8_t> encode_bound_reply(const reply value, const asio::ip::udp::endpoint& endpoint, boost::system::error_code& ec)
 {
-    ec.clear();
     if (!endpoint.address().is_v4())
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::address_family_not_supported);
@@ -493,7 +492,6 @@ std::vector<std::uint8_t> encode_udp_datagram(const net::address& source,
                                               const std::span<const std::uint8_t> payload,
                                               boost::system::error_code& ec)
 {
-    ec.clear();
     if (port == 0)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::invalid_argument);

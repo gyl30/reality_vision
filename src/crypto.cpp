@@ -91,7 +91,6 @@ const EVP_AEAD* evp_aead(aead_algorithm algorithm) noexcept
 
 void random_bytes(std::span<std::uint8_t> output, boost::system::error_code& ec)
 {
-    ec.clear();
     if (output.size() > static_cast<std::size_t>(std::numeric_limits<int>::max()))
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::value_too_large);
@@ -127,7 +126,6 @@ std::array<std::uint8_t, kX25519KeySize> x25519(std::span<const std::uint8_t, kX
                                                 std::span<const std::uint8_t, kX25519KeySize> peer_public_key,
                                                 boost::system::error_code& ec)
 {
-    ec.clear();
     std::array<std::uint8_t, kX25519KeySize> result{};
     ERR_clear_error();
     if (X25519(result.data(), private_key.data(), peer_public_key.data()) != 1)
@@ -139,7 +137,6 @@ std::array<std::uint8_t, kX25519KeySize> x25519(std::span<const std::uint8_t, kX
 
 std::array<std::uint8_t, kP256PublicKeySize> make_p256_public_key(boost::system::error_code& ec)
 {
-    ec.clear();
     std::array<std::uint8_t, kP256PublicKeySize> output{};
     ERR_clear_error();
     bssl::UniquePtr<EC_KEY> key(EC_KEY_new_by_curve_name(NID_X9_62_prime256v1));
@@ -173,7 +170,6 @@ std::size_t hash_size(hash_algorithm algorithm) noexcept
 
 std::vector<std::uint8_t> digest(hash_algorithm algorithm, std::span<const std::uint8_t> input, boost::system::error_code& ec)
 {
-    ec.clear();
     std::vector<std::uint8_t> output(hash_size(algorithm));
     const auto* md = evp_md(algorithm);
     if (!md)
@@ -196,7 +192,6 @@ std::vector<std::uint8_t> hmac(hash_algorithm algorithm,
                                std::span<const std::uint8_t> input,
                                boost::system::error_code& ec)
 {
-    ec.clear();
     if (key.size() > static_cast<std::size_t>(std::numeric_limits<int>::max()))
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::value_too_large);
@@ -225,7 +220,6 @@ std::vector<std::uint8_t> hkdf_extract(hash_algorithm algorithm,
                                        std::span<const std::uint8_t> input_key_material,
                                        boost::system::error_code& ec)
 {
-    ec.clear();
     const auto* md = evp_md(algorithm);
     if (!md)
     {
@@ -250,7 +244,6 @@ std::vector<std::uint8_t> hkdf_expand(hash_algorithm algorithm,
                                       std::size_t output_length,
                                       boost::system::error_code& ec)
 {
-    ec.clear();
     const auto* md = evp_md(algorithm);
     if (!md)
     {
@@ -286,7 +279,6 @@ aead::aead() = default;
 
 aead::aead(aead_algorithm algorithm, std::span<const std::uint8_t> key, boost::system::error_code& ec) : impl_(std::make_unique<impl>())
 {
-    ec.clear();
     const auto* algorithm_impl = evp_aead(algorithm);
     if (!algorithm_impl)
     {
@@ -314,7 +306,6 @@ std::vector<std::uint8_t> aead::seal(std::span<const std::uint8_t> nonce,
                                      std::span<const std::uint8_t> additional_data,
                                      boost::system::error_code& ec) const
 {
-    ec.clear();
     if (!valid())
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::state_not_recoverable);
@@ -346,7 +337,6 @@ std::vector<std::uint8_t> aead::open(std::span<const std::uint8_t> nonce,
                                      std::span<const std::uint8_t> additional_data,
                                      boost::system::error_code& ec) const
 {
-    ec.clear();
     if (!valid())
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::state_not_recoverable);
@@ -376,7 +366,6 @@ std::vector<std::uint8_t> aead::open(std::span<const std::uint8_t> nonce,
 
 reality_certificate parse_reality_certificate(std::span<const std::uint8_t> der, boost::system::error_code& ec)
 {
-    ec.clear();
     reality_certificate result;
     if (der.size() > static_cast<std::size_t>(std::numeric_limits<long>::max()))
     {
@@ -431,7 +420,6 @@ void verify_ed25519(std::span<const std::uint8_t, kEd25519PublicKeySize> public_
                     std::span<const std::uint8_t, kEd25519SignatureSize> signature,
                     boost::system::error_code& ec)
 {
-    ec.clear();
     ERR_clear_error();
     bssl::UniquePtr<EVP_PKEY> key(EVP_PKEY_new_raw_public_key(EVP_PKEY_ED25519, nullptr, public_key.data(), public_key.size()));
     bssl::UniquePtr<EVP_MD_CTX> context(EVP_MD_CTX_new());

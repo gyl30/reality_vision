@@ -52,7 +52,6 @@ vless_udp_stream::vless_udp_stream(reality::reality_stream reality, std::string 
 
 boost::asio::awaitable<void> vless_udp_stream::write_datagram(std::span<const std::uint8_t> payload, boost::system::error_code& ec)
 {
-    ec.clear();
     if (payload.empty())
     {
         co_return;
@@ -72,7 +71,6 @@ boost::asio::awaitable<void> vless_udp_stream::write_datagram(std::span<const st
 
 boost::asio::awaitable<std::vector<std::uint8_t>> vless_udp_stream::read_datagram(boost::system::error_code& ec)
 {
-    ec.clear();
     if (response_header_pending_)
     {
         co_await vless::read_response_header(reality_, ec);

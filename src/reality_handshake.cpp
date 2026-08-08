@@ -760,7 +760,6 @@ boost::asio::awaitable<std::optional<handshake_result>> perform_client_handshake
                                                                                  const std::string& session_id,
                                                                                  boost::system::error_code& ec)
 {
-    ec.clear();
     std::vector<std::uint8_t> transcript;
 
     auto client_hello = co_await send_client_hello(tcp, configuration, transcript, session_id, ec);

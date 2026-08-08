@@ -428,7 +428,6 @@ std::optional<client_hello_material> build_client_hello(const client_config& con
                                                         boost::system::error_code& ec,
                                                         const std::chrono::system_clock::time_point now)
 {
-    ec.clear();
     if (configuration.profile != client_hello_profile::kFirefox120)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::operation_not_supported);
@@ -461,7 +460,6 @@ std::optional<client_hello_material> build_client_hello(const client_config& con
 
 std::vector<std::uint8_t> wrap_plain_record(std::uint8_t content_type, std::span<const std::uint8_t> payload, boost::system::error_code& ec)
 {
-    ec.clear();
     if (payload.size() > std::numeric_limits<std::uint16_t>::max())
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::message_size);
