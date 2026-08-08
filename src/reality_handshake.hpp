@@ -27,4 +27,4 @@ struct handshake_result
 
 }    // namespace rv::reality
 
-#endif
+#endif    // REALITY_VISION_REALITY_HANDSHAKE_HPP

@@ -79,4 +79,4 @@ class vision_stream
 
 }    // namespace rv::vision
 
-#endif
+#endif    // REALITY_VISION_VISION_STREAM_HPP

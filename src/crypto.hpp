@@ -110,4 +110,4 @@ void verify_ed25519(std::span<const std::uint8_t, kEd25519PublicKeySize> public_
 
 }    // namespace rv::crypto
 
-#endif
+#endif    // REALITY_VISION_CRYPTO_HPP

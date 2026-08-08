@@ -80,4 +80,4 @@ enum class reply : std::uint8_t
 
 }    // namespace rv::socks5
 
-#endif
+#endif    // REALITY_VISION_SOCKS5_PROTOCOL_HPP

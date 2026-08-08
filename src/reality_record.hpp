@@ -107,4 +107,4 @@ void verify_finished_data(cipher_suite suite,
 
 }    // namespace rv::reality
 
-#endif
+#endif    // REALITY_VISION_REALITY_RECORD_HPP

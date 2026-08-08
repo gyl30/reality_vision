@@ -91,4 +91,4 @@ class byte_queue
 
 }    // namespace rv::core
 
-#endif
+#endif    // REALITY_VISION_BYTE_QUEUE_HPP

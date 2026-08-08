@@ -36,4 +36,4 @@ class tcp_byte_stream
 
 }    // namespace rv::net
 
-#endif
+#endif    // REALITY_VISION_TCP_BYTE_STREAM_HPP

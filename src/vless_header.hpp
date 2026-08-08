@@ -27,4 +27,4 @@ struct client_config
 
 }    // namespace rv::vless
 
-#endif
+#endif    // REALITY_VISION_VLESS_HEADER_HPP

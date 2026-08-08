@@ -25,4 +25,4 @@ struct result
 
 }    // namespace rv::sniff
 
-#endif
+#endif    // REALITY_VISION_SNIFFER_HPP

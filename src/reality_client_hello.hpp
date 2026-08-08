@@ -38,4 +38,4 @@ struct client_hello_material
 
 }    // namespace rv::reality
 
-#endif
+#endif    // REALITY_VISION_REALITY_CLIENT_HELLO_HPP

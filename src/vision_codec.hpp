@@ -108,4 +108,4 @@ class server_hello_tracker
 
 }    // namespace rv::vision
 
-#endif
+#endif    // REALITY_VISION_VISION_CODEC_HPP

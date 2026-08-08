@@ -84,4 +84,4 @@ class reality_stream
 
 }    // namespace rv::reality
 
-#endif
+#endif    // REALITY_VISION_REALITY_STREAM_HPP
