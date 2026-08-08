@@ -57,9 +57,7 @@ struct initial_client_data
     std::optional<std::string> domain;
 };
 
-boost::asio::awaitable<void> relay_client_to_upstream(tcp::socket& client_socket,
-                                                       rv::vision::vision_stream& upstream,
-                                                       boost::system::error_code& ec)
+boost::asio::awaitable<void> relay_client_to_upstream(tcp::socket& client_socket, rv::vision::vision_stream& upstream, boost::system::error_code& ec)
 {
     std::array<std::uint8_t, kRelayBufferSize> buffer{};
     for (;;)
@@ -91,9 +89,7 @@ boost::asio::awaitable<void> relay_client_to_upstream(tcp::socket& client_socket
     }
 }
 
-boost::asio::awaitable<void> relay_upstream_to_client(rv::vision::vision_stream& upstream,
-                                                       tcp::socket& client_socket,
-                                                       boost::system::error_code& ec)
+boost::asio::awaitable<void> relay_upstream_to_client(rv::vision::vision_stream& upstream, tcp::socket& client_socket, boost::system::error_code& ec)
 {
     std::array<std::uint8_t, kRelayBufferSize> buffer{};
     for (;;)
@@ -122,9 +118,7 @@ boost::asio::awaitable<void> relay_upstream_to_client(rv::vision::vision_stream&
     }
 }
 
-boost::asio::awaitable<void> relay_bidirectional(tcp::socket& client_socket,
-                                                  rv::vision::vision_stream& upstream,
-                                                  boost::system::error_code& ec)
+boost::asio::awaitable<void> relay_bidirectional(tcp::socket& client_socket, rv::vision::vision_stream& upstream, boost::system::error_code& ec)
 {
     using namespace boost::asio::experimental::awaitable_operators;    // NOLINT
 
@@ -149,9 +143,9 @@ boost::asio::awaitable<void> relay_bidirectional(tcp::socket& client_socket,
 }
 
 boost::asio::awaitable<void> relay_with_initial_data(tcp::socket& client_socket,
-                                                      rv::vision::vision_stream& upstream,
-                                                      const std::span<const std::uint8_t> initial_data,
-                                                      boost::system::error_code& ec)
+                                                     rv::vision::vision_stream& upstream,
+                                                     const std::span<const std::uint8_t> initial_data,
+                                                     boost::system::error_code& ec)
 {
     if (!initial_data.empty())
     {
@@ -181,10 +175,7 @@ rv::proxy::target make_proxy_target(const tcp::endpoint& endpoint)
     };
 }
 
-std::string format_endpoint(const tcp::endpoint& endpoint)
-{
-    return endpoint.address().to_string() + ":" + std::to_string(endpoint.port());
-}
+std::string format_endpoint(const tcp::endpoint& endpoint) { return endpoint.address().to_string() + ":" + std::to_string(endpoint.port()); }
 
 boost::asio::awaitable<std::optional<rv::vision::vision_stream>> connect_vision(rv::reality::reality_stream reality,
                                                                                 const rv::app::config& configuration,
@@ -206,18 +197,18 @@ boost::asio::awaitable<std::optional<rv::vision::vision_stream>> connect_vision(
 }
 
 boost::asio::awaitable<std::optional<std::size_t>> read_some_until(tcp::socket& client_socket,
-                                                                    std::span<std::uint8_t> output,
-                                                                    const std::chrono::steady_clock::time_point deadline,
-                                                                    boost::system::error_code& ec)
+                                                                   std::span<std::uint8_t> output,
+                                                                   const std::chrono::steady_clock::time_point deadline,
+                                                                   boost::system::error_code& ec)
 {
     using namespace boost::asio::experimental::awaitable_operators;    // NOLINT
 
     boost::asio::steady_timer timer(client_socket.get_executor());
     timer.expires_at(deadline);
     boost::system::error_code timer_ec;
-    const auto outcome = co_await (
-        client_socket.async_read_some(boost::asio::buffer(output), boost::asio::redirect_error(boost::asio::use_awaitable, ec)) ||
-        timer.async_wait(boost::asio::redirect_error(boost::asio::use_awaitable, timer_ec)));
+    const auto outcome =
+        co_await (client_socket.async_read_some(boost::asio::buffer(output), boost::asio::redirect_error(boost::asio::use_awaitable, ec)) ||
+                  timer.async_wait(boost::asio::redirect_error(boost::asio::use_awaitable, timer_ec)));
 
     if (outcome.index() == 1)
     {
@@ -399,10 +390,7 @@ boost::asio::awaitable<void> run_socks_session(tcp::socket client_socket, rv::ap
     co_await run_socks_connect_session(client_socket, configuration, *request, session_id);
 }
 
-void get_transparent_destination(tcp::socket& client_socket,
-                                 const transparent_mode mode,
-                                 tcp::endpoint& destination,
-                                 boost::system::error_code& ec)
+void get_transparent_destination(tcp::socket& client_socket, const transparent_mode mode, tcp::endpoint& destination, boost::system::error_code& ec)
 {
     if (mode == transparent_mode::kRedirect)
     {
@@ -414,9 +402,9 @@ void get_transparent_destination(tcp::socket& client_socket,
 }
 
 boost::asio::awaitable<void> run_transparent_session(tcp::socket client_socket,
-                                                      rv::app::config configuration,
-                                                      std::string session_id,
-                                                      const transparent_mode mode)
+                                                     rv::app::config configuration,
+                                                     std::string session_id,
+                                                     const transparent_mode mode)
 {
     boost::system::error_code ec;
     tcp::endpoint original_destination;
@@ -493,9 +481,9 @@ void log_session_exception(const std::string& session_id, const std::exception_p
 }
 
 boost::asio::awaitable<void> run_transparent_server(tcp::acceptor acceptor,
-                                                     rv::app::config configuration,
-                                                     const transparent_mode mode,
-                                                     boost::system::error_code& ec)
+                                                    rv::app::config configuration,
+                                                    const transparent_mode mode,
+                                                    boost::system::error_code& ec)
 {
     const auto executor = co_await boost::asio::this_coro::executor;
     const auto name = transparent_mode_name(mode);
@@ -519,9 +507,7 @@ boost::asio::awaitable<void> run_transparent_server(tcp::acceptor acceptor,
 
 }    // namespace
 
-boost::asio::awaitable<void> run_socks_server(tcp::acceptor acceptor,
-                                               rv::app::config configuration,
-                                               boost::system::error_code& ec)
+boost::asio::awaitable<void> run_socks_server(tcp::acceptor acceptor, rv::app::config configuration, boost::system::error_code& ec)
 {
     const auto executor = co_await boost::asio::this_coro::executor;
     spdlog::info("socks5 tcp proxy listening on 127.0.0.1:{}", acceptor.local_endpoint().port());
@@ -542,16 +528,12 @@ boost::asio::awaitable<void> run_socks_server(tcp::acceptor acceptor,
     }
 }
 
-boost::asio::awaitable<void> run_redirect_server(tcp::acceptor acceptor,
-                                                  rv::app::config configuration,
-                                                  boost::system::error_code& ec)
+boost::asio::awaitable<void> run_redirect_server(tcp::acceptor acceptor, rv::app::config configuration, boost::system::error_code& ec)
 {
     co_await run_transparent_server(std::move(acceptor), std::move(configuration), transparent_mode::kRedirect, ec);
 }
 
-boost::asio::awaitable<void> run_tproxy_server(tcp::acceptor acceptor,
-                                                rv::app::config configuration,
-                                                boost::system::error_code& ec)
+boost::asio::awaitable<void> run_tproxy_server(tcp::acceptor acceptor, rv::app::config configuration, boost::system::error_code& ec)
 {
     co_await run_transparent_server(std::move(acceptor), std::move(configuration), transparent_mode::kTproxy, ec);
 }

@@ -16,15 +16,12 @@ namespace rv::core
 
 class byte_queue
 {
-public:
+   public:
     explicit byte_queue(std::size_t limit = 1U << 20) : size_limit_(limit) {}
 
     [[nodiscard]] bool empty() const noexcept { return size() == 0; }
     [[nodiscard]] std::size_t size() const noexcept { return storage_.size() - read_offset_; }
-    [[nodiscard]] std::span<const std::uint8_t> data() const noexcept
-    {
-        return {storage_.data() + read_offset_, size()};
-    }
+    [[nodiscard]] std::span<const std::uint8_t> data() const noexcept { return {storage_.data() + read_offset_, size()}; }
 
     void append(std::span<const std::uint8_t> input, boost::system::error_code& ec)
     {
@@ -73,7 +70,7 @@ public:
         read_offset_ = 0;
     }
 
-private:
+   private:
     void compact_if_needed(std::size_t incoming)
     {
         if (read_offset_ != 0 && storage_.capacity() - storage_.size() < incoming)

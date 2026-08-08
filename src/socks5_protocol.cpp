@@ -272,7 +272,9 @@ asio::awaitable<void> send_reply_ignoring_error(asio::ip::tcp::socket& socket, c
     co_await send_reply(socket, value, ignored);
 }
 
-asio::awaitable<void> read_request_header(asio::ip::tcp::socket& socket, std::array<std::uint8_t, kRequestHeaderSize>& header, boost::system::error_code& ec)
+asio::awaitable<void> read_request_header(asio::ip::tcp::socket& socket,
+                                          std::array<std::uint8_t, kRequestHeaderSize>& header,
+                                          boost::system::error_code& ec)
 {
     co_await read_exact(socket, header, ec);
     if (ec)
@@ -285,8 +287,8 @@ asio::awaitable<void> read_request_header(asio::ip::tcp::socket& socket, std::ar
         ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
         co_return;
     }
-    if (header[1] == kBindCommand || (header[1] != static_cast<std::uint8_t>(command::kConnect) &&
-                                      header[1] != static_cast<std::uint8_t>(command::kUdpAssociate)))
+    if (header[1] == kBindCommand ||
+        (header[1] != static_cast<std::uint8_t>(command::kConnect) && header[1] != static_cast<std::uint8_t>(command::kUdpAssociate)))
     {
         co_await send_reply_ignoring_error(socket, reply::kCommandNotSupported);
         ec = boost::system::errc::make_error_code(boost::system::errc::operation_not_supported);
@@ -530,8 +532,8 @@ asio::awaitable<void> send_reply(asio::ip::tcp::socket& socket,
 }
 
 asio::awaitable<std::optional<request>> negotiate(asio::ip::tcp::socket& socket,
-                                                   const std::optional<credentials>& expected_credentials,
-                                                   boost::system::error_code& ec)
+                                                  const std::optional<credentials>& expected_credentials,
+                                                  boost::system::error_code& ec)
 {
     co_await negotiate_authentication(socket, expected_credentials, ec);
     if (ec)

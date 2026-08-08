@@ -82,8 +82,7 @@ void push_extension(std::vector<std::uint8_t>& output, std::uint16_t type, std::
 
 std::vector<std::uint8_t> server_name_extension(const std::string& server_name, boost::system::error_code& ec)
 {
-    if (server_name.empty() ||
-        server_name.size() > std::numeric_limits<std::uint16_t>::max() - kServerNameEntryOverhead ||
+    if (server_name.empty() || server_name.size() > std::numeric_limits<std::uint16_t>::max() - kServerNameEntryOverhead ||
         server_name.find('\0') != std::string::npos)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::invalid_argument);
@@ -132,9 +131,7 @@ std::vector<std::uint8_t> key_share_extension(const std::array<std::uint8_t, tls
     return output;
 }
 
-void push_server_name_extension(std::vector<std::uint8_t>& extensions,
-                                const std::string& server_name,
-                                boost::system::error_code& ec)
+void push_server_name_extension(std::vector<std::uint8_t>& extensions, const std::string& server_name, boost::system::error_code& ec)
 {
     if (ec)
     {
@@ -191,8 +188,7 @@ std::vector<std::uint8_t> grease_ech_extension(boost::system::error_code& ec)
     {
         return {};
     }
-    const std::uint16_t aead_id =
-        (choices[0] & 1U) == 0 ? kHpkeAeadAes128Gcm : kHpkeAeadChacha20Poly1305;
+    const std::uint16_t aead_id = (choices[0] & 1U) == 0 ? kHpkeAeadAes128Gcm : kHpkeAeadChacha20Poly1305;
     const auto encapsulated = crypto::make_x25519_key_pair();
     std::vector<std::uint8_t> payload(kGreaseEchPayloadSize);
     crypto::random_bytes(payload, ec);
@@ -411,8 +407,7 @@ void authenticate_client_hello(client_hello_material& material,
         return;
     }
 
-    const auto nonce =
-        std::span<const std::uint8_t>(material.client_random.data() + kRealitySaltSize, kRealityNonceSize);
+    const auto nonce = std::span<const std::uint8_t>(material.client_random.data() + kRealitySaltSize, kRealityNonceSize);
     const auto sealed_session_id = reality_aead.seal(nonce, authentication, material.handshake_bytes, ec);
     if (ec)
     {

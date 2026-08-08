@@ -13,7 +13,7 @@ namespace rv::core
 
 class byte_reader
 {
-public:
+   public:
     explicit byte_reader(std::span<const std::uint8_t> input) noexcept : input_(input) {}
 
     [[nodiscard]] bool empty() const noexcept { return remaining() == 0; }
@@ -72,7 +72,7 @@ public:
         return true;
     }
 
-private:
+   private:
     std::span<const std::uint8_t> input_;
     std::size_t position_{0};
 };

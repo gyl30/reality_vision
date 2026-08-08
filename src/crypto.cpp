@@ -123,10 +123,9 @@ x25519_key_pair make_x25519_key_pair() noexcept
     return result;
 }
 
-std::array<std::uint8_t, kX25519KeySize> x25519(
-    std::span<const std::uint8_t, kX25519KeySize> private_key,
-    std::span<const std::uint8_t, kX25519KeySize> peer_public_key,
-    boost::system::error_code& ec)
+std::array<std::uint8_t, kX25519KeySize> x25519(std::span<const std::uint8_t, kX25519KeySize> private_key,
+                                                std::span<const std::uint8_t, kX25519KeySize> peer_public_key,
+                                                boost::system::error_code& ec)
 {
     ec.clear();
     std::array<std::uint8_t, kX25519KeySize> result{};

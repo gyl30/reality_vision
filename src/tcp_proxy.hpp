@@ -10,17 +10,11 @@
 namespace rv::tcp_proxy
 {
 
-boost::asio::awaitable<void> run_socks_server(boost::asio::ip::tcp::acceptor acceptor,
-                                               app::config configuration,
-                                               boost::system::error_code& ec);
+boost::asio::awaitable<void> run_socks_server(boost::asio::ip::tcp::acceptor acceptor, app::config configuration, boost::system::error_code& ec);
 
-boost::asio::awaitable<void> run_redirect_server(boost::asio::ip::tcp::acceptor acceptor,
-                                                  app::config configuration,
-                                                  boost::system::error_code& ec);
+boost::asio::awaitable<void> run_redirect_server(boost::asio::ip::tcp::acceptor acceptor, app::config configuration, boost::system::error_code& ec);
 
-boost::asio::awaitable<void> run_tproxy_server(boost::asio::ip::tcp::acceptor acceptor,
-                                                app::config configuration,
-                                                boost::system::error_code& ec);
+boost::asio::awaitable<void> run_tproxy_server(boost::asio::ip::tcp::acceptor acceptor, app::config configuration, boost::system::error_code& ec);
 
 }    // namespace rv::tcp_proxy
 

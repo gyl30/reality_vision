@@ -116,8 +116,8 @@ int main(int argc, char* argv[])
         }
         if (configuration->redirect_listen_port != 0)
         {
-            redirect_acceptor.emplace(create_acceptor(
-                context.get_executor(), tcp::endpoint(tcp::v4(), configuration->redirect_listen_port), false, ec));
+            redirect_acceptor.emplace(
+                create_acceptor(context.get_executor(), tcp::endpoint(tcp::v4(), configuration->redirect_listen_port), false, ec));
             if (ec)
             {
                 spdlog::error("failed to create redirect listener: {}", ec.message());
@@ -126,8 +126,7 @@ int main(int argc, char* argv[])
         }
         if (configuration->tproxy_listen_port != 0)
         {
-            tproxy_acceptor.emplace(
-                create_acceptor(context.get_executor(), tcp::endpoint(tcp::v4(), configuration->tproxy_listen_port), true, ec));
+            tproxy_acceptor.emplace(create_acceptor(context.get_executor(), tcp::endpoint(tcp::v4(), configuration->tproxy_listen_port), true, ec));
             if (ec)
             {
                 spdlog::error("failed to create tproxy listener: {}", ec.message());
@@ -151,26 +150,25 @@ int main(int argc, char* argv[])
         const auto spawn_server = [&](auto server, const std::string& server_name, boost::system::error_code& server_ec)
         {
             auto* const server_error = &server_ec;
-            boost::asio::co_spawn(
-                context,
-                std::move(server),
-                [&context, server_error, &server_failed, server_name](const std::exception_ptr& exception)
-                {
-                    server_failed = true;
-                    if (exception)
-                    {
-                        log_server_exception(server_name, exception);
-                    }
-                    else if (*server_error)
-                    {
-                        spdlog::error("{} server failed: {}", server_name, server_error->message());
-                    }
-                    else
-                    {
-                        spdlog::error("{} server stopped unexpectedly", server_name);
-                    }
-                    context.stop();
-                });
+            boost::asio::co_spawn(context,
+                                  std::move(server),
+                                  [&context, server_error, &server_failed, server_name](const std::exception_ptr& exception)
+                                  {
+                                      server_failed = true;
+                                      if (exception)
+                                      {
+                                          log_server_exception(server_name, exception);
+                                      }
+                                      else if (*server_error)
+                                      {
+                                          spdlog::error("{} server failed: {}", server_name, server_error->message());
+                                      }
+                                      else
+                                      {
+                                          spdlog::error("{} server stopped unexpectedly", server_name);
+                                      }
+                                      context.stop();
+                                  });
         };
 
         if (socks_acceptor)
@@ -185,9 +183,7 @@ int main(int argc, char* argv[])
         }
         if (tproxy_acceptor)
         {
-            spawn_server(rv::tcp_proxy::run_tproxy_server(std::move(*tproxy_acceptor), *configuration, tproxy_server_ec),
-                         "tproxy",
-                         tproxy_server_ec);
+            spawn_server(rv::tcp_proxy::run_tproxy_server(std::move(*tproxy_acceptor), *configuration, tproxy_server_ec), "tproxy", tproxy_server_ec);
         }
         if (tproxy_udp_socket)
         {

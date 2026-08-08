@@ -28,15 +28,13 @@ struct client_hello_material
     std::array<std::uint8_t, 32> reality_auth_key{};
 };
 
-[[nodiscard]] std::optional<client_hello_material> build_client_hello(
-    const client_config& configuration,
-    boost::system::error_code& ec,
-    std::chrono::system_clock::time_point now = std::chrono::system_clock::now());
+[[nodiscard]] std::optional<client_hello_material> build_client_hello(const client_config& configuration,
+                                                                      boost::system::error_code& ec,
+                                                                      std::chrono::system_clock::time_point now = std::chrono::system_clock::now());
 
-[[nodiscard]] std::vector<std::uint8_t> wrap_plain_record(
-    std::uint8_t content_type,
-    std::span<const std::uint8_t> payload,
-    boost::system::error_code& ec);
+[[nodiscard]] std::vector<std::uint8_t> wrap_plain_record(std::uint8_t content_type,
+                                                          std::span<const std::uint8_t> payload,
+                                                          boost::system::error_code& ec);
 
 }    // namespace rv::reality
 

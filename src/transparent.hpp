@@ -20,10 +20,10 @@ namespace rv::transparent
                                                                           boost::asio::ip::tcp::endpoint& destination) noexcept;
 
 [[nodiscard]] std::optional<std::size_t> receive_ipv4_original_datagram(boost::asio::ip::udp::socket& socket,
-                                                                         std::span<std::uint8_t> output,
-                                                                         boost::asio::ip::udp::endpoint& source,
-                                                                         boost::asio::ip::udp::endpoint& destination,
-                                                                         boost::system::error_code& ec) noexcept;
+                                                                        std::span<std::uint8_t> output,
+                                                                        boost::asio::ip::udp::endpoint& source,
+                                                                        boost::asio::ip::udp::endpoint& destination,
+                                                                        boost::system::error_code& ec) noexcept;
 
 }    // namespace rv::transparent
 

@@ -25,10 +25,9 @@ struct target
     std::uint16_t port{};
 };
 
-[[nodiscard]] boost::asio::awaitable<std::optional<reality::reality_stream>> connect_reality(
-    const app::config& configuration,
-    const std::string& session_id,
-    boost::system::error_code& ec);
+[[nodiscard]] boost::asio::awaitable<std::optional<reality::reality_stream>> connect_reality(const app::config& configuration,
+                                                                                             const std::string& session_id,
+                                                                                             boost::system::error_code& ec);
 
 }    // namespace rv::proxy
 

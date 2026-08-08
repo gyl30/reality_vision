@@ -16,17 +16,17 @@ namespace rv::udp_proxy
 {
 
 [[nodiscard]] boost::asio::awaitable<void> run_socks_association(boost::asio::ip::tcp::socket control_socket,
-                                                                  app::config configuration,
-                                                                  socks5::request request,
-                                                                  std::string session_id);
+                                                                 app::config configuration,
+                                                                 socks5::request request,
+                                                                 std::string session_id);
 
 [[nodiscard]] boost::asio::ip::udp::socket create_tproxy_socket(boost::asio::any_io_executor executor,
-                                                                 std::uint16_t port,
-                                                                 boost::system::error_code& ec);
+                                                                std::uint16_t port,
+                                                                boost::system::error_code& ec);
 
 [[nodiscard]] boost::asio::awaitable<void> run_tproxy_server(boost::asio::ip::udp::socket socket,
-                                                              app::config configuration,
-                                                              boost::system::error_code& ec);
+                                                             app::config configuration,
+                                                             boost::system::error_code& ec);
 
 }    // namespace rv::udp_proxy
 

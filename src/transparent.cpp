@@ -21,10 +21,7 @@ namespace rv::transparent
 namespace
 {
 
-[[nodiscard]] boost::system::error_code system_error() noexcept
-{
-    return {errno, boost::system::generic_category()};
-}
+[[nodiscard]] boost::system::error_code system_error() noexcept { return {errno, boost::system::generic_category()}; }
 
 #ifdef __linux__
 
@@ -107,10 +104,10 @@ boost::system::error_code get_redirect_original_destination(boost::asio::ip::tcp
 }
 
 std::optional<std::size_t> receive_ipv4_original_datagram(boost::asio::ip::udp::socket& socket,
-                                                           std::span<std::uint8_t> output,
-                                                           boost::asio::ip::udp::endpoint& source,
-                                                           boost::asio::ip::udp::endpoint& destination,
-                                                           boost::system::error_code& ec) noexcept
+                                                          std::span<std::uint8_t> output,
+                                                          boost::asio::ip::udp::endpoint& source,
+                                                          boost::asio::ip::udp::endpoint& destination,
+                                                          boost::system::error_code& ec) noexcept
 {
 #ifdef __linux__
     sockaddr_in source_address{};

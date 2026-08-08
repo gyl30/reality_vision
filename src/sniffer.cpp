@@ -19,11 +19,7 @@ namespace rv::sniff
 namespace
 {
 
-
-[[nodiscard]] result make_result(const status state, std::string domain = {})
-{
-    return {.state = state, .domain = std::move(domain)};
-}
+[[nodiscard]] result make_result(const status state, std::string domain = {}) { return {.state = state, .domain = std::move(domain)}; }
 
 [[nodiscard]] bool is_valid_domain(const std::span<const std::uint8_t> input) noexcept
 {
@@ -33,11 +29,7 @@ namespace
     }
 
     return std::ranges::all_of(
-        input,
-        [](const std::uint8_t value)
-        {
-            return value > 0x20 && value < 0x7f && value != ':' && value != '/' && value != '\\';
-        });
+        input, [](const std::uint8_t value) { return value > 0x20 && value < 0x7f && value != ':' && value != '/' && value != '\\'; });
 }
 
 [[nodiscard]] std::optional<std::string> parse_server_name(const std::span<const std::uint8_t> extension)

@@ -75,8 +75,7 @@ std::optional<std::size_t> find_server_hello_record(std::span<const std::uint8_t
 {
     for (std::size_t offset = 0; offset + tls::kRecordHeaderSize + 1 <= input.size(); ++offset)
     {
-        if (input[offset] == tls::kRecordHandshake &&
-            core::read_be16(input.data() + offset + 1) == tls::kLegacyVersion &&
+        if (input[offset] == tls::kRecordHandshake && core::read_be16(input.data() + offset + 1) == tls::kLegacyVersion &&
             input[offset + tls::kRecordHeaderSize] == tls::kHandshakeServerHello)
         {
             return offset;
@@ -165,8 +164,8 @@ bool is_tls_record_header(const std::array<std::uint8_t, tls::kRecordHeaderSize>
 {
     const auto type = header[0];
     const bool valid_type = first_record ? type == tls::kRecordHandshake
-                                         : type == tls::kRecordChangeCipherSpec || type == tls::kRecordAlert ||
-                                               type == tls::kRecordHandshake || type == tls::kRecordApplicationData;
+                                         : type == tls::kRecordChangeCipherSpec || type == tls::kRecordAlert || type == tls::kRecordHandshake ||
+                                               type == tls::kRecordApplicationData;
     const auto version = core::read_be16(header.data() + 1);
     if (!valid_type || version < kMinimumRecordVersion || version > tls::kLegacyVersion)
     {
@@ -213,8 +212,7 @@ bool server_hello_supports_direct(const std::span<const std::uint8_t> record)
     core::byte_reader record_reader(record.subspan(tls::kRecordHeaderSize));
     std::uint8_t handshake_type = 0;
     std::uint32_t handshake_length = 0;
-    if (!record_reader.read_u8(handshake_type) || !record_reader.read_u24(handshake_length) ||
-        handshake_type != tls::kHandshakeServerHello)
+    if (!record_reader.read_u8(handshake_type) || !record_reader.read_u24(handshake_length) || handshake_type != tls::kHandshakeServerHello)
     {
         return false;
     }
@@ -232,8 +230,8 @@ bool server_hello_supports_direct(const std::span<const std::uint8_t> record)
     std::uint8_t compression = 0;
     std::uint16_t extensions_length = 0;
     if (!reader.read_u16(legacy_version) || legacy_version != tls::kLegacyVersion || !reader.skip(tls::kRandomSize) ||
-        !reader.read_u8(session_id_length) || !reader.skip(session_id_length) || !reader.read_u16(cipher) ||
-        !reader.read_u8(compression) || compression != tls::kNullCompressionMethod || !reader.read_u16(extensions_length))
+        !reader.read_u8(session_id_length) || !reader.skip(session_id_length) || !reader.read_u16(cipher) || !reader.read_u8(compression) ||
+        compression != tls::kNullCompressionMethod || !reader.read_u16(extensions_length))
     {
         return false;
     }

@@ -18,8 +18,8 @@ namespace rv::core
 
 [[nodiscard]] inline std::uint32_t read_be32(const std::uint8_t* data) noexcept
 {
-    return static_cast<std::uint32_t>(data[0]) << 24U | static_cast<std::uint32_t>(data[1]) << 16U |
-           static_cast<std::uint32_t>(data[2]) << 8U | static_cast<std::uint32_t>(data[3]);
+    return static_cast<std::uint32_t>(data[0]) << 24U | static_cast<std::uint32_t>(data[1]) << 16U | static_cast<std::uint32_t>(data[2]) << 8U |
+           static_cast<std::uint32_t>(data[3]);
 }
 
 inline void write_be16(std::uint8_t* data, const std::uint16_t value) noexcept

@@ -67,13 +67,11 @@ enum class reply : std::uint8_t
 [[nodiscard]] boost::asio::awaitable<std::optional<request>> negotiate(boost::asio::ip::tcp::socket& socket,
                                                                        const std::optional<credentials>& expected_credentials,
                                                                        boost::system::error_code& ec);
+[[nodiscard]] boost::asio::awaitable<void> send_reply(boost::asio::ip::tcp::socket& socket, reply value, boost::system::error_code& ec);
 [[nodiscard]] boost::asio::awaitable<void> send_reply(boost::asio::ip::tcp::socket& socket,
-                                                       reply value,
-                                                       boost::system::error_code& ec);
-[[nodiscard]] boost::asio::awaitable<void> send_reply(boost::asio::ip::tcp::socket& socket,
-                                                       reply value,
-                                                       const boost::asio::ip::udp::endpoint& bound_endpoint,
-                                                       boost::system::error_code& ec);
+                                                      reply value,
+                                                      const boost::asio::ip::udp::endpoint& bound_endpoint,
+                                                      boost::system::error_code& ec);
 
 }    // namespace rv::socks5
 

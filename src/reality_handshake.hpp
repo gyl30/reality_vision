@@ -20,11 +20,10 @@ struct handshake_result
     record_key send_key;
 };
 
-[[nodiscard]] boost::asio::awaitable<std::optional<handshake_result>> perform_client_handshake(
-    net::tcp_byte_stream& tcp,
-    const client_config& configuration,
-    const std::string& session_id,
-    boost::system::error_code& ec);
+[[nodiscard]] boost::asio::awaitable<std::optional<handshake_result>> perform_client_handshake(net::tcp_byte_stream& tcp,
+                                                                                               const client_config& configuration,
+                                                                                               const std::string& session_id,
+                                                                                               boost::system::error_code& ec);
 
 }    // namespace rv::reality
 
