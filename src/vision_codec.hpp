@@ -16,8 +16,8 @@ namespace rv::vision
 {
 
 inline constexpr std::size_t kUserIdSize = 16;
-inline constexpr std::size_t kFullHeaderSize = 21;
 inline constexpr std::size_t kShortHeaderSize = 5;
+inline constexpr std::size_t kFullHeaderSize = kUserIdSize + kShortHeaderSize;
 inline constexpr std::size_t kXrayBufferSize = 8192;
 
 enum class command : std::uint8_t
