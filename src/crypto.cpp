@@ -123,12 +123,13 @@ x25519_key_pair make_x25519_key_pair() noexcept
     return result;
 }
 
-std::array<std::uint8_t, 32> x25519(std::span<const std::uint8_t, 32> private_key,
-                                    std::span<const std::uint8_t, 32> peer_public_key,
-                                    boost::system::error_code& ec)
+std::array<std::uint8_t, kX25519KeySize> x25519(
+    std::span<const std::uint8_t, kX25519KeySize> private_key,
+    std::span<const std::uint8_t, kX25519KeySize> peer_public_key,
+    boost::system::error_code& ec)
 {
     ec.clear();
-    std::array<std::uint8_t, 32> result{};
+    std::array<std::uint8_t, kX25519KeySize> result{};
     ERR_clear_error();
     if (X25519(result.data(), private_key.data(), peer_public_key.data()) != 1)
     {
@@ -137,10 +138,10 @@ std::array<std::uint8_t, 32> x25519(std::span<const std::uint8_t, 32> private_ke
     return result;
 }
 
-std::array<std::uint8_t, 65> make_p256_public_key(boost::system::error_code& ec)
+std::array<std::uint8_t, kP256PublicKeySize> make_p256_public_key(boost::system::error_code& ec)
 {
     ec.clear();
-    std::array<std::uint8_t, 65> output{};
+    std::array<std::uint8_t, kP256PublicKeySize> output{};
     ERR_clear_error();
     bssl::UniquePtr<EC_KEY> key(EC_KEY_new_by_curve_name(NID_X9_62_prime256v1));
     if (!key || EC_KEY_generate_key(key.get()) != 1)
@@ -162,11 +163,11 @@ std::size_t hash_size(hash_algorithm algorithm) noexcept
     switch (algorithm)
     {
         case hash_algorithm::kSha256:
-            return 32;
+            return kSha256DigestSize;
         case hash_algorithm::kSha384:
-            return 48;
+            return kSha384DigestSize;
         case hash_algorithm::kSha512:
-            return 64;
+            return kSha512DigestSize;
     }
     return 0;
 }
@@ -426,9 +427,9 @@ reality_certificate parse_reality_certificate(std::span<const std::uint8_t> der,
     return result;
 }
 
-void verify_ed25519(std::span<const std::uint8_t, 32> public_key,
+void verify_ed25519(std::span<const std::uint8_t, kEd25519PublicKeySize> public_key,
                     std::span<const std::uint8_t> message,
-                    std::span<const std::uint8_t> signature,
+                    std::span<const std::uint8_t, kEd25519SignatureSize> signature,
                     boost::system::error_code& ec)
 {
     ec.clear();

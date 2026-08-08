@@ -29,6 +29,11 @@ namespace
 {
 
 constexpr std::uint16_t kSignatureSchemeEd25519 = 0x0807;
+constexpr std::size_t kCertificateVerifyPaddingSize = 64;
+constexpr std::uint8_t kCertificateVerifyPaddingByte = 0x20;
+constexpr std::uint8_t kCertificateVerifySeparator = 0;
+constexpr std::string_view kCertificateVerifyContext = "TLS 1.3, server CertificateVerify";
+
 constexpr std::array<std::uint8_t, tls::kRandomSize> kHelloRetryRequestRandom{
     0xcf, 0x21, 0xad, 0x74, 0xe5, 0x9a, 0x61, 0x11, 0xbe, 0x1d, 0x8c, 0x02, 0x1e, 0x65, 0xb8, 0x91,
     0xc2, 0xa2, 0x11, 0x16, 0x7a, 0xbb, 0x8c, 0x5e, 0x07, 0x9e, 0x09, 0xe2, 0xc8, 0xa8, 0x33, 0x9c};
@@ -431,7 +436,7 @@ void validate_encrypted_extensions(const handshake_message& message, boost::syst
 }
 
 void verify_certificate_verify(const handshake_message& message,
-                               std::span<const std::uint8_t, 32> public_key,
+                               std::span<const std::uint8_t, crypto::kEd25519PublicKeySize> public_key,
                                const cipher_suite suite,
                                std::span<const std::uint8_t> transcript,
                                boost::system::error_code& ec)
@@ -445,26 +450,28 @@ void verify_certificate_verify(const handshake_message& message,
         return;
     }
     const auto signature = reader.read_bytes(signature_length);
-    if (!signature || !reader.empty() || algorithm != kSignatureSchemeEd25519)
+    if (!signature || !reader.empty() || algorithm != kSignatureSchemeEd25519 ||
+        signature->size() != crypto::kEd25519SignatureSize)
     {
         set_bad_message_error(ec);
         return;
     }
-
-    constexpr std::size_t kCertificateVerifyPaddingSize = 64;
-    constexpr std::uint8_t kCertificateVerifyPaddingByte = 0x20;
-    std::vector<std::uint8_t> signed_message(kCertificateVerifyPaddingSize, kCertificateVerifyPaddingByte);
-    constexpr std::string_view kContext = "TLS 1.3, server CertificateVerify";
-    signed_message.insert(signed_message.end(), kContext.begin(), kContext.end());
-    signed_message.push_back(0);
 
     const auto transcript_hash = crypto::digest(cipher_properties(suite).hash, transcript, ec);
     if (ec)
     {
         return;
     }
+    std::vector<std::uint8_t> signed_message(kCertificateVerifyPaddingSize, kCertificateVerifyPaddingByte);
+    signed_message.reserve(
+        kCertificateVerifyPaddingSize + kCertificateVerifyContext.size() + sizeof(kCertificateVerifySeparator) + transcript_hash.size());
+    signed_message.insert(signed_message.end(), kCertificateVerifyContext.begin(), kCertificateVerifyContext.end());
+    signed_message.push_back(kCertificateVerifySeparator);
     signed_message.insert(signed_message.end(), transcript_hash.begin(), transcript_hash.end());
-    crypto::verify_ed25519(public_key, signed_message, *signature, ec);
+
+    const std::span<const std::uint8_t, crypto::kEd25519SignatureSize> fixed_signature(
+        signature->data(), crypto::kEd25519SignatureSize);
+    crypto::verify_ed25519(public_key, signed_message, fixed_signature, ec);
 }
 
 std::vector<std::uint8_t> make_handshake_message(std::uint8_t type, std::span<const std::uint8_t> body, boost::system::error_code& ec)
@@ -500,7 +507,7 @@ void accept_encrypted_extensions(const handshake_message& message, std::vector<s
 
 void accept_server_certificate(const handshake_message& message,
                                const client_hello_material& client_hello,
-                               std::array<std::uint8_t, 32>& certificate_public_key,
+                               std::array<std::uint8_t, crypto::kEd25519PublicKeySize>& certificate_public_key,
                                std::vector<std::uint8_t>& transcript,
                                boost::system::error_code& ec)
 {
@@ -539,14 +546,14 @@ void accept_server_certificate(const handshake_message& message,
 }
 
 void accept_certificate_verify(const handshake_message& message,
-                               std::span<const std::uint8_t, 32> certificate_public_key,
+                               std::span<const std::uint8_t, crypto::kEd25519PublicKeySize> certificate_public_key,
                                const cipher_suite suite,
                                std::vector<std::uint8_t>& transcript,
                                boost::system::error_code& ec)
 {
     if (message.type != tls::kHandshakeCertificateVerify)
     {
-        ec = boost::system::errc::make_error_code(boost::system::errc::permission_denied);
+        set_bad_message_error(ec);
         return;
     }
 
@@ -593,7 +600,7 @@ boost::asio::awaitable<void> read_server_handshake_flight(net::tcp_byte_stream& 
                                                           boost::system::error_code& ec)
 {
     core::byte_queue encrypted_handshake(tls::kMaximumHandshakeMessageSize);
-    std::array<std::uint8_t, 32> certificate_public_key{};
+    std::array<std::uint8_t, crypto::kEd25519PublicKeySize> certificate_public_key{};
 
     auto message = co_await read_encrypted_handshake_message(tcp, secrets.server_key, encrypted_handshake, ec);
     if (ec)

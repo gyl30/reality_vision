@@ -13,18 +13,26 @@
 namespace rv::crypto
 {
 
+inline constexpr std::size_t kX25519KeySize = 32;
+inline constexpr std::size_t kP256PublicKeySize = 65;
+inline constexpr std::size_t kEd25519PublicKeySize = 32;
+inline constexpr std::size_t kEd25519SignatureSize = 64;
+inline constexpr std::size_t kSha256DigestSize = 32;
+inline constexpr std::size_t kSha384DigestSize = 48;
+inline constexpr std::size_t kSha512DigestSize = 64;
+
 enum class hash_algorithm { kSha256, kSha384, kSha512 };
 enum class aead_algorithm { kAes128Gcm, kAes256Gcm, kChacha20Poly1305 };
 
 struct x25519_key_pair
 {
-    std::array<std::uint8_t, 32> public_key{};
-    std::array<std::uint8_t, 32> private_key{};
+    std::array<std::uint8_t, kX25519KeySize> public_key{};
+    std::array<std::uint8_t, kX25519KeySize> private_key{};
 };
 
 struct reality_certificate
 {
-    std::array<std::uint8_t, 32> ed25519_public_key{};
+    std::array<std::uint8_t, kEd25519PublicKeySize> ed25519_public_key{};
     std::vector<std::uint8_t> outer_signature;
 };
 
@@ -32,11 +40,11 @@ void random_bytes(std::span<std::uint8_t> output, boost::system::error_code& ec)
 void cleanse(std::span<std::uint8_t> value) noexcept;
 
 [[nodiscard]] x25519_key_pair make_x25519_key_pair() noexcept;
-[[nodiscard]] std::array<std::uint8_t, 32> x25519(
-    std::span<const std::uint8_t, 32> private_key,
-    std::span<const std::uint8_t, 32> peer_public_key,
+[[nodiscard]] std::array<std::uint8_t, kX25519KeySize> x25519(
+    std::span<const std::uint8_t, kX25519KeySize> private_key,
+    std::span<const std::uint8_t, kX25519KeySize> peer_public_key,
     boost::system::error_code& ec);
-[[nodiscard]] std::array<std::uint8_t, 65> make_p256_public_key(boost::system::error_code& ec);
+[[nodiscard]] std::array<std::uint8_t, kP256PublicKeySize> make_p256_public_key(boost::system::error_code& ec);
 
 [[nodiscard]] std::size_t hash_size(hash_algorithm algorithm) noexcept;
 [[nodiscard]] std::vector<std::uint8_t> digest(
@@ -91,9 +99,9 @@ private:
 [[nodiscard]] reality_certificate parse_reality_certificate(
     std::span<const std::uint8_t> der, boost::system::error_code& ec);
 void verify_ed25519(
-    std::span<const std::uint8_t, 32> public_key,
+    std::span<const std::uint8_t, kEd25519PublicKeySize> public_key,
     std::span<const std::uint8_t> message,
-    std::span<const std::uint8_t> signature,
+    std::span<const std::uint8_t, kEd25519SignatureSize> signature,
     boost::system::error_code& ec);
 
 }    // namespace rv::crypto
