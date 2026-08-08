@@ -9,7 +9,6 @@
 #include <algorithm>
 #include <cstdint>
 #include <iostream>
-#include <limits>
 #include <ranges>
 #include <string>
 #include <utility>
@@ -69,14 +68,7 @@ bool parse_socks_credentials(const po::variables_map& options, std::string usern
 
 bool decode_reality_public_key(const std::string& encoded, config& configuration)
 {
-    if (encoded.size() > std::numeric_limits<std::uint32_t>::max())
-    {
-        std::cerr << "--server_public_key is too long\n";
-        return false;
-    }
-
-    const auto decoded =
-        core::base64::decode_url_to_bytes(reinterpret_cast<const std::uint8_t*>(encoded.data()), static_cast<std::uint32_t>(encoded.size()));
+    const auto decoded = core::decode_base64_url(encoded);
     if (decoded.size() != configuration.reality_server_public_key.size())
     {
         std::cerr << "--server_public_key must decode to exactly 32 bytes\n";
@@ -102,7 +94,7 @@ bool decode_reality_short_id(const std::string& encoded, config& configuration)
         return true;
     }
 
-    const auto decoded = core::hex::decode_to_bytes(encoded.data(), static_cast<std::uint32_t>(encoded.size()));
+    const auto decoded = core::decode_hex(encoded);
     if (decoded.size() != encoded.size() / 2)
     {
         std::cerr << "--short_id contains invalid hexadecimal characters\n";

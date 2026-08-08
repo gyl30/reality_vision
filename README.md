@@ -62,7 +62,7 @@ SOCKS5 当前只监听本机回环地址；不支持 `BIND`，支持 `UDP ASSOCI
 src/
   config.hpp / config.cpp       命令行配置结构、解析与校验
   main.cpp                      程序入口和连接运行流程
-  base64.* / hex.*              文本编解码
+  base64.* / hex.*              配置文本解码
   reality_*                     REALITY 协议实现
   vless_*                       VLESS TCP / UDP 协议实现
   vision_*                      XTLS-Vision 实现

@@ -159,24 +159,14 @@ void test_short_id_config()
 
 void test_text_codecs()
 {
-    constexpr std::array<std::uint8_t, 3> kMan{'M', 'a', 'n'};
-    expect(rv::core::base64::encode_to_string(kMan.data(), kMan.size()) == "TWFu", "Base64 encode mismatch");
-    expect(rv::core::base64::encode_url_to_string(kMan.data(), kMan.size()) == "TWFu", "Base64URL encode mismatch");
+    expect(rv::core::decode_base64_url("AAEC_w") == std::vector<std::uint8_t>({0x00, 0x01, 0x02, 0xff}), "Base64URL decode mismatch");
+    expect(rv::core::decode_base64_url("TQ") == std::vector<std::uint8_t>({'M'}), "Base64URL short decode mismatch");
+    expect(rv::core::decode_base64_url("A").empty(), "Base64URL accepted invalid length");
+    expect(rv::core::decode_base64_url("AA+").empty(), "Base64URL accepted invalid alphabet");
 
-    constexpr std::string_view kEncodedBinary = "AAEC/w==";
-    const auto decoded_binary = rv::core::base64::decode_to_bytes(reinterpret_cast<const std::uint8_t*>(kEncodedBinary.data()),
-                                                                  static_cast<std::uint32_t>(kEncodedBinary.size()));
-    expect(decoded_binary == std::vector<std::uint8_t>({0x00, 0x01, 0x02, 0xff}), "Base64 decode mismatch");
-
-    constexpr std::string_view kEncodedUrl = "AAEC_w";
-    const auto decoded_url = rv::core::base64::decode_url_to_bytes(reinterpret_cast<const std::uint8_t*>(kEncodedUrl.data()),
-                                                                   static_cast<std::uint32_t>(kEncodedUrl.size()));
-    expect(decoded_url == std::vector<std::uint8_t>({0x00, 0x01, 0x02, 0xff}), "Base64URL decode mismatch");
-
-    constexpr std::array<std::uint8_t, 3> kRawHex{0x00, 0xab, 0xff};
-    expect(rv::core::hex::encode_to_string(kRawHex.data(), kRawHex.size()) == "00abff", "Hex encode mismatch");
-    expect(rv::core::hex::decode_to_bytes("00abff", 6) == std::vector<std::uint8_t>(kRawHex.begin(), kRawHex.end()), "Hex decode mismatch");
-    expect(rv::core::hex::decode_to_bytes("abc", 3).empty(), "Hex accepted odd input");
+    expect(rv::core::decode_hex("00abFF") == std::vector<std::uint8_t>({0x00, 0xab, 0xff}), "Hex decode mismatch");
+    expect(rv::core::decode_hex("abc").empty(), "Hex accepted odd input");
+    expect(rv::core::decode_hex("0g").empty(), "Hex accepted invalid digit");
 }
 
 void test_byte_queue()
