@@ -2,6 +2,7 @@
 #define REALITY_VISION_REALITY_RECORD_HPP
 
 #include "crypto.hpp"
+#include "tls_constants.hpp"
 
 #include <boost/system/error_code.hpp>
 
@@ -14,14 +15,6 @@
 
 namespace rv::reality
 {
-
-inline constexpr std::uint8_t kTlsRecordChangeCipherSpec = 20;
-inline constexpr std::uint8_t kTlsRecordAlert = 21;
-inline constexpr std::uint8_t kTlsRecordHandshake = 22;
-inline constexpr std::uint8_t kTlsRecordApplicationData = 23;
-
-inline constexpr std::size_t kMaxTlsPlaintext = 16U * 1024U;
-inline constexpr std::size_t kMaxTlsCiphertext = kMaxTlsPlaintext + 256U;
 
 enum class cipher_suite : std::uint16_t
 {

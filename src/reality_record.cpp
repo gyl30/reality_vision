@@ -149,7 +149,7 @@ std::array<std::uint8_t, 12> record_key::next_nonce(boost::system::error_code& e
 std::vector<std::uint8_t> record_key::seal(std::uint8_t inner_type, std::span<const std::uint8_t> plaintext, boost::system::error_code& ec)
 {
     ec.clear();
-    if (plaintext.size() > kMaxTlsPlaintext)
+    if (plaintext.size() > tls::kMaximumPlaintextSize)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::message_size);
         return {};
@@ -159,7 +159,7 @@ std::vector<std::uint8_t> record_key::seal(std::uint8_t inner_type, std::span<co
     inner.push_back(inner_type);
     const auto ciphertext_length = inner.size() + 16;
     std::array<std::uint8_t, 5> header{
-        kTlsRecordApplicationData,
+        tls::kRecordApplicationData,
         0x03,
         0x03,
         static_cast<std::uint8_t>(ciphertext_length >> 8U),
@@ -184,7 +184,7 @@ std::vector<std::uint8_t> record_key::seal(std::uint8_t inner_type, std::span<co
 opened_record record_key::open(std::span<const std::uint8_t, 5> header, std::span<const std::uint8_t> ciphertext, boost::system::error_code& ec)
 {
     ec.clear();
-    if (ciphertext.size() < 17 || ciphertext.size() > kMaxTlsCiphertext)
+    if (ciphertext.size() < 17 || ciphertext.size() > tls::kMaximumCiphertextSize)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
         return {};

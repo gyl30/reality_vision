@@ -109,7 +109,7 @@ boost::asio::awaitable<std::optional<reality_stream::encrypted_record>> reality_
     }
 
     const auto payload_size = static_cast<std::size_t>(core::read_be16(record.header.data() + 3));
-    if (payload_size > kMaxTlsCiphertext)
+    if (payload_size > tls::kMaximumCiphertextSize)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::message_size);
         co_return std::nullopt;
@@ -129,7 +129,7 @@ std::optional<std::size_t> reality_stream::process_decrypted_record(const opened
                                                                     std::span<std::uint8_t> output,
                                                                     boost::system::error_code& ec)
 {
-    if (plaintext.inner_type == kTlsRecordApplicationData)
+    if (plaintext.inner_type == tls::kRecordApplicationData)
     {
         ignored_tls_record_count_ = 0;
         plaintext_buffer_.append(plaintext.content, ec);
@@ -144,7 +144,7 @@ std::optional<std::size_t> reality_stream::process_decrypted_record(const opened
         return std::nullopt;
     }
 
-    if (plaintext.inner_type == kTlsRecordHandshake)
+    if (plaintext.inner_type == tls::kRecordHandshake)
     {
         post_handshake_buffer_.append(plaintext.content, ec);
         if (ec)
@@ -159,7 +159,7 @@ std::optional<std::size_t> reality_stream::process_decrypted_record(const opened
         return std::nullopt;
     }
 
-    if (plaintext.inner_type == kTlsRecordAlert)
+    if (plaintext.inner_type == tls::kRecordAlert)
     {
         const bool close_notify = plaintext.content.size() == 2 && plaintext.content[0] == 1 && plaintext.content[1] == 0;
         if (close_notify)
@@ -189,7 +189,7 @@ boost::asio::awaitable<std::size_t> reality_stream::read_tls(std::span<std::uint
             co_return 0;
         }
 
-        if (record->header[0] == kTlsRecordChangeCipherSpec)
+        if (record->header[0] == tls::kRecordChangeCipherSpec)
         {
             if (++ignored_tls_record_count_ > 3)
             {
@@ -198,7 +198,7 @@ boost::asio::awaitable<std::size_t> reality_stream::read_tls(std::span<std::uint
             }
             continue;
         }
-        if (record->header[0] != kTlsRecordApplicationData || record->header[1] != 0x03 || record->header[2] != 0x03)
+        if (record->header[0] != tls::kRecordApplicationData || core::read_be16(record->header.data() + 1) != tls::kLegacyVersion)
         {
             ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
             co_return 0;
@@ -223,8 +223,8 @@ boost::asio::awaitable<void> reality_stream::write_tls_records(std::span<const s
     std::size_t offset = 0;
     while (offset != input.size())
     {
-        const auto chunk_size = std::min(kMaxTlsPlaintext, input.size() - offset);
-        const auto record = send_key_.seal(kTlsRecordApplicationData, input.subspan(offset, chunk_size), ec);
+        const auto chunk_size = std::min(tls::kMaximumPlaintextSize, input.size() - offset);
+        const auto record = send_key_.seal(tls::kRecordApplicationData, input.subspan(offset, chunk_size), ec);
         if (ec)
         {
             co_return;
@@ -270,7 +270,7 @@ boost::asio::awaitable<void> reality_stream::shutdown_send(boost::system::error_
     if (send_mode_ == send_mode::kTls)
     {
         constexpr std::array<std::uint8_t, 2> kCloseNotify{1, 0};
-        const auto record = send_key_.seal(kTlsRecordAlert, kCloseNotify, ec);
+        const auto record = send_key_.seal(tls::kRecordAlert, kCloseNotify, ec);
         if (!ec)
         {
             co_await tcp_.write(record, ec);
@@ -324,7 +324,7 @@ void reality_stream::process_post_handshake_messages(boost::system::error_code& 
     while (post_handshake_buffer_.size() >= 4)
     {
         const auto message_length = handshake_message_length(post_handshake_buffer_.data());
-        if (message_length > 1U << 20)
+        if (message_length > tls::kMaximumHandshakeMessageSize)
         {
             ec = boost::system::errc::make_error_code(boost::system::errc::message_size);
             return;
@@ -336,11 +336,11 @@ void reality_stream::process_post_handshake_messages(boost::system::error_code& 
 
         const auto message_type = post_handshake_buffer_.data()[0];
         post_handshake_buffer_.consume(message_length);
-        if (message_type == 4)
+        if (message_type == tls::kHandshakeNewSessionTicket)
         {
             continue;
         }
-        if (message_type == 24)
+        if (message_type == tls::kHandshakeKeyUpdate)
         {
             ec = boost::system::errc::make_error_code(boost::system::errc::operation_not_supported);
             return;

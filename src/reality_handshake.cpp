@@ -5,6 +5,7 @@
 #include "byte_reader.hpp"
 #include "crypto.hpp"
 #include "reality_client_hello.hpp"
+#include "tls_constants.hpp"
 
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/error.hpp>
@@ -26,26 +27,16 @@ namespace rv::reality
 namespace
 {
 
-constexpr std::uint8_t kHandshakeServerHello = 2;
-constexpr std::uint8_t kHandshakeNewSessionTicket = 4;
-constexpr std::uint8_t kHandshakeEncryptedExtensions = 8;
-constexpr std::uint8_t kHandshakeCertificate = 11;
-constexpr std::uint8_t kHandshakeCertificateVerify = 15;
-constexpr std::uint8_t kHandshakeFinished = 20;
-constexpr std::uint16_t kTlsLegacyVersion = 0x0303;
-constexpr std::uint16_t kTls13Version = 0x0304;
-constexpr std::uint16_t kExtensionSupportedVersions = 0x002b;
 constexpr std::uint16_t kExtensionKeyShare = 0x0033;
 constexpr std::uint16_t kNamedGroupX25519 = 0x001d;
 constexpr std::uint16_t kSignatureSchemeEd25519 = 0x0807;
-constexpr std::size_t kMaximumHandshakeMessage = 1U << 20;
 constexpr std::array<std::uint8_t, 32> kHelloRetryRequestRandom{
     0xcf, 0x21, 0xad, 0x74, 0xe5, 0x9a, 0x61, 0x11, 0xbe, 0x1d, 0x8c, 0x02, 0x1e, 0x65, 0xb8, 0x91,
     0xc2, 0xa2, 0x11, 0x16, 0x7a, 0xbb, 0x8c, 0x5e, 0x07, 0x9e, 0x09, 0xe2, 0xc8, 0xa8, 0x33, 0x9c};
 
 struct tls_record
 {
-    std::array<std::uint8_t, 5> header{};
+    std::array<std::uint8_t, tls::kRecordHeaderSize> header{};
     std::uint8_t type{};
     std::vector<std::uint8_t> payload;
 };
@@ -58,11 +49,11 @@ struct handshake_message
 
 std::span<const std::uint8_t> handshake_body(const handshake_message& message) noexcept
 {
-    if (message.raw.size() < 4)
+    if (message.raw.size() < tls::kHandshakeHeaderSize)
     {
         return {};
     }
-    return {message.raw.data() + 4, message.raw.size() - 4};
+    return {message.raw.data() + tls::kHandshakeHeaderSize, message.raw.size() - tls::kHandshakeHeaderSize};
 }
 
 struct parsed_server_hello
@@ -104,7 +95,7 @@ boost::asio::awaitable<tls_record> read_tls_record(net::tcp_byte_stream& stream,
 
     record.type = record.header[0];
     const auto length = static_cast<std::size_t>(core::read_be16(record.header.data() + 3));
-    if (length > kMaxTlsCiphertext)
+    if (length > tls::kMaximumCiphertextSize)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::message_size);
         co_return record;
@@ -122,7 +113,7 @@ std::optional<handshake_message> pop_handshake_message(core::byte_queue& queue, 
     }
     const auto data = queue.data();
     const auto body_length = static_cast<std::size_t>(core::read_be24(data.data() + 1));
-    if (body_length > kMaximumHandshakeMessage)
+    if (body_length > tls::kMaximumHandshakeMessageSize)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::message_size);
         return std::nullopt;
@@ -155,11 +146,11 @@ boost::asio::awaitable<handshake_message> read_plain_handshake_message(net::tcp_
         {
             co_return handshake_message{};
         }
-        if (record.type == kTlsRecordChangeCipherSpec)
+        if (record.type == tls::kRecordChangeCipherSpec)
         {
             continue;
         }
-        if (record.type != kTlsRecordHandshake || record.header[1] != 0x03)
+        if (record.type != tls::kRecordHandshake || record.header[1] != 0x03)
         {
             set_bad_message_error(ec);
             co_return handshake_message{};
@@ -193,11 +184,11 @@ boost::asio::awaitable<handshake_message> read_encrypted_handshake_message(net::
         {
             co_return handshake_message{};
         }
-        if (record.type == kTlsRecordChangeCipherSpec)
+        if (record.type == tls::kRecordChangeCipherSpec)
         {
             continue;
         }
-        if (record.type != kTlsRecordApplicationData || record.header[1] != 0x03 || record.header[2] != 0x03)
+        if (record.type != tls::kRecordApplicationData || record.header[1] != 0x03 || record.header[2] != 0x03)
         {
             set_bad_message_error(ec);
             co_return handshake_message{};
@@ -208,12 +199,12 @@ boost::asio::awaitable<handshake_message> read_encrypted_handshake_message(net::
         {
             co_return handshake_message{};
         }
-        if (opened.inner_type == kTlsRecordAlert)
+        if (opened.inner_type == tls::kRecordAlert)
         {
             ec = boost::system::errc::make_error_code(boost::system::errc::connection_aborted);
             co_return handshake_message{};
         }
-        if (opened.inner_type != kTlsRecordHandshake)
+        if (opened.inner_type != tls::kRecordHandshake)
         {
             set_bad_message_error(ec);
             co_return handshake_message{};
@@ -272,9 +263,9 @@ void parse_server_hello_extensions(const std::span<const std::uint8_t> extension
             return;
         }
 
-        if (type == kExtensionSupportedVersions)
+        if (type == tls::kExtensionSupportedVersions)
         {
-            if (extension_data->size() != 2 || core::read_be16(extension_data->data()) != kTls13Version)
+            if (extension_data->size() != 2 || core::read_be16(extension_data->data()) != tls::kTls13Version)
             {
                 set_bad_message_error(ec);
                 return;
@@ -303,7 +294,7 @@ void parse_server_hello_extensions(const std::span<const std::uint8_t> extension
 parsed_server_hello parse_server_hello(const handshake_message& message, boost::system::error_code& ec)
 {
     parsed_server_hello result;
-    if (message.type != kHandshakeServerHello)
+    if (message.type != tls::kHandshakeServerHello)
     {
         set_bad_message_error(ec);
         return result;
@@ -312,7 +303,7 @@ parsed_server_hello parse_server_hello(const handshake_message& message, boost::
 
     core::byte_reader reader(handshake_body(message));
     std::uint16_t legacy_version = 0;
-    if (!reader.read_u16(legacy_version) || legacy_version != kTlsLegacyVersion)
+    if (!reader.read_u16(legacy_version) || legacy_version != tls::kLegacyVersion)
     {
         set_bad_message_error(ec);
         return result;
@@ -512,7 +503,7 @@ std::vector<std::uint8_t> make_handshake_message(std::uint8_t type, std::span<co
 
 void accept_encrypted_extensions(const handshake_message& message, std::vector<std::uint8_t>& transcript, boost::system::error_code& ec)
 {
-    if (message.type != kHandshakeEncryptedExtensions)
+    if (message.type != tls::kHandshakeEncryptedExtensions)
     {
         set_bad_message_error(ec);
         return;
@@ -532,7 +523,7 @@ void accept_server_certificate(const handshake_message& message,
                                std::vector<std::uint8_t>& transcript,
                                boost::system::error_code& ec)
 {
-    if (message.type != kHandshakeCertificate)
+    if (message.type != tls::kHandshakeCertificate)
     {
         set_bad_message_error(ec);
         return;
@@ -572,7 +563,7 @@ void accept_certificate_verify(const handshake_message& message,
                                std::vector<std::uint8_t>& transcript,
                                boost::system::error_code& ec)
 {
-    if (message.type != kHandshakeCertificateVerify)
+    if (message.type != tls::kHandshakeCertificateVerify)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::permission_denied);
         return;
@@ -592,7 +583,7 @@ void accept_server_finished(const handshake_message& message,
                             std::vector<std::uint8_t>& transcript,
                             boost::system::error_code& ec)
 {
-    if (message.type != kHandshakeFinished)
+    if (message.type != tls::kHandshakeFinished)
     {
         set_bad_message_error(ec);
         return;
@@ -620,7 +611,7 @@ boost::asio::awaitable<void> read_server_handshake_flight(net::tcp_byte_stream& 
                                                           std::vector<std::uint8_t>& transcript,
                                                           boost::system::error_code& ec)
 {
-    core::byte_queue encrypted_handshake(kMaximumHandshakeMessage);
+    core::byte_queue encrypted_handshake(tls::kMaximumHandshakeMessageSize);
     std::array<std::uint8_t, 32> certificate_public_key{};
 
     auto message = co_await read_encrypted_handshake_message(tcp, secrets.server_key, encrypted_handshake, ec);
@@ -663,7 +654,7 @@ boost::asio::awaitable<void> read_server_handshake_flight(net::tcp_byte_stream& 
         {
             co_return;
         }
-        if (message.type == kHandshakeNewSessionTicket)
+        if (message.type == tls::kHandshakeNewSessionTicket)
         {
             continue;
         }
@@ -686,7 +677,7 @@ boost::asio::awaitable<std::optional<client_hello_material>> send_client_hello(n
     }
 
     transcript = client_hello->handshake_bytes;
-    const auto client_hello_record = wrap_plain_record(kTlsRecordHandshake, client_hello->handshake_bytes, ec);
+    const auto client_hello_record = wrap_plain_record(tls::kRecordHandshake, client_hello->handshake_bytes, ec);
     if (ec)
     {
         co_return std::nullopt;
@@ -708,7 +699,7 @@ boost::asio::awaitable<std::optional<parsed_server_hello>> receive_server_hello(
                                                                                 const std::string& session_id,
                                                                                 boost::system::error_code& ec)
 {
-    core::byte_queue plain_handshake(kMaximumHandshakeMessage);
+    core::byte_queue plain_handshake(tls::kMaximumHandshakeMessageSize);
     auto message = co_await read_plain_handshake_message(tcp, plain_handshake, ec);
     if (ec)
     {
@@ -759,12 +750,12 @@ boost::asio::awaitable<void> send_client_finished(net::tcp_byte_stream& tcp,
     {
         co_return;
     }
-    const auto finished_message = make_handshake_message(kHandshakeFinished, verify_data, ec);
+    const auto finished_message = make_handshake_message(tls::kHandshakeFinished, verify_data, ec);
     if (ec)
     {
         co_return;
     }
-    const auto finished_record = secrets.client_key.seal(kTlsRecordHandshake, finished_message, ec);
+    const auto finished_record = secrets.client_key.seal(tls::kRecordHandshake, finished_message, ec);
     if (ec)
     {
         co_return;

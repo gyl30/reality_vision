@@ -11,6 +11,7 @@
 #include "reality_record.hpp"
 #include "socks5_protocol.hpp"
 #include "sniffer.hpp"
+#include "tls_constants.hpp"
 #include "vision_codec.hpp"
 #include "vless_header.hpp"
 
@@ -221,17 +222,17 @@ void test_record_roundtrip()
         expect(!ec, "record writer construction failed");
         rv::reality::record_key reader(suite, secret, ec);
         expect(!ec, "record reader construction failed");
-        const auto wire = writer.seal(rv::reality::kTlsRecordApplicationData, kMessage, ec);
+        const auto wire = writer.seal(rv::tls::kRecordApplicationData, kMessage, ec);
         expect(!ec && wire.size() > 5, "TLS record seal failed");
         const auto header = std::span<const std::uint8_t, 5>(wire.data(), 5);
         const auto opened = reader.open(header, std::span(wire).subspan(5), ec);
         expect(!ec, "TLS record open failed");
-        expect(opened.inner_type == rv::reality::kTlsRecordApplicationData, "TLS inner type mismatch");
+        expect(opened.inner_type == rv::tls::kRecordApplicationData, "TLS inner type mismatch");
         expect(opened.content == std::vector<std::uint8_t>(kMessage.begin(), kMessage.end()), "TLS plaintext mismatch");
 
         rv::reality::record_key tamper_writer(suite, secret, ec);
         rv::reality::record_key tamper_reader(suite, secret, ec);
-        auto tampered = tamper_writer.seal(rv::reality::kTlsRecordApplicationData, kMessage, ec);
+        auto tampered = tamper_writer.seal(rv::tls::kRecordApplicationData, kMessage, ec);
         tampered.back() ^= 0x80;
         const auto tamper_header = std::span<const std::uint8_t, 5>(tampered.data(), 5);
         static_cast<void>(tamper_reader.open(tamper_header, std::span(tampered).subspan(5), ec));

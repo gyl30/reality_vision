@@ -74,8 +74,8 @@ class reality_stream
     net::tcp_byte_stream tcp_;
     record_key receive_key_;
     record_key send_key_;
-    core::byte_queue plaintext_buffer_{kMaxTlsPlaintext + 1};
-    core::byte_queue post_handshake_buffer_{1U << 20};
+    core::byte_queue plaintext_buffer_{tls::kMaximumPlaintextSize + 1};
+    core::byte_queue post_handshake_buffer_{tls::kMaximumHandshakeMessageSize};
     receive_mode receive_mode_{receive_mode::kTls};
     send_mode send_mode_{send_mode::kTls};
     std::size_t ignored_tls_record_count_{0};

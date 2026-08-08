@@ -3,6 +3,7 @@
 #include "byte_order.hpp"
 #include "byte_reader.hpp"
 #include "crypto.hpp"
+#include "tls_constants.hpp"
 
 #include <boost/system/errc.hpp>
 
@@ -19,12 +20,7 @@ namespace rv::vision
 namespace
 {
 
-inline constexpr std::size_t kTlsRecordHeaderSize = 5;
 inline constexpr std::size_t kMaximumServerHelloRecordSize = 64UL * 1024U;
-inline constexpr std::uint8_t kHandshakeServerHello = 0x02;
-inline constexpr std::uint16_t kTlsLegacyVersion = 0x0303;
-inline constexpr std::uint16_t kSupportedVersionsExtension = 0x002b;
-inline constexpr std::uint16_t kTls13Version = 0x0304;
 inline constexpr std::uint16_t kFirstDirectCipher = 0x1301;
 inline constexpr std::uint16_t kLastDirectCipher = 0x1304;
 
@@ -72,11 +68,11 @@ std::size_t padding_length(std::size_t content_length, bool long_padding, boost:
 
 std::optional<std::size_t> find_server_hello_record(std::span<const std::uint8_t> input)
 {
-    constexpr std::array<std::uint8_t, 3> kPrefix{0x16, 0x03, 0x03};
-    for (std::size_t offset = 0; offset + kTlsRecordHeaderSize + 1 <= input.size(); ++offset)
+    for (std::size_t offset = 0; offset + tls::kRecordHeaderSize + 1 <= input.size(); ++offset)
     {
-        if (std::equal(kPrefix.begin(), kPrefix.end(), input.begin() + static_cast<std::ptrdiff_t>(offset)) &&
-            input[offset + kTlsRecordHeaderSize] == kHandshakeServerHello)
+        if (input[offset] == tls::kRecordHandshake &&
+            core::read_be16(input.data() + offset + 1) == tls::kLegacyVersion &&
+            input[offset + tls::kRecordHeaderSize] == tls::kHandshakeServerHello)
         {
             return offset;
         }
@@ -162,19 +158,19 @@ std::vector<std::uint8_t> encode_frame(command frame_command,
 namespace
 {
 
-inline constexpr std::size_t kMaximumTlsRecordPayload = (1UL << 14U) + 256UL;
-
 bool is_tls_record_header(const std::array<std::uint8_t, 5>& header, const bool first_record) noexcept
 {
     const auto type = header[0];
-    const bool valid_type = first_record ? type == 0x16 : type == 0x14 || type == 0x15 || type == 0x16 || type == 0x17;
+    const bool valid_type = first_record ? type == tls::kRecordHandshake
+                                         : type == tls::kRecordChangeCipherSpec || type == tls::kRecordAlert ||
+                                               type == tls::kRecordHandshake || type == tls::kRecordApplicationData;
     if (!valid_type || header[1] != 0x03 || header[2] < 0x01 || header[2] > 0x03)
     {
         return false;
     }
 
     const auto length = static_cast<std::size_t>(core::read_be16(header.data() + 3));
-    return length <= kMaximumTlsRecordPayload && (!first_record || length != 0);
+    return length <= tls::kMaximumCiphertextSize && (!first_record || length != 0);
 }
 
 bool extensions_support_tls13(const std::span<const std::uint8_t> extensions)
@@ -195,9 +191,9 @@ bool extensions_support_tls13(const std::span<const std::uint8_t> extensions)
         {
             return false;
         }
-        if (type == kSupportedVersionsExtension)
+        if (type == tls::kExtensionSupportedVersions)
         {
-            supported = data->size() == 2 && core::read_be16(data->data()) == kTls13Version;
+            supported = data->size() == 2 && core::read_be16(data->data()) == tls::kTls13Version;
         }
     }
     return supported;
@@ -205,16 +201,16 @@ bool extensions_support_tls13(const std::span<const std::uint8_t> extensions)
 
 bool server_hello_supports_direct(const std::span<const std::uint8_t> record)
 {
-    if (record.size() < kTlsRecordHeaderSize)
+    if (record.size() < tls::kRecordHeaderSize)
     {
         return false;
     }
 
-    core::byte_reader record_reader(record.subspan(kTlsRecordHeaderSize));
+    core::byte_reader record_reader(record.subspan(tls::kRecordHeaderSize));
     std::uint8_t handshake_type = 0;
     std::uint32_t handshake_length = 0;
     if (!record_reader.read_u8(handshake_type) || !record_reader.read_u24(handshake_length) ||
-        handshake_type != kHandshakeServerHello)
+        handshake_type != tls::kHandshakeServerHello)
     {
         return false;
     }
@@ -231,7 +227,7 @@ bool server_hello_supports_direct(const std::span<const std::uint8_t> record)
     std::uint16_t cipher = 0;
     std::uint8_t compression = 0;
     std::uint16_t extensions_length = 0;
-    if (!reader.read_u16(legacy_version) || legacy_version != kTlsLegacyVersion || !reader.skip(32) ||
+    if (!reader.read_u16(legacy_version) || legacy_version != tls::kLegacyVersion || !reader.skip(32) ||
         !reader.read_u8(session_id_length) || !reader.skip(session_id_length) || !reader.read_u16(cipher) ||
         !reader.read_u8(compression) || compression != 0 || !reader.read_u16(extensions_length))
     {
@@ -301,7 +297,7 @@ bool client_tls_record_tracker::detect_client_hello(const std::span<const std::u
     {
         return false;
     }
-    if (input[position] != 0x01)
+    if (input[position] != tls::kHandshakeClientHello)
     {
         disable_tracking();
         return false;
@@ -350,7 +346,7 @@ client_tls_observation client_tls_record_tracker::observe(const std::span<const 
         first_record_ = false;
         phase_ = phase::kHeader;
 
-        if (kind_ == client_stream_kind::kTls && completed_record_type == 0x17)
+        if (kind_ == client_stream_kind::kTls && completed_record_type == tls::kRecordApplicationData)
         {
             observation.encrypted_record_end_offset = position;
             break;
@@ -384,9 +380,9 @@ bool server_hello_tracker::prepare_server_hello_record()
         const auto offset = find_server_hello_record(buffer_);
         if (!offset)
         {
-            if (buffer_.size() > kTlsRecordHeaderSize)
+            if (buffer_.size() > tls::kRecordHeaderSize)
             {
-                buffer_.erase(buffer_.begin(), buffer_.end() - static_cast<std::ptrdiff_t>(kTlsRecordHeaderSize));
+                buffer_.erase(buffer_.begin(), buffer_.end() - static_cast<std::ptrdiff_t>(tls::kRecordHeaderSize));
             }
             return false;
         }
@@ -395,12 +391,12 @@ bool server_hello_tracker::prepare_server_hello_record()
         {
             buffer_.erase(buffer_.begin(), buffer_.begin() + static_cast<std::ptrdiff_t>(*offset));
         }
-        if (buffer_.size() < kTlsRecordHeaderSize)
+        if (buffer_.size() < tls::kRecordHeaderSize)
         {
             return false;
         }
 
-        record_length_ = kTlsRecordHeaderSize + static_cast<std::size_t>(core::read_be16(buffer_.data() + 3));
+        record_length_ = tls::kRecordHeaderSize + static_cast<std::size_t>(core::read_be16(buffer_.data() + 3));
         if (*record_length_ > kMaximumServerHelloRecordSize)
         {
             done_ = true;

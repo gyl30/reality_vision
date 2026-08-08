@@ -2,6 +2,7 @@
 
 #include "byte_order.hpp"
 #include "byte_reader.hpp"
+#include "tls_constants.hpp"
 
 #include <algorithm>
 #include <array>
@@ -18,9 +19,6 @@ namespace rv::sniff
 namespace
 {
 
-constexpr std::size_t kTlsRecordHeaderSize = 5;
-constexpr std::size_t kTlsHandshakeHeaderSize = 4;
-constexpr std::size_t kMaximumTlsRecordPayload = 1U << 14U;
 
 [[nodiscard]] result make_result(const status state, std::string domain = {})
 {
@@ -89,7 +87,7 @@ constexpr std::size_t kMaximumTlsRecordPayload = 1U << 14U;
         {
             return std::nullopt;
         }
-        if (type == 0)
+        if (type == tls::kExtensionServerName)
         {
             return parse_server_name(*extension);
         }
@@ -99,18 +97,18 @@ constexpr std::size_t kMaximumTlsRecordPayload = 1U << 14U;
 
 [[nodiscard]] std::optional<std::string> parse_client_hello(const std::span<const std::uint8_t> handshake)
 {
-    if (handshake.size() < kTlsHandshakeHeaderSize || handshake[0] != 0x01)
+    if (handshake.size() < tls::kHandshakeHeaderSize || handshake[0] != tls::kHandshakeClientHello)
     {
         return std::nullopt;
     }
 
     const auto body_size = static_cast<std::size_t>(core::read_be24(handshake.data() + 1));
-    if (handshake.size() < kTlsHandshakeHeaderSize + body_size)
+    if (handshake.size() < tls::kHandshakeHeaderSize + body_size)
     {
         return std::nullopt;
     }
 
-    core::byte_reader reader(handshake.subspan(kTlsHandshakeHeaderSize, body_size));
+    core::byte_reader reader(handshake.subspan(tls::kHandshakeHeaderSize, body_size));
     if (!reader.skip(2 + 32))
     {
         return std::nullopt;
@@ -149,26 +147,26 @@ constexpr std::size_t kMaximumTlsRecordPayload = 1U << 14U;
 
 [[nodiscard]] result sniff_tls(const std::span<const std::uint8_t> input)
 {
-    if (input.size() < kTlsRecordHeaderSize)
+    if (input.size() < tls::kRecordHeaderSize)
     {
         return make_result(status::kNeedMore);
     }
-    if (input[0] != 0x16 || input[1] != 0x03 || input[2] > 0x03)
+    if (input[0] != tls::kRecordHandshake || input[1] != 0x03 || input[2] > 0x03)
     {
         return make_result(status::kNoMatch);
     }
 
     const auto payload_size = static_cast<std::size_t>(core::read_be16(input.data() + 3));
-    if (payload_size == 0 || payload_size > kMaximumTlsRecordPayload)
+    if (payload_size == 0 || payload_size > tls::kMaximumPlaintextSize)
     {
         return make_result(status::kNoMatch);
     }
-    if (input.size() < kTlsRecordHeaderSize + payload_size)
+    if (input.size() < tls::kRecordHeaderSize + payload_size)
     {
         return make_result(status::kNeedMore);
     }
 
-    const auto domain = parse_client_hello(input.subspan(kTlsRecordHeaderSize, payload_size));
+    const auto domain = parse_client_hello(input.subspan(tls::kRecordHeaderSize, payload_size));
     if (!domain)
     {
         return make_result(status::kNoMatch);
@@ -317,7 +315,7 @@ result inspect_destination(const std::span<const std::uint8_t> input)
     {
         return make_result(status::kNeedMore);
     }
-    if (input[0] == 0x16)
+    if (input[0] == tls::kRecordHandshake)
     {
         return sniff_tls(input);
     }
