@@ -492,7 +492,8 @@ std::vector<std::uint8_t> make_test_tls_server_hello(const std::uint16_t cipher,
     body.push_back(0x03);
     body.push_back(0x03);
     body.insert(body.end(), 32, 0x22);
-    body.push_back(0x00);
+    body.push_back(32);
+    body.insert(body.end(), 32, 0x33);
     put_test_u16(cipher, body);
     body.push_back(0x00);
     put_test_u16(extensions.size(), body);
@@ -660,6 +661,13 @@ void test_vision_tls_trackers()
     rv::vision::server_hello_tracker tls12_tracker;
     tls12_tracker.observe(make_test_tls_server_hello(0x1301, false));
     expect(!tls12_tracker.direct_supported(), "Vision server tracker accepted TLS 1.2");
+
+    auto false_positive_server_hello = make_test_tls_server_hello(0x1301, false);
+    constexpr std::array<std::uint8_t, 6> kTls13ExtensionBytes{0x00, 0x2b, 0x00, 0x02, 0x03, 0x04};
+    std::copy(kTls13ExtensionBytes.begin(), kTls13ExtensionBytes.end(), false_positive_server_hello.begin() + 11);
+    rv::vision::server_hello_tracker false_positive_tracker;
+    false_positive_tracker.observe(false_positive_server_hello);
+    expect(!false_positive_tracker.direct_supported(), "Vision server tracker matched TLS 1.3 bytes outside the extension list");
 
     const auto fragmented_server_hello = make_test_tls_server_hello(0x1303, true);
     rv::vision::server_hello_tracker fragmented_tracker;

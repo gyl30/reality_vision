@@ -1,6 +1,7 @@
 #include "vision_codec.hpp"
 
 #include "byte_order.hpp"
+#include "byte_reader.hpp"
 #include "crypto.hpp"
 
 #include <boost/system/errc.hpp>
@@ -17,6 +18,15 @@ namespace rv::vision
 {
 namespace
 {
+
+inline constexpr std::size_t kTlsRecordHeaderSize = 5;
+inline constexpr std::size_t kMaximumServerHelloRecordSize = 64UL * 1024U;
+inline constexpr std::uint8_t kHandshakeServerHello = 0x02;
+inline constexpr std::uint16_t kTlsLegacyVersion = 0x0303;
+inline constexpr std::uint16_t kSupportedVersionsExtension = 0x002b;
+inline constexpr std::uint16_t kTls13Version = 0x0304;
+inline constexpr std::uint16_t kFirstDirectCipher = 0x1301;
+inline constexpr std::uint16_t kLastDirectCipher = 0x1304;
 
 std::uint32_t uniform_below(std::uint32_t bound, boost::system::error_code& ec)
 {
@@ -63,9 +73,10 @@ std::size_t padding_length(std::size_t content_length, bool long_padding, boost:
 std::optional<std::size_t> find_server_hello_record(std::span<const std::uint8_t> input)
 {
     constexpr std::array<std::uint8_t, 3> kPrefix{0x16, 0x03, 0x03};
-    for (std::size_t offset = 0; offset + 6 <= input.size(); ++offset)
+    for (std::size_t offset = 0; offset + kTlsRecordHeaderSize + 1 <= input.size(); ++offset)
     {
-        if (std::equal(kPrefix.begin(), kPrefix.end(), input.begin() + static_cast<std::ptrdiff_t>(offset)) && input[offset + 5] == 0x02)
+        if (std::equal(kPrefix.begin(), kPrefix.end(), input.begin() + static_cast<std::ptrdiff_t>(offset)) &&
+            input[offset + kTlsRecordHeaderSize] == kHandshakeServerHello)
         {
             return offset;
         }
@@ -166,24 +177,74 @@ bool is_tls_record_header(const std::array<std::uint8_t, 5>& header, const bool 
     return length <= kMaximumTlsRecordPayload && (!first_record || length != 0);
 }
 
+bool extensions_support_tls13(const std::span<const std::uint8_t> extensions)
+{
+    core::byte_reader reader(extensions);
+    bool supported = false;
+    while (!reader.empty())
+    {
+        std::uint16_t type = 0;
+        std::uint16_t length = 0;
+        if (!reader.read_u16(type) || !reader.read_u16(length))
+        {
+            return false;
+        }
+
+        const auto data = reader.read_bytes(length);
+        if (!data)
+        {
+            return false;
+        }
+        if (type == kSupportedVersionsExtension)
+        {
+            supported = data->size() == 2 && core::read_be16(data->data()) == kTls13Version;
+        }
+    }
+    return supported;
+}
+
 bool server_hello_supports_direct(const std::span<const std::uint8_t> record)
 {
-    if (record.size() < 46)
+    if (record.size() < kTlsRecordHeaderSize)
     {
         return false;
     }
 
-    const auto session_id_length = static_cast<std::size_t>(record[43]);
-    const auto cipher_offset = 44 + session_id_length;
-    if (cipher_offset + 2 > record.size())
+    core::byte_reader record_reader(record.subspan(kTlsRecordHeaderSize));
+    std::uint8_t handshake_type = 0;
+    std::uint32_t handshake_length = 0;
+    if (!record_reader.read_u8(handshake_type) || !record_reader.read_u24(handshake_length) ||
+        handshake_type != kHandshakeServerHello)
     {
         return false;
     }
 
-    const auto cipher = core::read_be16(record.data() + cipher_offset);
-    constexpr std::array<std::uint8_t, 6> kTls13VersionExtension{0x00, 0x2b, 0x00, 0x02, 0x03, 0x04};
-    const bool has_tls13 = std::search(record.begin(), record.end(), kTls13VersionExtension.begin(), kTls13VersionExtension.end()) != record.end();
-    return has_tls13 && cipher >= 0x1301 && cipher <= 0x1304;
+    const auto body = record_reader.read_bytes(handshake_length);
+    if (!body)
+    {
+        return false;
+    }
+
+    core::byte_reader reader(*body);
+    std::uint16_t legacy_version = 0;
+    std::uint8_t session_id_length = 0;
+    std::uint16_t cipher = 0;
+    std::uint8_t compression = 0;
+    std::uint16_t extensions_length = 0;
+    if (!reader.read_u16(legacy_version) || legacy_version != kTlsLegacyVersion || !reader.skip(32) ||
+        !reader.read_u8(session_id_length) || !reader.skip(session_id_length) || !reader.read_u16(cipher) ||
+        !reader.read_u8(compression) || compression != 0 || !reader.read_u16(extensions_length))
+    {
+        return false;
+    }
+
+    const auto extensions = reader.read_bytes(extensions_length);
+    if (!extensions || !reader.empty())
+    {
+        return false;
+    }
+
+    return cipher >= kFirstDirectCipher && cipher <= kLastDirectCipher && extensions_support_tls13(*extensions);
 }
 
 }    // namespace
@@ -307,7 +368,7 @@ void server_hello_tracker::observe(std::span<const std::uint8_t> input)
     {
         return;
     }
-    if (input.size() > (64UL * 1024U) - buffer_.size())
+    if (input.size() > kMaximumServerHelloRecordSize - buffer_.size())
     {
         done_ = true;
         return;
@@ -323,9 +384,9 @@ bool server_hello_tracker::prepare_server_hello_record()
         const auto offset = find_server_hello_record(buffer_);
         if (!offset)
         {
-            if (buffer_.size() > 5)
+            if (buffer_.size() > kTlsRecordHeaderSize)
             {
-                buffer_.erase(buffer_.begin(), buffer_.end() - 5);
+                buffer_.erase(buffer_.begin(), buffer_.end() - static_cast<std::ptrdiff_t>(kTlsRecordHeaderSize));
             }
             return false;
         }
@@ -334,13 +395,13 @@ bool server_hello_tracker::prepare_server_hello_record()
         {
             buffer_.erase(buffer_.begin(), buffer_.begin() + static_cast<std::ptrdiff_t>(*offset));
         }
-        if (buffer_.size() < 5)
+        if (buffer_.size() < kTlsRecordHeaderSize)
         {
             return false;
         }
 
-        record_length_ = 5 + static_cast<std::size_t>(core::read_be16(buffer_.data() + 3));
-        if (*record_length_ > 64UL * 1024U)
+        record_length_ = kTlsRecordHeaderSize + static_cast<std::size_t>(core::read_be16(buffer_.data() + 3));
+        if (*record_length_ > kMaximumServerHelloRecordSize)
         {
             done_ = true;
             return false;
