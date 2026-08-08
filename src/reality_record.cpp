@@ -177,7 +177,9 @@ std::vector<std::uint8_t> record_key::seal(std::uint8_t inner_type, std::span<co
     return output;
 }
 
-opened_record record_key::open(std::span<const std::uint8_t, 5> header, std::span<const std::uint8_t> ciphertext, boost::system::error_code& ec)
+opened_record record_key::open(std::span<const std::uint8_t, tls::kRecordHeaderSize> header,
+                               std::span<const std::uint8_t> ciphertext,
+                               boost::system::error_code& ec)
 {
     ec.clear();
     if (ciphertext.size() <= tls::kAeadTagSize || ciphertext.size() > tls::kMaximumCiphertextSize)

@@ -56,7 +56,7 @@ class reality_stream
    private:
     struct encrypted_record
     {
-        std::array<std::uint8_t, 5> header{};
+        std::array<std::uint8_t, tls::kRecordHeaderSize> header{};
         std::vector<std::uint8_t> payload;
     };
 

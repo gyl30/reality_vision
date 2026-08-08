@@ -46,7 +46,7 @@ class record_key
     record_key(cipher_suite suite, std::span<const std::uint8_t> traffic_secret, boost::system::error_code& ec);
 
     [[nodiscard]] std::vector<std::uint8_t> seal(std::uint8_t inner_type, std::span<const std::uint8_t> plaintext, boost::system::error_code& ec);
-    [[nodiscard]] opened_record open(std::span<const std::uint8_t, 5> header,
+    [[nodiscard]] opened_record open(std::span<const std::uint8_t, tls::kRecordHeaderSize> header,
                                      std::span<const std::uint8_t> ciphertext,
                                      boost::system::error_code& ec);
 

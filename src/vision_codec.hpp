@@ -1,6 +1,8 @@
 #ifndef REALITY_VISION_VISION_CODEC_HPP
 #define REALITY_VISION_VISION_CODEC_HPP
 
+#include "tls_constants.hpp"
+
 #include <boost/system/error_code.hpp>
 
 #include <array>
@@ -77,7 +79,7 @@ class client_tls_record_tracker
     [[nodiscard]] bool consume_record_header(std::span<const std::uint8_t> input, std::size_t& position) noexcept;
     [[nodiscard]] bool detect_client_hello(std::span<const std::uint8_t> input, std::size_t& position) noexcept;
 
-    std::array<std::uint8_t, 5> header_{};
+    std::array<std::uint8_t, tls::kRecordHeaderSize> header_{};
     std::size_t header_size_{0};
     std::size_t remaining_payload_{0};
     std::uint8_t record_type_{0};

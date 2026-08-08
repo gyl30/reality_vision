@@ -161,7 +161,7 @@ std::vector<std::uint8_t> encode_frame(command frame_command,
 namespace
 {
 
-bool is_tls_record_header(const std::array<std::uint8_t, 5>& header, const bool first_record) noexcept
+bool is_tls_record_header(const std::array<std::uint8_t, tls::kRecordHeaderSize>& header, const bool first_record) noexcept
 {
     const auto type = header[0];
     const bool valid_type = first_record ? type == tls::kRecordHandshake
