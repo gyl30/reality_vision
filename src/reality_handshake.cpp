@@ -32,7 +32,16 @@ constexpr std::uint8_t handshake_encrypted_extensions = 8;
 constexpr std::uint8_t handshake_certificate = 11;
 constexpr std::uint8_t handshake_certificate_verify = 15;
 constexpr std::uint8_t handshake_finished = 20;
+constexpr std::uint16_t tls_legacy_version = 0x0303;
+constexpr std::uint16_t tls13_version = 0x0304;
+constexpr std::uint16_t extension_supported_versions = 0x002b;
+constexpr std::uint16_t extension_key_share = 0x0033;
+constexpr std::uint16_t named_group_x25519 = 0x001d;
+constexpr std::uint16_t signature_scheme_ed25519 = 0x0807;
 constexpr std::size_t maximum_handshake_message = 1U << 20;
+constexpr std::array<std::uint8_t, 32> hello_retry_request_random{
+    0xcf, 0x21, 0xad, 0x74, 0xe5, 0x9a, 0x61, 0x11, 0xbe, 0x1d, 0x8c, 0x02, 0x1e, 0x65, 0xb8, 0x91,
+    0xc2, 0xa2, 0x11, 0x16, 0x7a, 0xbb, 0x8c, 0x5e, 0x07, 0x9e, 0x09, 0xe2, 0xc8, 0xa8, 0x33, 0x9c};
 
 struct tls_record
 {
@@ -229,7 +238,7 @@ void parse_server_key_share(const std::span<const std::uint8_t> extension_data, 
     }
 
     const auto share = reader.read_bytes(share_length);
-    if (!share || !reader.empty() || group != 0x001d || share->size() != server_hello.x25519_key_share.size())
+    if (!share || !reader.empty() || group != named_group_x25519 || share->size() != server_hello.x25519_key_share.size())
     {
         set_bad_message_error(ec);
         return;
@@ -263,9 +272,9 @@ void parse_server_hello_extensions(const std::span<const std::uint8_t> extension
             return;
         }
 
-        if (type == 0x002b)
+        if (type == extension_supported_versions)
         {
-            if (extension_data->size() != 2 || (*extension_data)[0] != 0x03 || (*extension_data)[1] != 0x04)
+            if (extension_data->size() != 2 || core::read_be16(extension_data->data()) != tls13_version)
             {
                 set_bad_message_error(ec);
                 return;
@@ -274,7 +283,7 @@ void parse_server_hello_extensions(const std::span<const std::uint8_t> extension
             continue;
         }
 
-        if (type == 0x0033)
+        if (type == extension_key_share)
         {
             parse_server_key_share(*extension_data, server_hello, ec);
             if (ec)
@@ -294,19 +303,16 @@ void parse_server_hello_extensions(const std::span<const std::uint8_t> extension
 parsed_server_hello parse_server_hello(const handshake_message& message, boost::system::error_code& ec)
 {
     parsed_server_hello result;
-    if (message.type != handshake_server_hello || message.raw.size() < 42)
+    if (message.type != handshake_server_hello)
     {
         set_bad_message_error(ec);
         return result;
     }
 
-    constexpr std::array<std::uint8_t, 32> hello_retry_request{0xcf, 0x21, 0xad, 0x74, 0xe5, 0x9a, 0x61, 0x11, 0xbe, 0x1d, 0x8c,
-                                                               0x02, 0x1e, 0x65, 0xb8, 0x91, 0xc2, 0xa2, 0x11, 0x16, 0x7a, 0xbb,
-                                                               0x8c, 0x5e, 0x07, 0x9e, 0x09, 0xe2, 0xc8, 0xa8, 0x33, 0x9c};
 
     core::byte_reader reader(handshake_body(message));
     std::uint16_t legacy_version = 0;
-    if (!reader.read_u16(legacy_version) || legacy_version != 0x0303)
+    if (!reader.read_u16(legacy_version) || legacy_version != tls_legacy_version)
     {
         set_bad_message_error(ec);
         return result;
@@ -318,7 +324,7 @@ parsed_server_hello parse_server_hello(const handshake_message& message, boost::
         set_bad_message_error(ec);
         return result;
     }
-    if (std::equal(random->begin(), random->end(), hello_retry_request.begin()))
+    if (std::equal(random->begin(), random->end(), hello_retry_request_random.begin()))
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::operation_not_supported);
         return result;
@@ -383,8 +389,7 @@ std::vector<std::uint8_t> parse_leaf_certificate(const handshake_message& messag
         set_bad_message_error(ec);
         return {};
     }
-    const auto context = reader.read_bytes(context_length);
-    if (!context)
+    if (!reader.skip(context_length))
     {
         set_bad_message_error(ec);
         return {};
@@ -423,8 +428,7 @@ std::vector<std::uint8_t> parse_leaf_certificate(const handshake_message& messag
         set_bad_message_error(ec);
         return {};
     }
-    const auto certificate_extensions = list_reader.read_bytes(certificate_extensions_length);
-    if (!certificate_extensions)
+    if (!list_reader.skip(certificate_extensions_length))
     {
         set_bad_message_error(ec);
         return {};
@@ -448,8 +452,7 @@ void validate_encrypted_extensions(const handshake_message& message, boost::syst
         set_bad_message_error(ec);
         return;
     }
-    const auto extensions = reader.read_bytes(length);
-    if (!extensions || !reader.empty())
+    if (!reader.skip(length) || !reader.empty())
     {
         set_bad_message_error(ec);
     }
@@ -470,7 +473,7 @@ void verify_certificate_verify(const handshake_message& message,
         return;
     }
     const auto signature = reader.read_bytes(signature_length);
-    if (!signature || !reader.empty() || algorithm != 0x0807)
+    if (!signature || !reader.empty() || algorithm != signature_scheme_ed25519)
     {
         set_bad_message_error(ec);
         return;
@@ -618,62 +621,55 @@ boost::asio::awaitable<void> read_server_handshake_flight(net::tcp_byte_stream& 
                                                           boost::system::error_code& ec)
 {
     core::byte_queue encrypted_handshake(maximum_handshake_message);
-    enum class phase
-    {
-        encrypted_extensions,
-        certificate,
-        certificate_verify,
-        finished
-    };
-
-    auto current_phase = phase::encrypted_extensions;
     std::array<std::uint8_t, 32> certificate_public_key{};
+
+    auto message = co_await read_encrypted_handshake_message(tcp, secrets.server_key, encrypted_handshake, ec);
+    if (ec)
+    {
+        co_return;
+    }
+    accept_encrypted_extensions(message, transcript, ec);
+    if (ec)
+    {
+        co_return;
+    }
+
+    message = co_await read_encrypted_handshake_message(tcp, secrets.server_key, encrypted_handshake, ec);
+    if (ec)
+    {
+        co_return;
+    }
+    accept_server_certificate(message, client_hello, certificate_public_key, transcript, ec);
+    if (ec)
+    {
+        co_return;
+    }
+
+    message = co_await read_encrypted_handshake_message(tcp, secrets.server_key, encrypted_handshake, ec);
+    if (ec)
+    {
+        co_return;
+    }
+    accept_certificate_verify(message, certificate_public_key, server_hello.suite, transcript, ec);
+    if (ec)
+    {
+        co_return;
+    }
 
     for (;;)
     {
-        auto message = co_await read_encrypted_handshake_message(tcp, secrets.server_key, encrypted_handshake, ec);
+        message = co_await read_encrypted_handshake_message(tcp, secrets.server_key, encrypted_handshake, ec);
         if (ec)
         {
             co_return;
         }
-
-        switch (current_phase)
+        if (message.type == handshake_new_session_ticket)
         {
-            case phase::encrypted_extensions:
-                accept_encrypted_extensions(message, transcript, ec);
-                if (ec)
-                {
-                    co_return;
-                }
-                current_phase = phase::certificate;
-                break;
-
-            case phase::certificate:
-                accept_server_certificate(message, client_hello, certificate_public_key, transcript, ec);
-                if (ec)
-                {
-                    co_return;
-                }
-                current_phase = phase::certificate_verify;
-                break;
-
-            case phase::certificate_verify:
-                accept_certificate_verify(message, certificate_public_key, server_hello.suite, transcript, ec);
-                if (ec)
-                {
-                    co_return;
-                }
-                current_phase = phase::finished;
-                break;
-
-            case phase::finished:
-                if (message.type == handshake_new_session_ticket)
-                {
-                    break;
-                }
-                accept_server_finished(message, server_hello, secrets, transcript, ec);
-                co_return;
+            continue;
         }
+
+        accept_server_finished(message, server_hello, secrets, transcript, ec);
+        co_return;
     }
 }
 
