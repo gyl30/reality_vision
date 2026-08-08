@@ -50,6 +50,10 @@ void append_u16_vector(std::span<const std::uint16_t> values, std::vector<std::u
 
 void push_extension(std::vector<std::uint8_t>& output, std::uint16_t type, std::span<const std::uint8_t> data, boost::system::error_code& ec)
 {
+    if (ec)
+    {
+        return;
+    }
     if (data.size() > std::numeric_limits<std::uint16_t>::max())
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::message_size);
@@ -109,6 +113,57 @@ std::vector<std::uint8_t> key_share_extension(const std::array<std::uint8_t, 32>
     return output;
 }
 
+void push_server_name_extension(std::vector<std::uint8_t>& extensions,
+                                const std::string& server_name,
+                                boost::system::error_code& ec)
+{
+    if (ec)
+    {
+        return;
+    }
+    const auto data = server_name_extension(server_name, ec);
+    if (ec)
+    {
+        return;
+    }
+    push_extension(extensions, 0x0000, data, ec);
+}
+
+void push_u16_list_extension(std::vector<std::uint8_t>& extensions,
+                             const std::uint16_t type,
+                             const std::span<const std::uint16_t> values,
+                             boost::system::error_code& ec)
+{
+    if (ec)
+    {
+        return;
+    }
+    std::vector<std::uint8_t> data;
+    append_u16_vector(values, data, ec);
+    if (ec)
+    {
+        return;
+    }
+    push_extension(extensions, type, data, ec);
+}
+
+void push_key_share_extension(std::vector<std::uint8_t>& extensions,
+                              const std::array<std::uint8_t, 32>& x25519_public,
+                              boost::system::error_code& ec)
+{
+    if (ec)
+    {
+        return;
+    }
+    const auto p256_public = crypto::make_p256_public_key(ec);
+    if (ec)
+    {
+        return;
+    }
+    const auto data = key_share_extension(x25519_public, p256_public);
+    push_extension(extensions, 0x0033, data, ec);
+}
+
 std::vector<std::uint8_t> grease_ech_extension(boost::system::error_code& ec)
 {
     std::array<std::uint8_t, 2> choices{};
@@ -139,146 +194,68 @@ std::vector<std::uint8_t> grease_ech_extension(boost::system::error_code& ec)
     return output;
 }
 
+void push_grease_ech_extension(std::vector<std::uint8_t>& extensions, boost::system::error_code& ec)
+{
+    if (ec)
+    {
+        return;
+    }
+    const auto data = grease_ech_extension(ec);
+    if (ec)
+    {
+        return;
+    }
+    push_extension(extensions, 0xfe0d, data, ec);
+}
+
 std::vector<std::uint8_t> firefox_120_extensions(const client_config& configuration,
                                                  const std::array<std::uint8_t, 32>& x25519_public,
                                                  boost::system::error_code& ec)
 {
     std::vector<std::uint8_t> extensions;
 
-    const auto sni = server_name_extension(configuration.server_name, ec);
-    if (ec)
-    {
-        return {};
-    }
-    push_extension(extensions, 0x0000, sni, ec);
-    if (ec)
-    {
-        return {};
-    }
-
+    push_server_name_extension(extensions, configuration.server_name, ec);
     push_extension(extensions, 0x0017, {}, ec);
-    if (ec)
-    {
-        return {};
-    }
 
     constexpr std::array<std::uint8_t, 1> renegotiation{0};
     push_extension(extensions, 0xff01, renegotiation, ec);
-    if (ec)
-    {
-        return {};
-    }
 
     constexpr std::array<std::uint16_t, 6> groups{0x001d, 0x0017, 0x0018, 0x0019, 0x0100, 0x0101};
-    std::vector<std::uint8_t> group_data;
-    append_u16_vector(groups, group_data, ec);
-    if (ec)
-    {
-        return {};
-    }
-    push_extension(extensions, 0x000a, group_data, ec);
-    if (ec)
-    {
-        return {};
-    }
+    push_u16_list_extension(extensions, 0x000a, groups, ec);
 
     constexpr std::array<std::uint8_t, 2> point_formats{1, 0};
     push_extension(extensions, 0x000b, point_formats, ec);
-    if (ec)
-    {
-        return {};
-    }
     push_extension(extensions, 0x0023, {}, ec);
-    if (ec)
-    {
-        return {};
-    }
 
     const auto alpn = alpn_extension();
     push_extension(extensions, 0x0010, alpn, ec);
-    if (ec)
-    {
-        return {};
-    }
 
     constexpr std::array<std::uint8_t, 5> status_request{1, 0, 0, 0, 0};
     push_extension(extensions, 0x0005, status_request, ec);
-    if (ec)
-    {
-        return {};
-    }
 
     constexpr std::array<std::uint16_t, 4> delegated_algorithms{0x0403, 0x0503, 0x0603, 0x0203};
-    std::vector<std::uint8_t> delegated;
-    append_u16_vector(delegated_algorithms, delegated, ec);
-    if (ec)
-    {
-        return {};
-    }
-    push_extension(extensions, 0x0022, delegated, ec);
-    if (ec)
-    {
-        return {};
-    }
+    push_u16_list_extension(extensions, 0x0022, delegated_algorithms, ec);
 
-    const auto p256_public = crypto::make_p256_public_key(ec);
-    if (ec)
-    {
-        return {};
-    }
-    const auto key_share = key_share_extension(x25519_public, p256_public);
-    push_extension(extensions, 0x0033, key_share, ec);
-    if (ec)
-    {
-        return {};
-    }
+    push_key_share_extension(extensions, x25519_public, ec);
 
     constexpr std::array<std::uint8_t, 5> versions{4, 0x03, 0x04, 0x03, 0x03};
     push_extension(extensions, 0x002b, versions, ec);
-    if (ec)
-    {
-        return {};
-    }
 
     constexpr std::array<std::uint16_t, 11> signature_algorithms{
         0x0403, 0x0503, 0x0603, 0x0804, 0x0805, 0x0806, 0x0401, 0x0501, 0x0601, 0x0203, 0x0201};
-    std::vector<std::uint8_t> signatures;
-    append_u16_vector(signature_algorithms, signatures, ec);
-    if (ec)
-    {
-        return {};
-    }
-    push_extension(extensions, 0x000d, signatures, ec);
-    if (ec)
-    {
-        return {};
-    }
+    push_u16_list_extension(extensions, 0x000d, signature_algorithms, ec);
 
     constexpr std::array<std::uint8_t, 2> psk_modes{1, 1};
     push_extension(extensions, 0x002d, psk_modes, ec);
-    if (ec)
-    {
-        return {};
-    }
 
     constexpr std::array<std::uint8_t, 2> record_size_limit{0x40, 0x01};
     push_extension(extensions, 0x001c, record_size_limit, ec);
-    if (ec)
-    {
-        return {};
-    }
 
-    const auto ech = grease_ech_extension(ec);
+    push_grease_ech_extension(extensions, ec);
     if (ec)
     {
         return {};
     }
-    push_extension(extensions, 0xfe0d, ech, ec);
-    if (ec)
-    {
-        return {};
-    }
-
     return extensions;
 }
 
