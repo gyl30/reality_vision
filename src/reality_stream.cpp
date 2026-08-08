@@ -23,7 +23,7 @@ namespace
 
 std::size_t handshake_message_length(std::span<const std::uint8_t> input) noexcept
 {
-    return 4 + static_cast<std::size_t>(core::read_be24(input.data() + 1));
+    return tls::kHandshakeHeaderSize + static_cast<std::size_t>(core::read_be24(input.data() + 1));
 }
 
 }    // namespace
@@ -308,7 +308,7 @@ boost::asio::awaitable<void> reality_stream::write_final_tls_and_switch_to_raw(s
 
 void reality_stream::process_post_handshake_messages(boost::system::error_code& ec)
 {
-    while (post_handshake_buffer_.size() >= 4)
+    while (post_handshake_buffer_.size() >= tls::kHandshakeHeaderSize)
     {
         const auto message_length = handshake_message_length(post_handshake_buffer_.data());
         if (message_length > tls::kMaximumHandshakeMessageSize)
