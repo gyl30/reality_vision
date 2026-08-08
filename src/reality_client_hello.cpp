@@ -458,7 +458,7 @@ std::optional<client_hello_material> build_client_hello(const client_config& con
     return material;
 }
 
-std::vector<std::uint8_t> wrap_plain_record(std::uint8_t content_type, std::span<const std::uint8_t> payload, boost::system::error_code& ec)
+std::vector<std::uint8_t> wrap_client_hello_record(std::span<const std::uint8_t> payload, boost::system::error_code& ec)
 {
     if (payload.size() > tls::kMaximumPlaintextSize)
     {
@@ -468,7 +468,7 @@ std::vector<std::uint8_t> wrap_plain_record(std::uint8_t content_type, std::span
     constexpr std::uint16_t kClientHelloRecordVersion = 0x0301;
     std::vector<std::uint8_t> output;
     output.reserve(tls::kRecordHeaderSize + payload.size());
-    output.push_back(content_type);
+    output.push_back(tls::kRecordHandshake);
     core::append_be16(output, kClientHelloRecordVersion);
     core::append_be16(output, static_cast<std::uint16_t>(payload.size()));
     output.insert(output.end(), payload.begin(), payload.end());

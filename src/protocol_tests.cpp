@@ -272,12 +272,12 @@ void test_record_roundtrip()
     }
 
     std::vector<std::uint8_t> maximum_plain_record_payload(16384, 0x5a);
-    const auto maximum_plain_record = rv::reality::wrap_plain_record(0x16, maximum_plain_record_payload, ec);
+    const auto maximum_plain_record = rv::reality::wrap_client_hello_record(maximum_plain_record_payload, ec);
     expect(!ec && maximum_plain_record.size() == 16389 && read_test_u16(maximum_plain_record, 3, "maximum plain TLS record length missing") == 16384,
            "maximum plain TLS record construction failed");
 
     std::vector<std::uint8_t> oversized_plain_record_payload(16385, 0x5a);
-    const auto oversized_plain_record = rv::reality::wrap_plain_record(0x16, oversized_plain_record_payload, ec);
+    const auto oversized_plain_record = rv::reality::wrap_client_hello_record(oversized_plain_record_payload, ec);
     expect(oversized_plain_record.empty(), "plain TLS record accepted oversized payload");
     expect_error(ec, boost::system::errc::message_size, "oversized plain TLS record returned wrong error");
     ec.clear();

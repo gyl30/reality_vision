@@ -32,9 +32,7 @@ struct client_hello_material
                                                                       boost::system::error_code& ec,
                                                                       std::chrono::system_clock::time_point now = std::chrono::system_clock::now());
 
-[[nodiscard]] std::vector<std::uint8_t> wrap_plain_record(std::uint8_t content_type,
-                                                          std::span<const std::uint8_t> payload,
-                                                          boost::system::error_code& ec);
+[[nodiscard]] std::vector<std::uint8_t> wrap_client_hello_record(std::span<const std::uint8_t> payload, boost::system::error_code& ec);
 
 }    // namespace rv::reality
 

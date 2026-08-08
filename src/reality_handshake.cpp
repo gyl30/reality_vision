@@ -499,21 +499,6 @@ void verify_certificate_verify(const handshake_message& message,
     crypto::verify_ed25519(public_key, signed_message, fixed_signature, ec);
 }
 
-std::vector<std::uint8_t> make_handshake_message(std::uint8_t type, std::span<const std::uint8_t> body, boost::system::error_code& ec)
-{
-    if (body.size() > tls::kMaximumHandshakeBodyLength)
-    {
-        ec = boost::system::errc::make_error_code(boost::system::errc::message_size);
-        return {};
-    }
-    std::vector<std::uint8_t> output;
-    output.reserve(tls::kHandshakeHeaderSize + body.size());
-    output.push_back(type);
-    core::append_be24(output, static_cast<std::uint32_t>(body.size()));
-    output.insert(output.end(), body.begin(), body.end());
-    return output;
-}
-
 void accept_encrypted_extensions(const handshake_message& message, std::vector<std::uint8_t>& transcript, boost::system::error_code& ec)
 {
     if (message.type != tls::kHandshakeEncryptedExtensions)
@@ -675,7 +660,7 @@ boost::asio::awaitable<std::optional<client_hello_material>> send_client_hello(n
     }
 
     transcript = client_hello->handshake_bytes;
-    const auto client_hello_record = wrap_plain_record(tls::kRecordHandshake, client_hello->handshake_bytes, ec);
+    const auto client_hello_record = wrap_client_hello_record(client_hello->handshake_bytes, ec);
     if (ec)
     {
         co_return std::nullopt;
@@ -748,11 +733,11 @@ boost::asio::awaitable<void> send_client_finished(net::tcp_byte_stream& tcp,
     {
         co_return;
     }
-    const auto finished_message = make_handshake_message(tls::kHandshakeFinished, verify_data, ec);
-    if (ec)
-    {
-        co_return;
-    }
+    std::vector<std::uint8_t> finished_message;
+    finished_message.reserve(tls::kHandshakeHeaderSize + verify_data.size());
+    finished_message.push_back(tls::kHandshakeFinished);
+    core::append_be24(finished_message, static_cast<std::uint32_t>(verify_data.size()));
+    finished_message.insert(finished_message.end(), verify_data.begin(), verify_data.end());
     const auto finished_record = secrets.client_key.seal(tls::kRecordHandshake, finished_message, ec);
     if (ec)
     {
