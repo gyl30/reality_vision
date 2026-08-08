@@ -49,11 +49,11 @@ cipher_suite_properties cipher_properties(cipher_suite suite) noexcept
     switch (suite)
     {
         case cipher_suite::kTlsAes128GcmSha256:
-            return {crypto::hash_algorithm::kSha256, crypto::aead_algorithm::kAes128Gcm, 16};
+            return {crypto::hash_algorithm::kSha256, crypto::aead_algorithm::kAes128Gcm, crypto::kAes128GcmKeySize};
         case cipher_suite::kTlsAes256GcmSha384:
-            return {crypto::hash_algorithm::kSha384, crypto::aead_algorithm::kAes256Gcm, 32};
+            return {crypto::hash_algorithm::kSha384, crypto::aead_algorithm::kAes256Gcm, crypto::kAes256GcmKeySize};
         case cipher_suite::kTlsChacha20Poly1305Sha256:
-            return {crypto::hash_algorithm::kSha256, crypto::aead_algorithm::kChacha20Poly1305, 32};
+            return {crypto::hash_algorithm::kSha256, crypto::aead_algorithm::kChacha20Poly1305, crypto::kChacha20Poly1305KeySize};
         case cipher_suite::kUnknown:
             break;
     }
