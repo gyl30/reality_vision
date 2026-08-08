@@ -55,7 +55,6 @@ boost::asio::awaitable<std::optional<vision_stream>> vision_stream::connect(vles
         co_return std::nullopt;
     }
 
-    stream.user_id_sent_ = true;
     spdlog::info("{} initial empty vision padding frame sent", stream.session_id_);
     co_return std::move(stream);
 }
@@ -265,7 +264,6 @@ boost::asio::awaitable<void> vision_stream::write_vision_frames(const std::span<
     constexpr std::size_t maximum_content = xray_buffer_size - full_header_size;
 
     std::size_t offset = 0;
-    bool user_id_sent = user_id_sent_;
     bool first_frame = true;
     while (first_frame || offset != input.size())
     {
@@ -274,13 +272,7 @@ boost::asio::awaitable<void> vision_stream::write_vision_frames(const std::span<
         const bool is_final_frame = offset + content_size == input.size();
         const auto frame_command = is_final_frame ? final_command : command::continue_padding;
 
-        std::optional<std::span<const std::uint8_t, user_id_size>> user_id;
-        if (!user_id_sent)
-        {
-            user_id.emplace(user_id_);
-        }
-
-        const auto frame = encode_frame(frame_command, user_id, input.subspan(offset, content_size), use_long_padding, ec);
+        const auto frame = encode_frame(frame_command, std::nullopt, input.subspan(offset, content_size), use_long_padding, ec);
         if (ec)
         {
             co_return;
@@ -299,11 +291,8 @@ boost::asio::awaitable<void> vision_stream::write_vision_frames(const std::span<
             co_return;
         }
 
-        user_id_sent = true;
         offset += content_size;
     }
-
-    user_id_sent_ = user_id_sent;
 }
 
 boost::asio::awaitable<void> vision_stream::write(const std::span<const std::uint8_t> input, boost::system::error_code& ec)
@@ -345,13 +334,7 @@ boost::asio::awaitable<void> vision_stream::end_padding_before_shutdown(boost::s
         co_return;
     }
 
-    std::optional<std::span<const std::uint8_t, user_id_size>> user_id;
-    if (!user_id_sent_)
-    {
-        user_id.emplace(user_id_);
-    }
-
-    const auto frame = encode_frame(command::end_padding, user_id, {}, client_tls_record_tracker_.tls_detected(), ec);
+    const auto frame = encode_frame(command::end_padding, std::nullopt, {}, client_tls_record_tracker_.tls_detected(), ec);
     if (ec)
     {
         co_return;
@@ -363,7 +346,6 @@ boost::asio::awaitable<void> vision_stream::end_padding_before_shutdown(boost::s
         co_return;
     }
 
-    user_id_sent_ = true;
     send_padding_active_ = false;
     spdlog::info("{} vision send padding ended with command 1", session_id_);
 }

@@ -71,7 +71,6 @@ class vision_stream
     std::size_t padding_remaining_{0};
 
     bool send_padding_active_{true};
-    bool user_id_sent_{false};
     bool direct_mode_allowed_{false};
     client_tls_record_tracker client_tls_record_tracker_;
     server_hello_tracker server_hello_tracker_;

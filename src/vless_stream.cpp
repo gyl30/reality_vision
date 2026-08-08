@@ -92,6 +92,11 @@ boost::asio::awaitable<void> vless_stream::read_response_header(boost::system::e
 
 boost::asio::awaitable<std::size_t> vless_stream::read(std::span<std::uint8_t> output, boost::system::error_code& ec)
 {
+    if (output.empty())
+    {
+        co_return 0;
+    }
+
     if (response_header_pending_)
     {
         co_await read_response_header(ec);
