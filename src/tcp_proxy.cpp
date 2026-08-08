@@ -43,6 +43,8 @@ namespace
 
 using tcp = boost::asio::ip::tcp;
 
+constexpr std::size_t kRelayBufferSize = 16UL * 1024U;
+
 enum class transparent_mode : std::uint8_t
 {
     kRedirect,
@@ -65,7 +67,7 @@ boost::asio::awaitable<void> relay_client_to_upstream(tcp::socket& client_socket
                                                        rv::vision::vision_stream& upstream,
                                                        boost::system::error_code& ec)
 {
-    std::array<std::uint8_t, 16UL * 1024U> buffer{};
+    std::array<std::uint8_t, kRelayBufferSize> buffer{};
     for (;;)
     {
         const auto count =
@@ -99,7 +101,7 @@ boost::asio::awaitable<void> relay_upstream_to_client(rv::vision::vision_stream&
                                                        tcp::socket& client_socket,
                                                        boost::system::error_code& ec)
 {
-    std::array<std::uint8_t, 16UL * 1024U> buffer{};
+    std::array<std::uint8_t, kRelayBufferSize> buffer{};
     for (;;)
     {
         const auto count = co_await upstream.read(buffer, ec);
@@ -150,6 +152,23 @@ boost::asio::awaitable<void> relay_bidirectional(tcp::socket& client_socket,
     {
         ec = upstream_to_client_ec;
     }
+}
+
+boost::asio::awaitable<void> relay_with_initial_data(tcp::socket& client_socket,
+                                                      rv::vision::vision_stream& upstream,
+                                                      const std::span<const std::uint8_t> initial_data,
+                                                      boost::system::error_code& ec)
+{
+    if (!initial_data.empty())
+    {
+        co_await upstream.write(initial_data, ec);
+        if (ec)
+        {
+            co_return;
+        }
+    }
+
+    co_await relay_bidirectional(client_socket, upstream, ec);
 }
 
 rv::vless::address to_vless_address(const rv::socks5::address& address)
@@ -331,24 +350,14 @@ boost::asio::awaitable<void> send_upstream_failure_reply(tcp::socket& client_soc
     co_await rv::socks5::send_reply(client_socket, map_error_to_socks_reply(upstream_ec), ignored);
 }
 
-boost::asio::awaitable<void> run_socks_session(tcp::socket client_socket, rv::app::config configuration, std::string session_id)
+boost::asio::awaitable<void> run_socks_connect_session(tcp::socket& client_socket,
+                                                        const rv::app::config& configuration,
+                                                        const rv::socks5::request& request,
+                                                        const std::string& session_id)
 {
     boost::system::error_code ec;
-    const auto request = co_await rv::socks5::negotiate(client_socket, configuration.socks_credentials, ec);
-    if (ec)
-    {
-        spdlog::warn("{} socks5 negotiation failed: {}", session_id, ec.message());
-        co_return;
-    }
+    spdlog::info("{} socks5 connect {}", session_id, rv::socks5::format_destination(request));
 
-    if (request->requested_command == rv::socks5::command::kUdpAssociate)
-    {
-        spdlog::info("{} socks5 udp associate {}", session_id, rv::socks5::format_destination(*request));
-        co_await rv::udp_proxy::run_socks_association(std::move(client_socket), std::move(configuration), *request, std::move(session_id));
-        co_return;
-    }
-
-    spdlog::info("{} socks5 connect {}", session_id, rv::socks5::format_destination(*request));
     auto reality = co_await connect_reality(configuration, session_id, ec);
     if (ec)
     {
@@ -358,11 +367,11 @@ boost::asio::awaitable<void> run_socks_session(tcp::socket client_socket, rv::ap
         co_return;
     }
 
-    auto target = make_proxy_target(*request);
+    auto target = make_proxy_target(request);
     initial_client_data initial_data;
     std::optional<rv::vision::vision_stream> upstream;
 
-    if (should_sniff_destination(*request))
+    if (should_sniff_destination(request))
     {
         co_await rv::socks5::send_reply(client_socket, rv::socks5::reply::kSucceeded, ec);
         if (ec)
@@ -408,17 +417,7 @@ boost::asio::awaitable<void> run_socks_session(tcp::socket client_socket, rv::ap
         }
     }
 
-    if (!initial_data.bytes.empty())
-    {
-        co_await upstream->write(initial_data.bytes, ec);
-        if (ec)
-        {
-            spdlog::warn("{} socks5 relay failed: {}", session_id, ec.message());
-            co_return;
-        }
-    }
-
-    co_await relay_bidirectional(client_socket, *upstream, ec);
+    co_await relay_with_initial_data(client_socket, *upstream, initial_data.bytes, ec);
     if (ec)
     {
         spdlog::warn("{} socks5 relay failed: {}", session_id, ec.message());
@@ -426,6 +425,26 @@ boost::asio::awaitable<void> run_socks_session(tcp::socket client_socket, rv::ap
     }
 
     spdlog::info("{} socks5 tcp session completed", session_id);
+}
+
+boost::asio::awaitable<void> run_socks_session(tcp::socket client_socket, rv::app::config configuration, std::string session_id)
+{
+    boost::system::error_code ec;
+    const auto request = co_await rv::socks5::negotiate(client_socket, configuration.socks_credentials, ec);
+    if (ec)
+    {
+        spdlog::warn("{} socks5 negotiation failed: {}", session_id, ec.message());
+        co_return;
+    }
+
+    if (request->requested_command == rv::socks5::command::kUdpAssociate)
+    {
+        spdlog::info("{} socks5 udp associate {}", session_id, rv::socks5::format_destination(*request));
+        co_await rv::udp_proxy::run_socks_association(std::move(client_socket), std::move(configuration), *request, std::move(session_id));
+        co_return;
+    }
+
+    co_await run_socks_connect_session(client_socket, configuration, *request, session_id);
 }
 
 void get_transparent_destination(tcp::socket& client_socket,
@@ -485,17 +504,7 @@ boost::asio::awaitable<void> run_transparent_session(tcp::socket client_socket,
         co_return;
     }
 
-    if (!initial_data.bytes.empty())
-    {
-        co_await upstream->write(initial_data.bytes, ec);
-        if (ec)
-        {
-            spdlog::warn("{} transparent relay failed: {}", session_id, ec.message());
-            co_return;
-        }
-    }
-
-    co_await relay_bidirectional(client_socket, *upstream, ec);
+    co_await relay_with_initial_data(client_socket, *upstream, initial_data.bytes, ec);
     if (ec)
     {
         spdlog::warn("{} transparent relay failed: {}", session_id, ec.message());
