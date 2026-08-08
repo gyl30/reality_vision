@@ -177,6 +177,7 @@ def socks5_tls_request(
             if not data:
                 break
             response.extend(data)
+        tls.unwrap()
     expected_version = {
         ssl.TLSVersion.TLSv1_2: "TLSv1.2",
         ssl.TLSVersion.TLSv1_3: "TLSv1.3",
