@@ -28,10 +28,8 @@ namespace rv::reality
 namespace
 {
 
-constexpr std::uint16_t kExtensionKeyShare = 0x0033;
-constexpr std::uint16_t kNamedGroupX25519 = 0x001d;
 constexpr std::uint16_t kSignatureSchemeEd25519 = 0x0807;
-constexpr std::array<std::uint8_t, 32> kHelloRetryRequestRandom{
+constexpr std::array<std::uint8_t, tls::kRandomSize> kHelloRetryRequestRandom{
     0xcf, 0x21, 0xad, 0x74, 0xe5, 0x9a, 0x61, 0x11, 0xbe, 0x1d, 0x8c, 0x02, 0x1e, 0x65, 0xb8, 0x91,
     0xc2, 0xa2, 0x11, 0x16, 0x7a, 0xbb, 0x8c, 0x5e, 0x07, 0x9e, 0x09, 0xe2, 0xc8, 0xa8, 0x33, 0x9c};
 
@@ -61,7 +59,7 @@ struct parsed_server_hello
 {
     std::vector<std::uint8_t> session_id;
     cipher_suite suite{cipher_suite::kUnknown};
-    std::array<std::uint8_t, 32> x25519_key_share{};
+    std::array<std::uint8_t, tls::kX25519KeyShareSize> x25519_key_share{};
 };
 
 void set_bad_message_error(boost::system::error_code& ec) { ec = boost::system::errc::make_error_code(boost::system::errc::bad_message); }
@@ -89,7 +87,7 @@ boost::asio::awaitable<tls_record> read_tls_record(net::tcp_byte_stream& stream,
 
 std::optional<handshake_message> pop_handshake_message(core::byte_queue& queue, boost::system::error_code& ec)
 {
-    if (queue.size() < 4)
+    if (queue.size() < tls::kHandshakeHeaderSize)
     {
         return std::nullopt;
     }
@@ -100,11 +98,11 @@ std::optional<handshake_message> pop_handshake_message(core::byte_queue& queue, 
         ec = boost::system::errc::make_error_code(boost::system::errc::message_size);
         return std::nullopt;
     }
-    if (queue.size() < 4 + body_length)
+    if (queue.size() < tls::kHandshakeHeaderSize + body_length)
     {
         return std::nullopt;
     }
-    auto raw = queue.take(4 + body_length);
+    auto raw = queue.take(tls::kHandshakeHeaderSize + body_length);
     return handshake_message{raw[0], std::move(raw)};
 }
 
@@ -132,7 +130,8 @@ boost::asio::awaitable<handshake_message> read_plain_handshake_message(net::tcp_
         {
             continue;
         }
-        if (record.type != tls::kRecordHandshake || record.header[1] != 0x03)
+        if (record.type != tls::kRecordHandshake ||
+            record.header[1] != static_cast<std::uint8_t>(tls::kLegacyVersion >> 8U))
         {
             set_bad_message_error(ec);
             co_return handshake_message{};
@@ -170,7 +169,7 @@ boost::asio::awaitable<handshake_message> read_encrypted_handshake_message(net::
         {
             continue;
         }
-        if (record.type != tls::kRecordApplicationData || record.header[1] != 0x03 || record.header[2] != 0x03)
+        if (record.type != tls::kRecordApplicationData || core::read_be16(record.header.data() + 1) != tls::kLegacyVersion)
         {
             set_bad_message_error(ec);
             co_return handshake_message{};
@@ -211,7 +210,7 @@ void parse_server_key_share(const std::span<const std::uint8_t> extension_data, 
     }
 
     const auto share = reader.read_bytes(share_length);
-    if (!share || !reader.empty() || group != kNamedGroupX25519 || share->size() != server_hello.x25519_key_share.size())
+    if (!share || !reader.empty() || group != tls::kNamedGroupX25519 || share->size() != server_hello.x25519_key_share.size())
     {
         set_bad_message_error(ec);
         return;
@@ -256,7 +255,7 @@ void parse_server_hello_extensions(const std::span<const std::uint8_t> extension
             continue;
         }
 
-        if (type == kExtensionKeyShare)
+        if (type == tls::kExtensionKeyShare)
         {
             parse_server_key_share(*extension_data, server_hello, ec);
             if (ec)
@@ -291,7 +290,7 @@ parsed_server_hello parse_server_hello(const handshake_message& message, boost::
         return result;
     }
 
-    const auto random = reader.read_bytes(32);
+    const auto random = reader.read_bytes(tls::kRandomSize);
     if (!random)
     {
         set_bad_message_error(ec);
@@ -330,7 +329,7 @@ parsed_server_hello parse_server_hello(const handshake_message& message, boost::
     }
 
     std::uint8_t compression = 0;
-    if (!reader.read_u8(compression) || compression != 0)
+    if (!reader.read_u8(compression) || compression != tls::kNullCompressionMethod)
     {
         set_bad_message_error(ec);
         return result;
@@ -452,7 +451,9 @@ void verify_certificate_verify(const handshake_message& message,
         return;
     }
 
-    std::vector<std::uint8_t> signed_message(64, 0x20);
+    constexpr std::size_t kCertificateVerifyPaddingSize = 64;
+    constexpr std::uint8_t kCertificateVerifyPaddingByte = 0x20;
+    std::vector<std::uint8_t> signed_message(kCertificateVerifyPaddingSize, kCertificateVerifyPaddingByte);
     constexpr std::string_view kContext = "TLS 1.3, server CertificateVerify";
     signed_message.insert(signed_message.end(), kContext.begin(), kContext.end());
     signed_message.push_back(0);
@@ -468,13 +469,13 @@ void verify_certificate_verify(const handshake_message& message,
 
 std::vector<std::uint8_t> make_handshake_message(std::uint8_t type, std::span<const std::uint8_t> body, boost::system::error_code& ec)
 {
-    if (body.size() > 0x00ff'ffffU)
+    if (body.size() > tls::kMaximumHandshakeBodyLength)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::message_size);
         return {};
     }
     std::vector<std::uint8_t> output;
-    output.reserve(4 + body.size());
+    output.reserve(tls::kHandshakeHeaderSize + body.size());
     output.push_back(type);
     core::append_be24(output, static_cast<std::uint32_t>(body.size()));
     output.insert(output.end(), body.begin(), body.end());

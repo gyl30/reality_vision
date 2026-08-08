@@ -24,6 +24,10 @@ namespace
 inline constexpr std::size_t kMaximumServerHelloRecordSize = 64UL * 1024U;
 inline constexpr std::uint16_t kFirstDirectCipher = 0x1301;
 inline constexpr std::uint16_t kLastDirectCipher = 0x1304;
+inline constexpr std::uint16_t kMinimumRecordVersion = 0x0301;
+inline constexpr std::size_t kLongPaddingThreshold = 900;
+inline constexpr std::uint32_t kLongPaddingRandomRange = 500;
+inline constexpr std::uint32_t kShortPaddingRandomRange = 256;
 
 std::uint32_t uniform_below(std::uint32_t bound, boost::system::error_code& ec)
 {
@@ -51,13 +55,13 @@ std::uint32_t uniform_below(std::uint32_t bound, boost::system::error_code& ec)
 std::size_t padding_length(std::size_t content_length, bool long_padding, boost::system::error_code& ec)
 {
     std::size_t result = 0;
-    if (long_padding && content_length < 900)
+    if (long_padding && content_length < kLongPaddingThreshold)
     {
-        result = uniform_below(500, ec) + 900 - content_length;
+        result = uniform_below(kLongPaddingRandomRange, ec) + kLongPaddingThreshold - content_length;
     }
     else
     {
-        result = uniform_below(256, ec);
+        result = uniform_below(kShortPaddingRandomRange, ec);
     }
     if (ec)
     {
@@ -163,7 +167,8 @@ bool is_tls_record_header(const std::array<std::uint8_t, 5>& header, const bool 
     const bool valid_type = first_record ? type == tls::kRecordHandshake
                                          : type == tls::kRecordChangeCipherSpec || type == tls::kRecordAlert ||
                                                type == tls::kRecordHandshake || type == tls::kRecordApplicationData;
-    if (!valid_type || header[1] != 0x03 || header[2] < 0x01 || header[2] > 0x03)
+    const auto version = core::read_be16(header.data() + 1);
+    if (!valid_type || version < kMinimumRecordVersion || version > tls::kLegacyVersion)
     {
         return false;
     }
@@ -226,9 +231,9 @@ bool server_hello_supports_direct(const std::span<const std::uint8_t> record)
     std::uint16_t cipher = 0;
     std::uint8_t compression = 0;
     std::uint16_t extensions_length = 0;
-    if (!reader.read_u16(legacy_version) || legacy_version != tls::kLegacyVersion || !reader.skip(32) ||
+    if (!reader.read_u16(legacy_version) || legacy_version != tls::kLegacyVersion || !reader.skip(tls::kRandomSize) ||
         !reader.read_u8(session_id_length) || !reader.skip(session_id_length) || !reader.read_u16(cipher) ||
-        !reader.read_u8(compression) || compression != 0 || !reader.read_u16(extensions_length))
+        !reader.read_u8(compression) || compression != tls::kNullCompressionMethod || !reader.read_u16(extensions_length))
     {
         return false;
     }

@@ -22,6 +22,27 @@ namespace rv::core
            static_cast<std::uint32_t>(data[2]) << 8U | static_cast<std::uint32_t>(data[3]);
 }
 
+inline void write_be16(std::uint8_t* data, const std::uint16_t value) noexcept
+{
+    data[0] = static_cast<std::uint8_t>(value >> 8U);
+    data[1] = static_cast<std::uint8_t>(value);
+}
+
+inline void write_be24(std::uint8_t* data, const std::uint32_t value) noexcept
+{
+    data[0] = static_cast<std::uint8_t>(value >> 16U);
+    data[1] = static_cast<std::uint8_t>(value >> 8U);
+    data[2] = static_cast<std::uint8_t>(value);
+}
+
+inline void write_be32(std::uint8_t* data, const std::uint32_t value) noexcept
+{
+    data[0] = static_cast<std::uint8_t>(value >> 24U);
+    data[1] = static_cast<std::uint8_t>(value >> 16U);
+    data[2] = static_cast<std::uint8_t>(value >> 8U);
+    data[3] = static_cast<std::uint8_t>(value);
+}
+
 }    // namespace rv::core
 
 #endif    // REALITY_VISION_BYTE_ORDER_HPP

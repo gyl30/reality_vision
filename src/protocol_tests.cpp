@@ -125,6 +125,13 @@ void test_byte_writer()
 
     constexpr std::array<std::uint8_t, 5> kExpected{0x12, 0x34, 0x56, 0x78, 0x9a};
     expect_bytes(output, kExpected, "byte writer output mismatch");
+
+    std::array<std::uint8_t, 9> fixed{};
+    core::write_be16(fixed.data(), 0x1234);
+    core::write_be24(fixed.data() + 2, 0x0056789a);
+    core::write_be32(fixed.data() + 5, 0xbcdef012);
+    constexpr std::array<std::uint8_t, 9> kExpectedFixed{0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0, 0x12};
+    expect(fixed == kExpectedFixed, "byte order writer output mismatch");
 }
 
 void test_network_address()

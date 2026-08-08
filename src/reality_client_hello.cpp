@@ -1,7 +1,9 @@
 #include "reality_client_hello.hpp"
 
 #include "crypto.hpp"
+#include "byte_order.hpp"
 #include "byte_writer.hpp"
+#include "tls_constants.hpp"
 
 #include <boost/system/errc.hpp>
 
@@ -80,10 +82,10 @@ std::vector<std::uint8_t> alpn_extension()
     return output;
 }
 
-std::vector<std::uint8_t> key_share_extension(const std::array<std::uint8_t, 32>& x25519_public, const std::array<std::uint8_t, 65>& p256_public)
+std::vector<std::uint8_t> key_share_extension(const std::array<std::uint8_t, tls::kX25519KeyShareSize>& x25519_public, const std::array<std::uint8_t, 65>& p256_public)
 {
     std::vector<std::uint8_t> shares;
-    core::append_be16(shares, 0x001d);
+    core::append_be16(shares, tls::kNamedGroupX25519);
     core::append_be16(shares, static_cast<std::uint16_t>(x25519_public.size()));
     shares.insert(shares.end(), x25519_public.begin(), x25519_public.end());
     core::append_be16(shares, 0x0017);
@@ -131,7 +133,7 @@ void push_u16_list_extension(std::vector<std::uint8_t>& extensions,
 }
 
 void push_key_share_extension(std::vector<std::uint8_t>& extensions,
-                              const std::array<std::uint8_t, 32>& x25519_public,
+                              const std::array<std::uint8_t, tls::kX25519KeyShareSize>& x25519_public,
                               boost::system::error_code& ec)
 {
     if (ec)
@@ -144,7 +146,7 @@ void push_key_share_extension(std::vector<std::uint8_t>& extensions,
         return;
     }
     const auto data = key_share_extension(x25519_public, p256_public);
-    push_extension(extensions, 0x0033, data, ec);
+    push_extension(extensions, tls::kExtensionKeyShare, data, ec);
 }
 
 std::vector<std::uint8_t> grease_ech_extension(boost::system::error_code& ec)
@@ -192,7 +194,7 @@ void push_grease_ech_extension(std::vector<std::uint8_t>& extensions, boost::sys
 }
 
 std::vector<std::uint8_t> firefox_120_extensions(const client_config& configuration,
-                                                 const std::array<std::uint8_t, 32>& x25519_public,
+                                                 const std::array<std::uint8_t, tls::kX25519KeyShareSize>& x25519_public,
                                                  boost::system::error_code& ec)
 {
     std::vector<std::uint8_t> extensions;
@@ -245,7 +247,7 @@ std::vector<std::uint8_t> firefox_120_extensions(const client_config& configurat
 std::vector<std::uint8_t> build_firefox_120_handshake(const client_config& configuration,
                                                       const std::array<std::uint8_t, 32>& random,
                                                       const std::array<std::uint8_t, 32>& session_id,
-                                                      const std::array<std::uint8_t, 32>& x25519_public_key,
+                                                      const std::array<std::uint8_t, tls::kX25519KeyShareSize>& x25519_public_key,
                                                       boost::system::error_code& ec)
 {
     constexpr std::array<std::uint16_t, 17> kCipherSuites{
@@ -253,8 +255,7 @@ std::vector<std::uint8_t> build_firefox_120_handshake(const client_config& confi
 
     std::vector<std::uint8_t> body;
     body.reserve(768);
-    body.push_back(0x03);
-    body.push_back(0x03);
+    core::append_be16(body, tls::kLegacyVersion);
     body.insert(body.end(), random.begin(), random.end());
     body.push_back(static_cast<std::uint8_t>(session_id.size()));
     body.insert(body.end(), session_id.begin(), session_id.end());
@@ -264,7 +265,7 @@ std::vector<std::uint8_t> build_firefox_120_handshake(const client_config& confi
         return {};
     }
     body.push_back(1);
-    body.push_back(0);
+    body.push_back(tls::kNullCompressionMethod);
 
     const auto extensions = firefox_120_extensions(configuration, x25519_public_key, ec);
     if (ec)
@@ -279,15 +280,15 @@ std::vector<std::uint8_t> build_firefox_120_handshake(const client_config& confi
     core::append_be16(body, static_cast<std::uint16_t>(extensions.size()));
     body.insert(body.end(), extensions.begin(), extensions.end());
 
-    if (body.size() > 0x00ff'ffffU)
+    if (body.size() > tls::kMaximumHandshakeBodyLength)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::message_size);
         return {};
     }
 
     std::vector<std::uint8_t> handshake;
-    handshake.reserve(4 + body.size());
-    handshake.push_back(1);
+    handshake.reserve(tls::kHandshakeHeaderSize + body.size());
+    handshake.push_back(tls::kHandshakeClientHello);
     core::append_be24(handshake, static_cast<std::uint32_t>(body.size()));
     handshake.insert(handshake.end(), body.begin(), body.end());
     return handshake;
@@ -338,11 +339,10 @@ std::array<std::uint8_t, 16> build_reality_authentication(const client_config& c
     }
 
     const auto timestamp = static_cast<std::uint32_t>(unix_seconds);
-    authentication[4] = static_cast<std::uint8_t>(timestamp >> 24U);
-    authentication[5] = static_cast<std::uint8_t>(timestamp >> 16U);
-    authentication[6] = static_cast<std::uint8_t>(timestamp >> 8U);
-    authentication[7] = static_cast<std::uint8_t>(timestamp);
-    std::copy(configuration.short_id.begin(), configuration.short_id.end(), authentication.begin() + 8);
+    constexpr std::size_t kTimestampOffset = 4;
+    constexpr std::size_t kShortIdOffset = 8;
+    core::write_be32(authentication.data() + kTimestampOffset, timestamp);
+    std::copy(configuration.short_id.begin(), configuration.short_id.end(), authentication.begin() + kShortIdOffset);
     return authentication;
 }
 
@@ -378,7 +378,7 @@ void authenticate_client_hello(client_hello_material& material,
 
     std::copy(sealed_session_id.begin(), sealed_session_id.end(), material.session_id.begin());
 
-    constexpr std::size_t kSessionIdOffset = 39;
+    constexpr std::size_t kSessionIdOffset = tls::kHandshakeHeaderSize + 2 + tls::kRandomSize + 1;
     std::copy(
         material.session_id.begin(), material.session_id.end(), material.handshake_bytes.begin() + static_cast<std::ptrdiff_t>(kSessionIdOffset));
 }
@@ -428,11 +428,11 @@ std::vector<std::uint8_t> wrap_plain_record(std::uint8_t content_type, std::span
         ec = boost::system::errc::make_error_code(boost::system::errc::message_size);
         return {};
     }
+    constexpr std::uint16_t kClientHelloRecordVersion = 0x0301;
     std::vector<std::uint8_t> output;
-    output.reserve(5 + payload.size());
+    output.reserve(tls::kRecordHeaderSize + payload.size());
     output.push_back(content_type);
-    output.push_back(0x03);
-    output.push_back(0x01);
+    core::append_be16(output, kClientHelloRecordVersion);
     core::append_be16(output, static_cast<std::uint16_t>(payload.size()));
     output.insert(output.end(), payload.begin(), payload.end());
     return output;

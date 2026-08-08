@@ -118,7 +118,8 @@ boost::asio::awaitable<std::size_t> vision_stream::read_frame_content(std::span<
 
 boost::asio::awaitable<void> vision_stream::discard_frame_padding(boost::system::error_code& ec)
 {
-    std::array<std::uint8_t, 1024> discard_buffer{};
+    constexpr std::size_t kPaddingDiscardBufferSize = 1024;
+    std::array<std::uint8_t, kPaddingDiscardBufferSize> discard_buffer{};
     while (padding_remaining_ != 0)
     {
         const auto requested = std::min(padding_remaining_, discard_buffer.size());
@@ -328,7 +329,7 @@ boost::asio::awaitable<void> vision_stream::end_padding_before_shutdown(boost::s
     }
 
     send_padding_active_ = false;
-    spdlog::info("{} vision send padding ended with command 1", session_id_);
+    spdlog::info("{} vision send padding ended with command {}", session_id_, static_cast<unsigned int>(command::kEndPadding));
 }
 
 boost::asio::awaitable<void> vision_stream::shutdown_send(boost::system::error_code& ec)

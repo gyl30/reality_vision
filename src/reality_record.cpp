@@ -1,5 +1,6 @@
 #include "reality_record.hpp"
 
+#include "byte_order.hpp"
 #include "byte_writer.hpp"
 
 #include <boost/system/errc.hpp>
@@ -67,17 +68,19 @@ std::vector<std::uint8_t> hkdf_expand_label(crypto::hash_algorithm hash,
                                             boost::system::error_code& ec)
 {
     ec.clear();
-    if (output_length > std::numeric_limits<std::uint16_t>::max() || label.size() > 249 || context.size() > std::numeric_limits<std::uint8_t>::max())
+    constexpr std::array<std::uint8_t, 6> kPrefix{'t', 'l', 's', '1', '3', ' '};
+    constexpr std::size_t kMaximumLabelLength = std::numeric_limits<std::uint8_t>::max() - kPrefix.size();
+    if (output_length > std::numeric_limits<std::uint16_t>::max() || label.size() > kMaximumLabelLength ||
+        context.size() > std::numeric_limits<std::uint8_t>::max())
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::value_too_large);
         return {};
     }
 
     std::vector<std::uint8_t> info;
-    info.reserve(2 + 1 + 6 + label.size() + 1 + context.size());
+    info.reserve(2 + 1 + kPrefix.size() + label.size() + 1 + context.size());
     core::append_be16(info, static_cast<std::uint16_t>(output_length));
-    info.push_back(static_cast<std::uint8_t>(6 + label.size()));
-    constexpr std::array<std::uint8_t, 6> kPrefix{'t', 'l', 's', '1', '3', ' '};
+    info.push_back(static_cast<std::uint8_t>(kPrefix.size() + label.size()));
     info.insert(info.end(), kPrefix.begin(), kPrefix.end());
     info.insert(info.end(), label.begin(), label.end());
     info.push_back(static_cast<std::uint8_t>(context.size()));
@@ -153,14 +156,11 @@ std::vector<std::uint8_t> record_key::seal(std::uint8_t inner_type, std::span<co
 
     std::vector<std::uint8_t> inner(plaintext.begin(), plaintext.end());
     inner.push_back(inner_type);
-    const auto ciphertext_length = inner.size() + 16;
-    std::array<std::uint8_t, 5> header{
-        tls::kRecordApplicationData,
-        0x03,
-        0x03,
-        static_cast<std::uint8_t>(ciphertext_length >> 8U),
-        static_cast<std::uint8_t>(ciphertext_length),
-    };
+    const auto ciphertext_length = inner.size() + tls::kAeadTagSize;
+    std::array<std::uint8_t, tls::kRecordHeaderSize> header{};
+    header[0] = tls::kRecordApplicationData;
+    core::write_be16(header.data() + 1, tls::kLegacyVersion);
+    core::write_be16(header.data() + 3, static_cast<std::uint16_t>(ciphertext_length));
     const auto nonce = next_nonce(ec);
     if (ec)
     {
@@ -180,7 +180,7 @@ std::vector<std::uint8_t> record_key::seal(std::uint8_t inner_type, std::span<co
 opened_record record_key::open(std::span<const std::uint8_t, 5> header, std::span<const std::uint8_t> ciphertext, boost::system::error_code& ec)
 {
     ec.clear();
-    if (ciphertext.size() < 17 || ciphertext.size() > tls::kMaximumCiphertextSize)
+    if (ciphertext.size() <= tls::kAeadTagSize || ciphertext.size() > tls::kMaximumCiphertextSize)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
         return {};
