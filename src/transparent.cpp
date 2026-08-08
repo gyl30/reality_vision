@@ -118,7 +118,7 @@ std::optional<std::size_t> receive_ipv4_original_datagram(boost::asio::ip::udp::
         .iov_base = output.data(),
         .iov_len = output.size(),
     };
-    std::array<char, CMSG_SPACE(sizeof(sockaddr_in))> control{};
+    alignas(cmsghdr) std::array<char, CMSG_SPACE(sizeof(sockaddr_in))> control{};
     msghdr message{};
     message.msg_name = &source_address;
     message.msg_namelen = sizeof(source_address);
@@ -149,23 +149,25 @@ std::optional<std::size_t> receive_ipv4_original_datagram(boost::asio::ip::udp::
         return std::nullopt;
     }
 
-    const sockaddr_in* original_destination = nullptr;
+    sockaddr_in original_destination{};
+    bool original_destination_found = false;
     for (auto* header = CMSG_FIRSTHDR(&message); header != nullptr; header = CMSG_NXTHDR(&message, header))
     {
         if (header->cmsg_level == SOL_IP && header->cmsg_type == IP_ORIGDSTADDR && header->cmsg_len >= CMSG_LEN(sizeof(sockaddr_in)))
         {
-            original_destination = reinterpret_cast<const sockaddr_in*>(CMSG_DATA(header));
+            std::memcpy(&original_destination, CMSG_DATA(header), sizeof(original_destination));
+            original_destination_found = true;
             break;
         }
     }
-    if (original_destination == nullptr || original_destination->sin_family != AF_INET)
+    if (!original_destination_found || original_destination.sin_family != AF_INET)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::no_message_available);
         return std::nullopt;
     }
 
     source = to_udp_endpoint(source_address);
-    destination = to_udp_endpoint(*original_destination);
+    destination = to_udp_endpoint(original_destination);
     ec.clear();
     return static_cast<std::size_t>(received);
 #else

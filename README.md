@@ -141,7 +141,7 @@ CMake 只创建一个 `reality_vision` executable，所有实现源文件直接�
 
 协议自测已经编入同一个二进制，也可以直接运行 `./build/reality_vision --self_test`。
 Xray 互通测试覆盖 SOCKS5 非 TLS、TLS 1.2 fallback、TLS 1.3 Direct、IP 目标 TLS SNI sniff、Vision framing，
-并验证 SOCKS5 正确/错误密码以及 `UDP ASSOCIATE -> VLESS UDP -> UDP echo`；还需要 Python 3 和系统的 OpenSSL 命令行工具。
+并验证 SOCKS5 正确/错误密码、`UDP ASSOCIATE -> VLESS UDP -> UDP echo`、SOCKS5 UDP 地址类型 flow 隔离以及 UDP/443 request；还需要 Python 3 和系统的 OpenSSL 命令行工具。
 
 ## 作为 SOCKS5 TCP / UDP 代理运行
 
@@ -188,8 +188,8 @@ curl --proxy socks5h://test_user:test_password@127.0.0.1:1080 \
 TCP half-close 传播，另一方向继续排空后再释放连接。
 
 `UDP ASSOCIATE` 使用同一个 `--socks_port`：TCP 控制连接建立 association，服务端返回一个回环 UDP relay endpoint。
-SOCKS5 UDP header 中的目标地址/端口决定远端 VLESS UDP flow；同一 association 对同一目标复用 flow，不同目标各自建立
-`reality_stream -> vless_udp_stream`。UDP flow 的 VLESS addon 长度为 0，不创建 `vision_stream`，datagram 在 VLESS body 中按
+SOCKS5 UDP header 中的目标地址/端口决定远端 VLESS UDP flow；同一 association 对同一地址类型、目标地址和端口复用 flow，不同目标各自建立
+`reality_stream -> vless_udp_stream`。SOCKS5 UDP flow 与 TPROXY UDP flow 都在 120 秒无活动后回收。UDP flow 的 VLESS addon 长度为 0，不创建 `vision_stream`，datagram 在 VLESS body 中按
 `uint16_be length + payload` 保持边界。SOCKS5 `FRAG != 0` 当前拒绝。UDP/443 与其他 UDP 使用相同的 VLESS UDP + REALITY 路径，不经过 Vision。
 
 ## 作为 Linux TCP / UDP 透明代理运行

@@ -152,9 +152,10 @@ REALITY raw。接收方向只在对端 Direct frame 的 content 与 padding 都�
 每条 TCP/REALITY stream 支持一个活动读协程和一个活动写协程，两个方向可以同时活动。SOCKS5、REDIRECT 和 TPROXY listener
 可以同时运行并服务多个连接；TCP 一个方向遇到 EOF 时只 half-close 对端发送方向，等待另一方向排空后再释放会话。
 
-SOCKS5 UDP association 的生命周期由 SOCKS TCP control connection 决定。association 内按 SOCKS UDP target 建立 flow；每条
-flow 复用一个 `vless_udp_stream`，主 relay 协程串行写 datagram，独立 downlink 协程串行读 datagram。control connection 关闭时
-association 的 UDP socket 和全部上游 flow 一起关闭。
+SOCKS5 UDP association 的生命周期由 SOCKS TCP control connection 决定。association 内按 SOCKS UDP 地址类型、目标地址和端口建立 flow；每条
+flow 复用一个 `vless_udp_stream`，主 relay 协程串行写 datagram，独立 downlink 协程串行读 datagram。地址类型属于 flow 身份的一部分，
+因此文本相同的 domain 与 IPv4/IPv6 地址不会错误复用同一 flow。control connection 关闭时 association 的 UDP socket 和全部上游 flow 一起关闭；
+120 秒无活动 flow 也由 30 秒 cleanup timer 回收。
 
 TPROXY UDP 按 `(client endpoint, original destination)` 建立 flow。每条 flow 额外拥有一个 `IP_TRANSPARENT` reply socket，
 绑定 original destination，使下行 datagram 返回客户端时仍以原目标 IP:port 为源；原目标端口低于 1024 时运行进程还需要

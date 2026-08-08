@@ -55,7 +55,7 @@ GREASE ECH 保持 uTLS profile 的字段形状和 239-byte ciphertext 长度。�
 3. SOCKS5 domain CONNECT → 内层 TLS 1.3 server，必须进入双向 Direct；
 4. SOCKS5 IP CONNECT → TLS 1.3 server，验证 SNI sniff 后仍进入 Direct；
 5. SOCKS5 RFC 1929 正确凭据通过，错误密码被拒绝且日志不包含凭据；
-6. SOCKS5 UDP ASSOCIATE → VLESS UDP（empty flow）→ UDP echo server，验证 datagram request/response framing，且该 flow 日志不得出现 Vision；另发送 UDP/443 请求并确认 Xray 收到。
+6. SOCKS5 UDP ASSOCIATE → VLESS UDP（empty flow）→ UDP echo server，验证 datagram request/response framing，且该 flow 日志不得出现 Vision；另验证文本相同的 domain/IPv4 目标不会错误复用 flow，并发送 UDP/443 请求确认 Xray 收到。
 
 TLS 1.3 Direct 用例必须同时出现 TX `command=2`、TX raw switch 和 RX raw switch，否则测试失败。普通 TCP/TLS 1.2 必须出现
 `command=1` 并断言没有 raw switch；TLS 1.2 用例运行前后还会比较 Xray 的 `CopyRawConn splice` 计数。UDP 用例通过 SOCKS5
@@ -89,14 +89,15 @@ ctest --test-dir build --output-on-failure
 - TCP TPROXY：listener 在 `bind()` 前设置 `SOL_IP/IP_TRANSPARENT`，目标从 accepted socket local endpoint 取得；
 - UDP TPROXY：同一 `--tproxy_port` 建立 UDP listener，设置 `IP_TRANSPARENT` 与 `IP_RECVORIGDSTADDR`，通过 `recvmsg()` 获取每包原目标；
 - UDP downlink 使用绑定 original destination 的透明 socket，保持返回客户端时的源 IP:port；绑定 DNS/53、NTP/123 等低于 1024 的原目标端口时进程需要 `CAP_NET_BIND_SERVICE`；
-- TPROXY UDP flow 按 `(client endpoint, original destination)` 复用，120 秒 idle timeout；
+- SOCKS5 UDP flow 按 `(address type, destination, port)` 复用，TPROXY UDP flow 按 `(client endpoint, original destination)` 复用；两者都是 120 秒 idle timeout；
 - iptables/nftables、TPROXY fwmark/policy routing、进程自身绕行规则由部署环境负责；
 - 通用 UDP REDIRECT、IPv6 REDIRECT/TPROXY 和 DNS 专用 redirect 不属于当前阶段；UDP/443 可透明转发，但 QUIC 协议解析/sniff 不实现。
 
 TCP REDIRECT/TPROXY 得到 IP 目标后复用 destination sniffer；SNI/HTTP Host 命中时 VLESS 改用域名，否则保持原 IP。UDP 不 sniff，
 直接使用 SOCKS5 UDP header 或 TPROXY original destination；VLESS UDP 使用 command `0x02`、empty flow 和 2-byte datagram length，
-不会创建 Vision stream。真实 transparent UDP 测试需要 root/netfilter/capability，因此不放入默认 CTest；默认 interop 通过无特权
-SOCKS5 UDP ASSOCIATE 覆盖相同的 VLESS UDP/REALITY 协议路径。
+不会创建 Vision stream。wire length 字段本身可表示到 65535；但 Xray 26.2.6 的标准 VLESS UDP writer 使用 8192-byte buffer，并跳过
+`length + 2 > 8192` 的 datagram，因此与该版本互通时不能把 65535 当成双向端到端保证。真实 transparent UDP 测试需要 root/netfilter/capability，
+因此不放入默认 CTest；默认 interop 通过无特权 SOCKS5 UDP ASSOCIATE 覆盖相同的 VLESS UDP/REALITY 协议路径。
 
 Docker bridge 上的 TPROXY 还取决于宿主机 `br_netfilter` 路径；该环境问题与应用是否正确设置 `IP_TRANSPARENT` 是两件事，
 部署时应单独验证。UDP/443 使用与其他 UDP 相同的 VLESS UDP + REALITY 路径；默认测试额外验证 SOCKS5 UDP/443 请求能到达 Xray，但不要求测试环境绑定本地特权端口 443。真实 QUIC/HTTP3 应另做端到端验证。
