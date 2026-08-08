@@ -18,6 +18,7 @@
 *.exe
 *.out
 build
+build-asan/
 build_fuzz
 build_coverage
 compile_commands.json

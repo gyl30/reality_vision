@@ -58,7 +58,9 @@ REALITY `shortId` 与 Xray 固定基线保持一致：允许 0～8 字节，命�
 3. SOCKS5 domain CONNECT → 内层 TLS 1.3 server，必须进入双向 Direct；
 4. SOCKS5 IP CONNECT → TLS 1.3 server，验证 SNI sniff 后仍进入 Direct；
 5. SOCKS5 RFC 1929 正确凭据通过，错误密码被拒绝且日志不包含凭据；
-6. SOCKS5 UDP ASSOCIATE → VLESS UDP（empty flow）→ UDP echo server，验证 datagram request/response framing，且该 flow 日志不得出现 Vision；另验证文本相同的 domain/IPv4 目标不会错误复用 flow，并发送 UDP/443 请求确认 Xray 收到。
+6. SOCKS5 无认证 listener 使用 `NO AUTH` 完成 TCP echo 往返，验证未配置用户名/密码时的真实代理链路；
+7. SOCKS5 UDP ASSOCIATE → VLESS UDP（empty flow）→ UDP echo server，验证 datagram request/response framing，
+   且该 flow 日志不得出现 Vision；另验证文本相同的 domain/IPv4 目标不会错误复用 flow，并发送 UDP/443 请求确认 Xray 收到。
 
 TLS 1.3 Direct 用例必须同时出现 TX `command=2`、TX raw switch 和 RX raw switch，否则测试失败。普通 TCP/TLS 1.2 必须出现
 `command=1` 并断言没有 raw switch；TLS 1.2 用例运行前后还会比较 Xray 的 `CopyRawConn splice` 计数。UDP 用例通过 SOCKS5
@@ -98,8 +100,9 @@ ctest --test-dir build --output-on-failure
 
 TCP REDIRECT/TPROXY 得到 IP 目标后复用 destination sniffer；SNI/HTTP Host 命中时 VLESS 改用域名，否则保持原 IP。UDP 不 sniff，
 直接使用 SOCKS5 UDP header 或 TPROXY original destination；VLESS UDP 使用 command `0x02`、empty flow 和 2-byte datagram length，
-不会创建 Vision stream。wire length 字段本身可表示到 65535；但 Xray 26.2.6 的标准 VLESS UDP writer 使用 8192-byte buffer，并跳过
-`length + 2 > 8192` 的 datagram，因此与该版本互通时不能把 65535 当成双向端到端保证。真实 transparent UDP 测试需要 root/netfilter/capability，
+不会创建 Vision stream。零长度 UDP datagram 当前不转发。wire length 字段本身可表示到 65535；但固定 Xray 基线（v26.7.28）的
+标准 VLESS UDP writer 使用 8192-byte buffer，并跳过 `length + 2 > 8192` 的 datagram，因此不能把 65535 当成双向端到端保证。
+真实 transparent UDP 测试需要 root/netfilter/capability，
 因此不放入默认 CTest；默认 interop 通过无特权 SOCKS5 UDP ASSOCIATE 覆盖相同的 VLESS UDP/REALITY 协议路径。
 
 Docker bridge 上的 TPROXY 还取决于宿主机 `br_netfilter` 路径；该环境问题与应用是否正确设置 `IP_TRANSPARENT` 是两件事，
