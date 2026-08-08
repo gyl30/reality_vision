@@ -133,7 +133,7 @@ std::vector<std::uint8_t> encode_frame(command frame_command,
                                        boost::system::error_code& ec)
 {
     const auto header_size = user_id ? kFullHeaderSize : kShortHeaderSize;
-    if (content.size() > kXrayBufferSize - header_size || content.size() > std::numeric_limits<std::uint16_t>::max())
+    if (content.size() > kXrayBufferSize - kFullHeaderSize || content.size() > std::numeric_limits<std::uint16_t>::max())
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::message_size);
         return {};

@@ -647,7 +647,7 @@ void test_vision_frame_codec()
     ec = rv::vision::decode_header(kOversizedHeader, false, user_id, header);
     expect_error(ec, boost::system::errc::message_size, "Vision oversized frame header returned wrong error");
 
-    const std::vector<std::uint8_t> oversized_content(rv::vision::kXrayBufferSize - rv::vision::kShortHeaderSize + 1, 0x55);
+    const std::vector<std::uint8_t> oversized_content(rv::vision::kXrayBufferSize - rv::vision::kFullHeaderSize + 1, 0x55);
     ec.clear();
     static_cast<void>(rv::vision::encode_frame(rv::vision::command::kContinuePadding, std::nullopt, oversized_content, false, ec));
     expect_error(ec, boost::system::errc::message_size, "Vision encoder accepted oversized content");
