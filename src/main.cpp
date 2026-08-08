@@ -649,7 +649,7 @@ int main(int argc, char* argv[])
         const auto configuration = rv::app::parse_config(argc, argv);
         if (!configuration)
         {
-            return 0;
+            return static_cast<int>(configuration.error());
         }
         if (configuration->self_test)
         {

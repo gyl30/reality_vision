@@ -5,6 +5,7 @@
 
 #include <array>
 #include <cstdint>
+#include <expected>
 #include <optional>
 #include <string>
 
@@ -27,7 +28,13 @@ struct config
     std::optional<rv::socks5::credentials> socks_credentials;
 };
 
-[[nodiscard]] std::optional<config> parse_config(int argc, char* argv[]);
+enum class config_exit_code : int
+{
+    success = 0,
+    failure = 1,
+};
+
+[[nodiscard]] std::expected<config, config_exit_code> parse_config(int argc, char* argv[]);
 
 }    // namespace rv::app
 

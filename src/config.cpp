@@ -10,7 +10,6 @@
 #include <cstdint>
 #include <iostream>
 #include <limits>
-#include <optional>
 #include <ranges>
 #include <string>
 #include <utility>
@@ -131,7 +130,7 @@ bool decode_vless_user_id(const std::string& uuid, config& configuration)
 
 }    // namespace
 
-std::optional<config> parse_config(const int argc, char* argv[])
+std::expected<config, config_exit_code> parse_config(const int argc, char* argv[])
 {
     config configuration;
     std::string server_public_key;
@@ -161,7 +160,7 @@ std::optional<config> parse_config(const int argc, char* argv[])
         if (options.contains("help"))
         {
             std::cout << description << '\n';
-            return std::nullopt;
+            return std::unexpected(config_exit_code::success);
         }
         if (options.contains("self_test"))
         {
@@ -173,7 +172,7 @@ std::optional<config> parse_config(const int argc, char* argv[])
     catch (const po::error& error)
     {
         std::cerr << "configuration error: " << error.what() << '\n';
-        return std::nullopt;
+        return std::unexpected(config_exit_code::failure);
     }
 
     if (!validate_listen_and_server_ports(configuration) ||
@@ -181,7 +180,7 @@ std::optional<config> parse_config(const int argc, char* argv[])
         !decode_reality_public_key(server_public_key, configuration) || !decode_reality_short_id(short_id, configuration) ||
         !decode_vless_user_id(uuid, configuration))
     {
-        return std::nullopt;
+        return std::unexpected(config_exit_code::failure);
     }
 
     return configuration;
