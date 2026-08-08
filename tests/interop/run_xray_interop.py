@@ -468,6 +468,39 @@ def socks5_udp_datagrams_share_flow(
         control.close()
 
 
+def socks5_udp_empty_payload_is_ignored(
+    proxy_port: int,
+    target_port: int,
+    client_log_path: Path,
+) -> None:
+    marker = "vless udp request header sent"
+    initial_count = count_text(client_log_path, marker)
+    control, relay, relay_endpoint = open_socks5_udp_association(proxy_port)
+    try:
+        relay.settimeout(5)
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as empty_source:
+            empty_source.bind(("127.0.0.1", 0))
+            empty_source.sendto(
+                make_socks5_udp_request("127.0.0.1", 443, b""),
+                relay_endpoint,
+            )
+        time.sleep(0.05)
+
+        exchange_socks5_udp_datagram(
+            relay,
+            relay_endpoint,
+            "127.0.0.1",
+            target_port,
+            b"udp-after-empty-payload",
+        )
+        flow_count = count_text(client_log_path, marker) - initial_count
+        if flow_count != 1:
+            raise RuntimeError("SOCKS5 empty UDP payload created an upstream flow")
+    finally:
+        relay.close()
+        control.close()
+
+
 def socks5_udp_address_types_use_distinct_flows(
     proxy_port: int,
     target_port: int,
@@ -1074,6 +1107,17 @@ def main() -> int:
                             "socks_10 socks5 udp association completed",
                             vision_socks_process,
                         )
+
+                        socks5_udp_empty_payload_is_ignored(
+                            vision_socks_port,
+                            udp_echo_port,
+                            vision_socks_log_path,
+                        )
+                        wait_for_text(
+                            vision_socks_log_path,
+                            "socks_11 socks5 udp association completed",
+                            vision_socks_process,
+                        )
                         time.sleep(0.1)
 
                         if vision_socks_process.poll() is not None:
@@ -1131,6 +1175,8 @@ def main() -> int:
                             "socks_9 socks5 udp association completed",
                             "socks_10_udp_1 vless udp request header sent",
                             "socks_10 socks5 udp association completed",
+                            "socks_11_udp_1 vless udp request header sent",
+                            "socks_11 socks5 udp association completed",
                         )
                         missing_udp = [marker for marker in udp_markers if marker not in socks_output]
                         udp_vision_markers = [
@@ -1185,7 +1231,7 @@ def main() -> int:
             ipv6_udp_echo_thread.join(timeout=2)
 
     print(
-        "Xray REALITY, VLESS Vision, VLESS UDP including IPv6, UDP/443, flow reuse, and address-type flow isolation, "
+        "Xray REALITY, VLESS Vision, VLESS UDP including IPv6, UDP/443, empty-payload handling, flow reuse, and address-type flow isolation, "
         "SOCKS5 IPv6 and TCP half-close, no-authentication and username/password authentication, "
         "UDP ASSOCIATE with both authentication modes, destination sniffing, "
         "TLS 1.2 fallback, and TLS 1.3 Direct tests passed"

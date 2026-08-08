@@ -356,6 +356,10 @@ asio::awaitable<void> run_socks_udp_relay(const std::shared_ptr<socks_udp_state>
         {
             continue;
         }
+        if (datagram.payload.empty())
+        {
+            continue;
+        }
 
         if (!state->client_endpoint)
         {
