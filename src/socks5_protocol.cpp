@@ -14,6 +14,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <ranges>
 #include <span>
@@ -37,6 +38,21 @@ constexpr std::uint8_t kBindCommand = 0x02;
 constexpr std::uint8_t kIpv4Type = 0x01;
 constexpr std::uint8_t kDomainType = 0x03;
 constexpr std::uint8_t kIpv6Type = 0x04;
+constexpr std::uint8_t kReserved = 0x00;
+constexpr std::uint8_t kNoFragment = 0x00;
+constexpr std::uint8_t kAuthenticationSucceeded = 0x00;
+constexpr std::uint8_t kAuthenticationFailed = 0x01;
+constexpr std::size_t kIpv4AddressSize = 4;
+constexpr std::size_t kIpv6AddressSize = 16;
+constexpr std::size_t kPortSize = 2;
+constexpr std::size_t kRequestHeaderSize = 4;
+constexpr std::size_t kAddressTypeOffset = 3;
+constexpr std::size_t kUdpHeaderPrefixSize = 3;
+constexpr std::size_t kMaximumDomainLength = std::numeric_limits<std::uint8_t>::max();
+constexpr std::size_t kIpv4RequestBodySize = kIpv4AddressSize + kPortSize;
+constexpr std::size_t kIpv6RequestBodySize = kIpv6AddressSize + kPortSize;
+constexpr std::size_t kIpv4ReplySize = kRequestHeaderSize + kIpv4AddressSize + kPortSize;
+constexpr std::size_t kMaximumUdpHeaderSize = kUdpHeaderPrefixSize + 1 + kIpv6AddressSize + kPortSize;
 
 asio::awaitable<void> read_exact(asio::ip::tcp::socket& socket, std::span<std::uint8_t> output, boost::system::error_code& ec)
 {
@@ -64,16 +80,15 @@ boost::system::error_code decode_address(const std::span<const std::uint8_t> inp
     {
         case kIpv4Type:
         {
-            constexpr std::size_t kAddressSize = 4;
             const auto begin = type_offset + 1;
-            if (input.size() < begin + kAddressSize)
+            if (input.size() < begin + kIpv4AddressSize)
             {
                 return make_error_code(boost::system::errc::bad_message);
             }
             net::ipv4_address ipv4;
             std::copy_n(input.begin() + static_cast<std::ptrdiff_t>(begin), ipv4.bytes.size(), ipv4.bytes.begin());
             destination = ipv4;
-            next_offset = begin + kAddressSize;
+            next_offset = begin + kIpv4AddressSize;
             return {};
         }
         case kDomainType:
@@ -102,16 +117,15 @@ boost::system::error_code decode_address(const std::span<const std::uint8_t> inp
         }
         case kIpv6Type:
         {
-            constexpr std::size_t kAddressSize = 16;
             const auto begin = type_offset + 1;
-            if (input.size() < begin + kAddressSize)
+            if (input.size() < begin + kIpv6AddressSize)
             {
                 return make_error_code(boost::system::errc::bad_message);
             }
             net::ipv6_address ipv6;
             std::copy_n(input.begin() + static_cast<std::ptrdiff_t>(begin), ipv6.bytes.size(), ipv6.bytes.begin());
             destination = ipv6;
-            next_offset = begin + kAddressSize;
+            next_offset = begin + kIpv6AddressSize;
             return {};
         }
         default:
@@ -137,7 +151,7 @@ void encode_address(const net::address& source, std::vector<std::uint8_t>& outpu
             }
             else
             {
-                if (value.name.empty() || value.name.size() > 255 || value.name.find('\0') != std::string::npos)
+                if (value.name.empty() || value.name.size() > kMaximumDomainLength || value.name.find('\0') != std::string::npos)
                 {
                     ec = boost::system::errc::make_error_code(boost::system::errc::invalid_argument);
                     return;
@@ -193,7 +207,7 @@ asio::awaitable<void> authenticate_username_password(asio::ip::tcp::socket& sock
     const bool authenticated = username == expected.username && password == expected.password;
     const std::array<std::uint8_t, 2> response{
         kAuthenticationVersion,
-        static_cast<std::uint8_t>(authenticated ? 0x00 : 0x01),
+        authenticated ? kAuthenticationSucceeded : kAuthenticationFailed,
     };
     co_await write_all(socket, response, ec);
     if (ec)
@@ -258,14 +272,14 @@ asio::awaitable<void> send_reply_ignoring_error(asio::ip::tcp::socket& socket, c
     co_await send_reply(socket, value, ignored);
 }
 
-asio::awaitable<void> read_request_header(asio::ip::tcp::socket& socket, std::array<std::uint8_t, 4>& header, boost::system::error_code& ec)
+asio::awaitable<void> read_request_header(asio::ip::tcp::socket& socket, std::array<std::uint8_t, kRequestHeaderSize>& header, boost::system::error_code& ec)
 {
     co_await read_exact(socket, header, ec);
     if (ec)
     {
         co_return;
     }
-    if (header[0] != kVersion || header[2] != 0)
+    if (header[0] != kVersion || header[2] != kReserved)
     {
         co_await send_reply_ignoring_error(socket, reply::kGeneralFailure);
         ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
@@ -280,7 +294,7 @@ asio::awaitable<void> read_request_header(asio::ip::tcp::socket& socket, std::ar
 }
 
 asio::awaitable<void> read_request_body(asio::ip::tcp::socket& socket,
-                                        const std::array<std::uint8_t, 4>& header,
+                                        const std::array<std::uint8_t, kRequestHeaderSize>& header,
                                         std::vector<std::uint8_t>& request_bytes,
                                         boost::system::error_code& ec)
 {
@@ -289,7 +303,7 @@ asio::awaitable<void> read_request_body(asio::ip::tcp::socket& socket,
         case kIpv4Type:
         {
             const auto offset = request_bytes.size();
-            request_bytes.resize(offset + 6);
+            request_bytes.resize(offset + kIpv4RequestBodySize);
             co_await read_exact(socket, std::span(request_bytes).subspan(offset), ec);
             break;
         }
@@ -316,7 +330,7 @@ asio::awaitable<void> read_request_body(asio::ip::tcp::socket& socket,
         case kIpv6Type:
         {
             const auto offset = request_bytes.size();
-            request_bytes.resize(offset + 18);
+            request_bytes.resize(offset + kIpv6RequestBodySize);
             co_await read_exact(socket, std::span(request_bytes).subspan(offset), ec);
             break;
         }
@@ -329,7 +343,7 @@ asio::awaitable<void> read_request_body(asio::ip::tcp::socket& socket,
 
 asio::awaitable<std::optional<std::vector<std::uint8_t>>> read_request_bytes(asio::ip::tcp::socket& socket, boost::system::error_code& ec)
 {
-    std::array<std::uint8_t, 4> header{};
+    std::array<std::uint8_t, kRequestHeaderSize> header{};
     co_await read_request_header(socket, header, ec);
     if (ec)
     {
@@ -359,7 +373,7 @@ std::vector<std::uint8_t> encode_bound_reply(const reply value, const asio::ip::
     std::vector<std::uint8_t> output{
         kVersion,
         static_cast<std::uint8_t>(value),
-        0x00,
+        kReserved,
         kIpv4Type,
     };
     output.insert(output.end(), bytes.begin(), bytes.end());
@@ -373,7 +387,7 @@ boost::system::error_code decode_request(const std::span<const std::uint8_t> req
 {
     using boost::system::errc::make_error_code;
 
-    if (request_bytes.size() < 7 || request_bytes[0] != kVersion || request_bytes[2] != 0)
+    if (request_bytes.size() < 7 || request_bytes[0] != kVersion || request_bytes[2] != kReserved)
     {
         return make_error_code(boost::system::errc::bad_message);
     }
@@ -393,7 +407,7 @@ boost::system::error_code decode_request(const std::span<const std::uint8_t> req
 
     net::address destination;
     std::size_t port_offset = 0;
-    auto ec = decode_address(request_bytes, 3, destination, port_offset);
+    auto ec = decode_address(request_bytes, kAddressTypeOffset, destination, port_offset);
     if (ec)
     {
         return ec;
@@ -421,18 +435,18 @@ boost::system::error_code decode_udp_datagram(const std::span<const std::uint8_t
 {
     using boost::system::errc::make_error_code;
 
-    if (packet.size() < 7 || packet[0] != 0 || packet[1] != 0)
+    if (packet.size() < 7 || packet[0] != kReserved || packet[1] != kReserved)
     {
         return make_error_code(boost::system::errc::bad_message);
     }
-    if (packet[2] != 0)
+    if (packet[2] != kNoFragment)
     {
         return make_error_code(boost::system::errc::operation_not_supported);
     }
 
     net::address destination;
     std::size_t port_offset = 0;
-    auto ec = decode_address(packet, 3, destination, port_offset);
+    auto ec = decode_address(packet, kAddressTypeOffset, destination, port_offset);
     if (ec)
     {
         return ec;
@@ -456,12 +470,12 @@ boost::system::error_code decode_udp_datagram(const std::span<const std::uint8_t
     return {};
 }
 
-std::array<std::uint8_t, 10> encode_reply(const reply value) noexcept
+std::array<std::uint8_t, kIpv4ReplySize> encode_reply(const reply value) noexcept
 {
     return {
         kVersion,
         static_cast<std::uint8_t>(value),
-        0x00,
+        kReserved,
         kIpv4Type,
         0x00,
         0x00,
@@ -484,8 +498,8 @@ std::vector<std::uint8_t> encode_udp_datagram(const net::address& source,
         return {};
     }
 
-    std::vector<std::uint8_t> output{0x00, 0x00, 0x00};
-    output.reserve(payload.size() + 22);
+    std::vector<std::uint8_t> output{kReserved, kReserved, kNoFragment};
+    output.reserve(payload.size() + kMaximumUdpHeaderSize);
     encode_address(source, output, ec);
     if (ec)
     {
