@@ -136,13 +136,19 @@ def open_socks5_connection(
         raise
 
 
-def socks5_echo_roundtrip(proxy_port: int, target_port: int, payload: bytes) -> None:
+def socks5_echo_roundtrip(
+    proxy_port: int,
+    target_port: int,
+    payload: bytes,
+    username: str | None = SOCKS_USERNAME,
+    password: str | None = SOCKS_PASSWORD,
+) -> None:
     with open_socks5_connection(
         proxy_port,
         "localhost",
         target_port,
-        SOCKS_USERNAME,
-        SOCKS_PASSWORD,
+        username,
+        password,
     ) as sock:
         sock.sendall(payload)
         if recv_exact(sock, len(payload)) != payload:
@@ -452,6 +458,7 @@ def main() -> int:
     inner_tls_log_path = work_dir / "inner-tls.log"
     inner_tls12_log_path = work_dir / "inner-tls12.log"
     vision_socks_log_path = work_dir / "vision-socks.log"
+    vision_no_auth_socks_log_path = work_dir / "vision-no-auth-socks.log"
     private_key, public_key = generate_x25519_key_pair(args.xray)
 
     subprocess.run(
@@ -481,9 +488,17 @@ def main() -> int:
     inner_tls12_port = reserve_port()
     xray_port = reserve_port()
     vision_socks_port = reserve_port()
+    vision_no_auth_socks_port = reserve_port()
 
-    def client_command(socks_port: int) -> list[str]:
-        return [
+    def client_command(
+        socks_port: int,
+        username: str | None = None,
+        password: str | None = None,
+    ) -> list[str]:
+        if (username is None) != (password is None):
+            raise ValueError("SOCKS5 username and password must be provided together")
+
+        command = [
             str(args.client),
             "--server",
             "127.0.0.1",
@@ -499,11 +514,17 @@ def main() -> int:
             USER_ID,
             "--socks_port",
             str(socks_port),
-            "--socks_username",
-            SOCKS_USERNAME,
-            "--socks_password",
-            SOCKS_PASSWORD,
         ]
+        if username is not None and password is not None:
+            command.extend(
+                [
+                    "--socks_username",
+                    username,
+                    "--socks_password",
+                    password,
+                ]
+            )
+        return command
 
     with EchoServer(("127.0.0.1", 0), EchoHandler) as echo_server, UdpEchoServer(("127.0.0.1", 0), UdpEchoHandler) as udp_echo_server:
         echo_port = int(echo_server.server_address[1])
@@ -552,6 +573,7 @@ def main() -> int:
         inner_tls12_process: subprocess.Popen[bytes] | None = None
         xray_process: subprocess.Popen[bytes] | None = None
         vision_socks_process: subprocess.Popen[bytes] | None = None
+        vision_no_auth_socks_process: subprocess.Popen[bytes] | None = None
         try:
             with (
                 decoy_log_path.open("wb") as decoy_log,
@@ -622,9 +644,16 @@ def main() -> int:
                     )
                     wait_for_listener(xray_port, xray_process)
 
-                    with vision_socks_log_path.open("wb") as vision_socks_log:
+                    with (
+                        vision_socks_log_path.open("wb") as vision_socks_log,
+                        vision_no_auth_socks_log_path.open("wb") as vision_no_auth_socks_log,
+                    ):
                         vision_socks_process = subprocess.Popen(
-                            client_command(vision_socks_port),
+                            client_command(
+                                vision_socks_port,
+                                SOCKS_USERNAME,
+                                SOCKS_PASSWORD,
+                            ),
                             stdout=vision_socks_log,
                             stderr=subprocess.STDOUT,
                         )
@@ -632,6 +661,30 @@ def main() -> int:
                             vision_socks_log_path,
                             "socks5 tcp proxy listening",
                             vision_socks_process,
+                        )
+
+                        vision_no_auth_socks_process = subprocess.Popen(
+                            client_command(vision_no_auth_socks_port),
+                            stdout=vision_no_auth_socks_log,
+                            stderr=subprocess.STDOUT,
+                        )
+                        wait_for_text(
+                            vision_no_auth_socks_log_path,
+                            "socks5 tcp proxy listening",
+                            vision_no_auth_socks_process,
+                        )
+
+                        socks5_echo_roundtrip(
+                            vision_no_auth_socks_port,
+                            echo_port,
+                            b"xray-reality-socks5-no-auth-interoperability",
+                            username=None,
+                            password=None,
+                        )
+                        wait_for_text(
+                            vision_no_auth_socks_log_path,
+                            "socks_1 socks5 tcp session completed",
+                            vision_no_auth_socks_process,
                         )
 
                         socks5_echo_roundtrip(
@@ -741,6 +794,12 @@ def main() -> int:
                                 + tail(vision_socks_log_path)
                             )
                             return vision_socks_process.returncode or 1
+                        if vision_no_auth_socks_process.poll() is not None:
+                            sys.stderr.write(
+                                "\n--- Vision no-auth SOCKS5 log ---\n"
+                                + tail(vision_no_auth_socks_log_path)
+                            )
+                            return vision_no_auth_socks_process.returncode or 1
 
                         socks_output = tail(vision_socks_log_path)
                         direct_markers = (
@@ -816,6 +875,7 @@ def main() -> int:
                             return 1
                         sys.stdout.write(socks_output)
         finally:
+            stop_process(vision_no_auth_socks_process)
             stop_process(vision_socks_process)
             stop_process(xray_process)
             stop_process(inner_tls12_process)
@@ -828,7 +888,8 @@ def main() -> int:
 
     print(
         "Xray REALITY, VLESS Vision, VLESS UDP including UDP/443 and address-type flow isolation, "
-        "SOCKS5 authentication, UDP ASSOCIATE, destination sniffing, TLS 1.2 fallback, and TLS 1.3 Direct tests passed"
+        "SOCKS5 no-authentication and username/password authentication, UDP ASSOCIATE, destination sniffing, "
+        "TLS 1.2 fallback, and TLS 1.3 Direct tests passed"
     )
     return 0
 
