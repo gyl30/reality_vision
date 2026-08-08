@@ -63,8 +63,6 @@ enum class reply : std::uint8_t
                                                             std::uint16_t port,
                                                             std::span<const std::uint8_t> payload,
                                                             boost::system::error_code& ec);
-[[nodiscard]] std::string format_destination(const net::address& destination, std::uint16_t port);
-[[nodiscard]] std::string format_destination(const request& request);
 
 [[nodiscard]] boost::asio::awaitable<std::optional<request>> negotiate(boost::asio::ip::tcp::socket& socket,
                                                                        const std::optional<credentials>& expected_credentials,

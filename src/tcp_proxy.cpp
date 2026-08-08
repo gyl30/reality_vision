@@ -336,7 +336,7 @@ boost::asio::awaitable<void> run_socks_connect_session(tcp::socket& client_socke
                                                         const std::string& session_id)
 {
     boost::system::error_code ec;
-    spdlog::info("{} socks5 connect {}", session_id, rv::socks5::format_destination(request));
+    spdlog::info("{} socks5 connect {}", session_id, rv::net::format_address_port(request.destination, request.port));
 
     auto reality = co_await connect_reality(configuration, session_id, ec);
     if (ec)
@@ -419,7 +419,7 @@ boost::asio::awaitable<void> run_socks_session(tcp::socket client_socket, rv::ap
 
     if (request->requested_command == rv::socks5::command::kUdpAssociate)
     {
-        spdlog::info("{} socks5 udp associate {}", session_id, rv::socks5::format_destination(*request));
+        spdlog::info("{} socks5 udp associate {}", session_id, rv::net::format_address_port(request->destination, request->port));
         co_await rv::udp_proxy::run_socks_association(std::move(client_socket), std::move(configuration), *request, std::move(session_id));
         co_return;
     }

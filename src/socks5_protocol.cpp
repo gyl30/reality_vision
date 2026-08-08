@@ -4,7 +4,6 @@
 #include "byte_writer.hpp"
 
 #include <boost/asio/buffer.hpp>
-#include <boost/asio/ip/address_v6.hpp>
 #include <boost/asio/read.hpp>
 #include <boost/asio/redirect_error.hpp>
 #include <boost/asio/use_awaitable.hpp>
@@ -496,34 +495,6 @@ std::vector<std::uint8_t> encode_udp_datagram(const net::address& source,
     output.insert(output.end(), payload.begin(), payload.end());
     return output;
 }
-
-std::string format_destination(const net::address& destination, const std::uint16_t port)
-{
-    const auto host = std::visit(
-        [](const auto& value) -> std::string
-        {
-            using address_type = std::decay_t<decltype(value)>;
-            if constexpr (std::is_same_v<address_type, net::ipv4_address>)
-            {
-                return std::to_string(value.bytes[0]) + "." + std::to_string(value.bytes[1]) + "." + std::to_string(value.bytes[2]) + "." +
-                       std::to_string(value.bytes[3]);
-            }
-            else if constexpr (std::is_same_v<address_type, net::ipv6_address>)
-            {
-                asio::ip::address_v6::bytes_type bytes{};
-                std::copy(value.bytes.begin(), value.bytes.end(), bytes.begin());
-                return "[" + asio::ip::address_v6(bytes).to_string() + "]";
-            }
-            else
-            {
-                return value.name;
-            }
-        },
-        destination);
-    return host + ":" + std::to_string(port);
-}
-
-std::string format_destination(const request& request) { return format_destination(request.destination, request.port); }
 
 asio::awaitable<void> send_reply(asio::ip::tcp::socket& socket, const reply value, boost::system::error_code& ec)
 {

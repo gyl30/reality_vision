@@ -289,7 +289,7 @@ asio::awaitable<std::shared_ptr<socks_udp_flow>> get_socks_flow(const std::share
                                                                  boost::system::error_code& ec)
 {
     const auto key = socks_flow_key(datagram.destination, datagram.port);
-    const auto target_name = socks5::format_destination(datagram.destination, datagram.port);
+    const auto target_name = net::format_address_port(datagram.destination, datagram.port);
     if (const auto iterator = state->flows.find(key); iterator != state->flows.end())
     {
         if (!iterator->second->closed)
@@ -397,7 +397,7 @@ asio::awaitable<void> run_socks_udp_relay(const std::shared_ptr<socks_udp_state>
         {
             spdlog::warn("{} socks5 udp upstream connection failed for {}: {}",
                          session_id,
-                         socks5::format_destination(datagram.destination, datagram.port),
+                         net::format_address_port(datagram.destination, datagram.port),
                          ec.message());
             ec.clear();
             continue;

@@ -22,6 +22,7 @@ add_executable(
   src/crypto.cpp
   src/hex.cpp
   src/main.cpp
+  src/network_address.cpp
   src/protocol_tests.cpp
   src/reality_client_hello.cpp
   src/reality_handshake.cpp

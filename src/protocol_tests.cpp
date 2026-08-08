@@ -127,6 +127,18 @@ void test_byte_writer()
     expect_bytes(output, kExpected, "byte writer output mismatch");
 }
 
+void test_network_address()
+{
+    expect(rv::net::format_address_port(rv::net::ipv4_address{{127, 0, 0, 1}}, 443) == "127.0.0.1:443",
+           "IPv4 address format mismatch");
+    expect(rv::net::format_address_port(rv::net::domain_address{"example.com"}, 8443) == "example.com:8443",
+           "domain address format mismatch");
+
+    rv::net::ipv6_address ipv6{};
+    ipv6.bytes[15] = 1;
+    expect(rv::net::format_address_port(ipv6, 443) == "[::1]:443", "IPv6 address format mismatch");
+}
+
 void test_short_id_config()
 {
     const auto short_id = parse_short_id_test_config("01234567");
@@ -847,6 +859,7 @@ int run_protocol_tests()
         std::pair{"byte queue", &test_byte_queue},
         std::pair{"byte reader", &test_byte_reader},
         std::pair{"byte writer", &test_byte_writer},
+        std::pair{"network address", &test_network_address},
         std::pair{"HKDF", &test_hkdf_rfc5869},
         std::pair{"TLS records", &test_record_roundtrip},
         std::pair{"ClientHello", &test_client_hello},

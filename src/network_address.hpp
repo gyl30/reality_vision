@@ -26,6 +26,8 @@ struct domain_address
 
 using address = std::variant<ipv4_address, domain_address, ipv6_address>;
 
+[[nodiscard]] std::string format_address_port(const address& value, std::uint16_t port);
+
 }    // namespace rv::net
 
 #endif    // REALITY_VISION_NETWORK_ADDRESS_HPP
