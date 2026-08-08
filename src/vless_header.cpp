@@ -1,5 +1,7 @@
 #include "vless_header.hpp"
 
+#include "byte_writer.hpp"
+
 #include <boost/system/errc.hpp>
 
 #include <cstdint>
@@ -14,15 +16,9 @@ namespace
 constexpr std::uint8_t kTcpCommand = 0x01;
 constexpr std::uint8_t kUdpCommand = 0x02;
 
-void put_u16(std::uint16_t value, std::vector<std::uint8_t>& output)
-{
-    output.push_back(static_cast<std::uint8_t>(value >> 8U));
-    output.push_back(static_cast<std::uint8_t>(value));
-}
-
 void append_destination(const client_config& configuration, std::vector<std::uint8_t>& output, boost::system::error_code& ec)
 {
-    put_u16(configuration.destination_port, output);
+    core::append_be16(output, configuration.destination_port);
     std::visit(
         [&output, &ec](const auto& address)
         {

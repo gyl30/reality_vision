@@ -45,11 +45,6 @@ class record_key
 public:
     record_key(cipher_suite suite, std::span<const std::uint8_t> traffic_secret, boost::system::error_code& ec);
 
-    record_key(const record_key&) = delete;
-    record_key& operator=(const record_key&) = delete;
-    record_key(record_key&&) noexcept = default;
-    record_key& operator=(record_key&&) noexcept = default;
-
     [[nodiscard]] std::vector<std::uint8_t> seal(
         std::uint8_t inner_type,
         std::span<const std::uint8_t> plaintext,

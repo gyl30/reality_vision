@@ -1,6 +1,7 @@
 #include "reality_client_hello.hpp"
 
 #include "crypto.hpp"
+#include "byte_writer.hpp"
 
 #include <boost/system/errc.hpp>
 
@@ -16,24 +17,6 @@ namespace rv::reality
 namespace
 {
 
-void put_u16(std::uint16_t value, std::vector<std::uint8_t>& output)
-{
-    output.push_back(static_cast<std::uint8_t>(value >> 8U));
-    output.push_back(static_cast<std::uint8_t>(value));
-}
-
-void put_u24(std::size_t value, std::vector<std::uint8_t>& output, boost::system::error_code& ec)
-{
-    if (value > 0x00ff'ffffU)
-    {
-        ec = boost::system::errc::make_error_code(boost::system::errc::message_size);
-        return;
-    }
-    output.push_back(static_cast<std::uint8_t>(value >> 16U));
-    output.push_back(static_cast<std::uint8_t>(value >> 8U));
-    output.push_back(static_cast<std::uint8_t>(value));
-}
-
 void append_u16_vector(std::span<const std::uint16_t> values, std::vector<std::uint8_t>& output, boost::system::error_code& ec)
 {
     if (values.size() > std::numeric_limits<std::uint16_t>::max() / 2U)
@@ -41,10 +24,10 @@ void append_u16_vector(std::span<const std::uint16_t> values, std::vector<std::u
         ec = boost::system::errc::make_error_code(boost::system::errc::message_size);
         return;
     }
-    put_u16(static_cast<std::uint16_t>(values.size() * 2U), output);
+    core::append_be16(output, static_cast<std::uint16_t>(values.size() * 2U));
     for (const auto value : values)
     {
-        put_u16(value, output);
+        core::append_be16(output, value);
     }
 }
 
@@ -59,8 +42,8 @@ void push_extension(std::vector<std::uint8_t>& output, std::uint16_t type, std::
         ec = boost::system::errc::make_error_code(boost::system::errc::message_size);
         return;
     }
-    put_u16(type, output);
-    put_u16(static_cast<std::uint16_t>(data.size()), output);
+    core::append_be16(output, type);
+    core::append_be16(output, static_cast<std::uint16_t>(data.size()));
     output.insert(output.end(), data.begin(), data.end());
 }
 
@@ -73,11 +56,11 @@ std::vector<std::uint8_t> server_name_extension(const std::string& server_name, 
     }
     std::vector<std::uint8_t> name;
     name.push_back(0);
-    put_u16(static_cast<std::uint16_t>(server_name.size()), name);
+    core::append_be16(name, static_cast<std::uint16_t>(server_name.size()));
     name.insert(name.end(), server_name.begin(), server_name.end());
 
     std::vector<std::uint8_t> output;
-    put_u16(static_cast<std::uint16_t>(name.size()), output);
+    core::append_be16(output, static_cast<std::uint16_t>(name.size()));
     output.insert(output.end(), name.begin(), name.end());
     return output;
 }
@@ -92,7 +75,7 @@ std::vector<std::uint8_t> alpn_extension()
         list.insert(list.end(), protocol.begin(), protocol.end());
     }
     std::vector<std::uint8_t> output;
-    put_u16(static_cast<std::uint16_t>(list.size()), output);
+    core::append_be16(output, static_cast<std::uint16_t>(list.size()));
     output.insert(output.end(), list.begin(), list.end());
     return output;
 }
@@ -100,15 +83,15 @@ std::vector<std::uint8_t> alpn_extension()
 std::vector<std::uint8_t> key_share_extension(const std::array<std::uint8_t, 32>& x25519_public, const std::array<std::uint8_t, 65>& p256_public)
 {
     std::vector<std::uint8_t> shares;
-    put_u16(0x001d, shares);
-    put_u16(static_cast<std::uint16_t>(x25519_public.size()), shares);
+    core::append_be16(shares, 0x001d);
+    core::append_be16(shares, static_cast<std::uint16_t>(x25519_public.size()));
     shares.insert(shares.end(), x25519_public.begin(), x25519_public.end());
-    put_u16(0x0017, shares);
-    put_u16(static_cast<std::uint16_t>(p256_public.size()), shares);
+    core::append_be16(shares, 0x0017);
+    core::append_be16(shares, static_cast<std::uint16_t>(p256_public.size()));
     shares.insert(shares.end(), p256_public.begin(), p256_public.end());
 
     std::vector<std::uint8_t> output;
-    put_u16(static_cast<std::uint16_t>(shares.size()), output);
+    core::append_be16(output, static_cast<std::uint16_t>(shares.size()));
     output.insert(output.end(), shares.begin(), shares.end());
     return output;
 }
@@ -184,12 +167,12 @@ std::vector<std::uint8_t> grease_ech_extension(boost::system::error_code& ec)
     std::vector<std::uint8_t> output;
     output.reserve(1 + 4 + 1 + 2 + encapsulated.public_key.size() + 2 + payload.size());
     output.push_back(0x00);
-    put_u16(0x0001, output);
-    put_u16(aead_id, output);
+    core::append_be16(output, 0x0001);
+    core::append_be16(output, aead_id);
     output.push_back(choices[1]);
-    put_u16(static_cast<std::uint16_t>(encapsulated.public_key.size()), output);
+    core::append_be16(output, static_cast<std::uint16_t>(encapsulated.public_key.size()));
     output.insert(output.end(), encapsulated.public_key.begin(), encapsulated.public_key.end());
-    put_u16(static_cast<std::uint16_t>(payload.size()), output);
+    core::append_be16(output, static_cast<std::uint16_t>(payload.size()));
     output.insert(output.end(), payload.begin(), payload.end());
     return output;
 }
@@ -293,17 +276,19 @@ std::vector<std::uint8_t> build_firefox_120_handshake(const client_config& confi
         ec = boost::system::errc::make_error_code(boost::system::errc::message_size);
         return {};
     }
-    put_u16(static_cast<std::uint16_t>(extensions.size()), body);
+    core::append_be16(body, static_cast<std::uint16_t>(extensions.size()));
     body.insert(body.end(), extensions.begin(), extensions.end());
+
+    if (body.size() > 0x00ff'ffffU)
+    {
+        ec = boost::system::errc::make_error_code(boost::system::errc::message_size);
+        return {};
+    }
 
     std::vector<std::uint8_t> handshake;
     handshake.reserve(4 + body.size());
     handshake.push_back(1);
-    put_u24(body.size(), handshake, ec);
-    if (ec)
-    {
-        return {};
-    }
+    core::append_be24(handshake, static_cast<std::uint32_t>(body.size()));
     handshake.insert(handshake.end(), body.begin(), body.end());
     return handshake;
 }
@@ -448,7 +433,7 @@ std::vector<std::uint8_t> wrap_plain_record(std::uint8_t content_type, std::span
     output.push_back(content_type);
     output.push_back(0x03);
     output.push_back(0x01);
-    put_u16(static_cast<std::uint16_t>(payload.size()), output);
+    core::append_be16(output, static_cast<std::uint16_t>(payload.size()));
     output.insert(output.end(), payload.begin(), payload.end());
     return output;
 }

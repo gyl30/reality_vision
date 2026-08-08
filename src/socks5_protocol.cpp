@@ -1,6 +1,7 @@
 #include "socks5_protocol.hpp"
 
 #include "byte_order.hpp"
+#include "byte_writer.hpp"
 
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/ip/address_v6.hpp>
@@ -46,12 +47,6 @@ asio::awaitable<void> read_exact(asio::ip::tcp::socket& socket, std::span<std::u
 asio::awaitable<void> write_all(asio::ip::tcp::socket& socket, std::span<const std::uint8_t> input, boost::system::error_code& ec)
 {
     co_await asio::async_write(socket, asio::buffer(input.data(), input.size()), asio::redirect_error(asio::use_awaitable, ec));
-}
-
-void put_u16(const std::uint16_t value, std::vector<std::uint8_t>& output)
-{
-    output.push_back(static_cast<std::uint8_t>(value >> 8U));
-    output.push_back(static_cast<std::uint8_t>(value));
 }
 
 boost::system::error_code decode_address(const std::span<const std::uint8_t> input,
@@ -369,7 +364,7 @@ std::vector<std::uint8_t> encode_bound_reply(const reply value, const asio::ip::
         kIpv4Type,
     };
     output.insert(output.end(), bytes.begin(), bytes.end());
-    put_u16(endpoint.port(), output);
+    core::append_be16(output, endpoint.port());
     return output;
 }
 
@@ -497,7 +492,7 @@ std::vector<std::uint8_t> encode_udp_datagram(const address& source,
     {
         return {};
     }
-    put_u16(port, output);
+    core::append_be16(output, port);
     output.insert(output.end(), payload.begin(), payload.end());
     return output;
 }

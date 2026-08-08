@@ -1,6 +1,7 @@
 #include "vless_udp_stream.hpp"
 
 #include "byte_order.hpp"
+#include "byte_writer.hpp"
 
 #include <boost/asio/error.hpp>
 #include <boost/system/errc.hpp>
@@ -104,8 +105,7 @@ boost::asio::awaitable<void> vless_udp_stream::write_datagram(std::span<const st
 
     std::vector<std::uint8_t> wire;
     wire.reserve(payload.size() + 2);
-    wire.push_back(static_cast<std::uint8_t>(payload.size() >> 8U));
-    wire.push_back(static_cast<std::uint8_t>(payload.size()));
+    core::append_be16(wire, static_cast<std::uint16_t>(payload.size()));
     wire.insert(wire.end(), payload.begin(), payload.end());
     co_await reality_.write(wire, ec);
 }

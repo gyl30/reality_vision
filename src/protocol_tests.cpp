@@ -4,6 +4,7 @@
 #include "byte_order.hpp"
 #include "byte_queue.hpp"
 #include "byte_reader.hpp"
+#include "byte_writer.hpp"
 #include "config.hpp"
 #include "crypto.hpp"
 #include "hex.hpp"
@@ -112,6 +113,16 @@ rv::app::config parse_short_id_test_config(const std::string& short_id)
     const auto configuration = rv::app::parse_config(static_cast<int>(argv.size()), argv.data());
     expect(configuration.has_value(), "short id configuration parse failed");
     return *configuration;
+}
+
+void test_byte_writer()
+{
+    std::vector<std::uint8_t> output;
+    core::append_be16(output, 0x1234);
+    core::append_be24(output, 0x0056789a);
+
+    constexpr std::array<std::uint8_t, 5> kExpected{0x12, 0x34, 0x56, 0x78, 0x9a};
+    expect_bytes(output, kExpected, "byte writer output mismatch");
 }
 
 void test_short_id_config()
@@ -833,6 +844,7 @@ int run_protocol_tests()
         std::pair{"short id config", &test_short_id_config},
         std::pair{"byte queue", &test_byte_queue},
         std::pair{"byte reader", &test_byte_reader},
+        std::pair{"byte writer", &test_byte_writer},
         std::pair{"HKDF", &test_hkdf_rfc5869},
         std::pair{"TLS records", &test_record_roundtrip},
         std::pair{"ClientHello", &test_client_hello},

@@ -68,8 +68,6 @@ public:
     aead(aead_algorithm algorithm, std::span<const std::uint8_t> key, boost::system::error_code& ec);
     ~aead();
 
-    aead(const aead&) = delete;
-    aead& operator=(const aead&) = delete;
     aead(aead&&) noexcept;
     aead& operator=(aead&&) noexcept;
 

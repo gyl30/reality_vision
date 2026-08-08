@@ -1,5 +1,7 @@
 #include "reality_record.hpp"
 
+#include "byte_writer.hpp"
+
 #include <boost/system/errc.hpp>
 
 #include <algorithm>
@@ -11,12 +13,6 @@ namespace rv::reality
 {
 namespace
 {
-
-void put_u16(std::uint16_t value, std::vector<std::uint8_t>& output)
-{
-    output.push_back(static_cast<std::uint8_t>(value >> 8U));
-    output.push_back(static_cast<std::uint8_t>(value));
-}
 
 std::vector<std::uint8_t> derive_secret(crypto::hash_algorithm hash,
                                         std::span<const std::uint8_t> secret,
@@ -79,7 +75,7 @@ std::vector<std::uint8_t> hkdf_expand_label(crypto::hash_algorithm hash,
 
     std::vector<std::uint8_t> info;
     info.reserve(2 + 1 + 6 + label.size() + 1 + context.size());
-    put_u16(static_cast<std::uint16_t>(output_length), info);
+    core::append_be16(info, static_cast<std::uint16_t>(output_length));
     info.push_back(static_cast<std::uint8_t>(6 + label.size()));
     constexpr std::array<std::uint8_t, 6> kPrefix{'t', 'l', 's', '1', '3', ' '};
     info.insert(info.end(), kPrefix.begin(), kPrefix.end());

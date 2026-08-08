@@ -3,6 +3,7 @@
 #include "byte_order.hpp"
 #include "byte_queue.hpp"
 #include "byte_reader.hpp"
+#include "byte_writer.hpp"
 #include "crypto.hpp"
 #include "reality_client_hello.hpp"
 #include "tls_constants.hpp"
@@ -494,9 +495,7 @@ std::vector<std::uint8_t> make_handshake_message(std::uint8_t type, std::span<co
     std::vector<std::uint8_t> output;
     output.reserve(4 + body.size());
     output.push_back(type);
-    output.push_back(static_cast<std::uint8_t>(body.size() >> 16U));
-    output.push_back(static_cast<std::uint8_t>(body.size() >> 8U));
-    output.push_back(static_cast<std::uint8_t>(body.size()));
+    core::append_be24(output, static_cast<std::uint32_t>(body.size()));
     output.insert(output.end(), body.begin(), body.end());
     return output;
 }

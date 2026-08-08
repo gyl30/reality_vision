@@ -2,6 +2,7 @@
 
 #include "byte_order.hpp"
 #include "byte_reader.hpp"
+#include "byte_writer.hpp"
 #include "crypto.hpp"
 #include "tls_constants.hpp"
 
@@ -146,10 +147,8 @@ std::vector<std::uint8_t> encode_frame(command frame_command,
         output.insert(output.end(), user_id->begin(), user_id->end());
     }
     output.push_back(static_cast<std::uint8_t>(frame_command));
-    output.push_back(static_cast<std::uint8_t>(content.size() >> 8U));
-    output.push_back(static_cast<std::uint8_t>(content.size()));
-    output.push_back(static_cast<std::uint8_t>(padding >> 8U));
-    output.push_back(static_cast<std::uint8_t>(padding));
+    core::append_be16(output, static_cast<std::uint16_t>(content.size()));
+    core::append_be16(output, static_cast<std::uint16_t>(padding));
     output.insert(output.end(), content.begin(), content.end());
     output.resize(output.size() + padding, 0);
     return output;
