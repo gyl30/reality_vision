@@ -103,7 +103,7 @@ void random_bytes(std::span<std::uint8_t> output, boost::system::error_code& ec)
     ERR_clear_error();
     if (RAND_bytes(output.data(), static_cast<int>(output.size())) != 1)
     {
-        set_crypto_error(ec, boost::system::errc::io_error, "RAND_bytes failed");
+        set_crypto_error(ec, boost::system::errc::io_error, "random byte generation failed");
     }
 }
 
@@ -130,7 +130,7 @@ std::array<std::uint8_t, kX25519KeySize> x25519(std::span<const std::uint8_t, kX
     ERR_clear_error();
     if (X25519(result.data(), private_key.data(), peer_public_key.data()) != 1)
     {
-        set_crypto_error(ec, boost::system::errc::bad_message, "X25519 failed");
+        set_crypto_error(ec, boost::system::errc::bad_message, "x25519 failed");
     }
     return result;
 }
@@ -142,14 +142,14 @@ std::array<std::uint8_t, kP256PublicKeySize> make_p256_public_key(boost::system:
     bssl::UniquePtr<EC_KEY> key(EC_KEY_new_by_curve_name(NID_X9_62_prime256v1));
     if (!key || EC_KEY_generate_key(key.get()) != 1)
     {
-        set_crypto_error(ec, boost::system::errc::io_error, "P-256 key generation failed");
+        set_crypto_error(ec, boost::system::errc::io_error, "p-256 key generation failed");
         return output;
     }
     const auto written = EC_POINT_point2oct(
         EC_KEY_get0_group(key.get()), EC_KEY_get0_public_key(key.get()), POINT_CONVERSION_UNCOMPRESSED, output.data(), output.size(), nullptr);
     if (written != output.size())
     {
-        set_crypto_error(ec, boost::system::errc::io_error, "P-256 public key encoding failed");
+        set_crypto_error(ec, boost::system::errc::io_error, "p-256 public key encoding failed");
     }
     return output;
 }
@@ -181,7 +181,7 @@ std::vector<std::uint8_t> digest(hash_algorithm algorithm, std::span<const std::
     ERR_clear_error();
     if (EVP_Digest(input.data(), input.size(), output.data(), &written, md, nullptr) != 1 || written != output.size())
     {
-        set_crypto_error(ec, boost::system::errc::io_error, "EVP_Digest failed");
+        set_crypto_error(ec, boost::system::errc::io_error, "digest failed");
         return {};
     }
     return output;
@@ -209,7 +209,7 @@ std::vector<std::uint8_t> hmac(hash_algorithm algorithm,
     if (HMAC(md, key.data(), static_cast<int>(key.size()), input.data(), input.size(), output.data(), &written) == nullptr ||
         written != output.size())
     {
-        set_crypto_error(ec, boost::system::errc::io_error, "HMAC failed");
+        set_crypto_error(ec, boost::system::errc::io_error, "hmac failed");
         return {};
     }
     return output;
@@ -232,7 +232,7 @@ std::vector<std::uint8_t> hkdf_extract(hash_algorithm algorithm,
     if (HKDF_extract(output.data(), &written, md, input_key_material.data(), input_key_material.size(), salt.data(), salt.size()) != 1 ||
         written != output.size())
     {
-        set_crypto_error(ec, boost::system::errc::io_error, "HKDF_extract failed");
+        set_crypto_error(ec, boost::system::errc::io_error, "hkdf extract failed");
         return {};
     }
     return output;
@@ -258,7 +258,7 @@ std::vector<std::uint8_t> hkdf_expand(hash_algorithm algorithm,
     ERR_clear_error();
     if (HKDF_expand(output.data(), output.size(), md, pseudorandom_key.data(), pseudorandom_key.size(), info.data(), info.size()) != 1)
     {
-        set_crypto_error(ec, boost::system::errc::io_error, "HKDF_expand failed");
+        set_crypto_error(ec, boost::system::errc::io_error, "hkdf expand failed");
         return {};
     }
     return output;
@@ -290,7 +290,7 @@ aead::aead(aead_algorithm algorithm, std::span<const std::uint8_t> key, boost::s
     impl_->context.reset(EVP_AEAD_CTX_new(algorithm_impl, key.data(), key.size(), EVP_AEAD_DEFAULT_TAG_LENGTH));
     if (!impl_->context)
     {
-        set_crypto_error(ec, boost::system::errc::io_error, "EVP_AEAD_CTX_new failed");
+        set_crypto_error(ec, boost::system::errc::io_error, "aead context creation failed");
         impl_.reset();
     }
 }
@@ -325,7 +325,7 @@ std::vector<std::uint8_t> aead::seal(std::span<const std::uint8_t> nonce,
                           additional_data.data(),
                           additional_data.size()) != 1)
     {
-        set_crypto_error(ec, boost::system::errc::io_error, "AEAD seal failed");
+        set_crypto_error(ec, boost::system::errc::io_error, "aead seal failed");
         return {};
     }
     output.resize(written);
@@ -378,7 +378,7 @@ reality_certificate parse_reality_certificate(std::span<const std::uint8_t> der,
     bssl::UniquePtr<X509> certificate(d2i_X509(nullptr, &cursor, static_cast<long>(der.size())));
     if (!certificate || cursor != der.data() + der.size())
     {
-        set_crypto_error(ec, boost::system::errc::bad_message, "failed to parse REALITY leaf certificate");
+        set_crypto_error(ec, boost::system::errc::bad_message, "failed to parse reality leaf certificate");
         return result;
     }
 
@@ -393,7 +393,7 @@ reality_certificate parse_reality_certificate(std::span<const std::uint8_t> der,
     if (EVP_PKEY_get_raw_public_key(public_key, result.ed25519_public_key.data(), &public_key_length) != 1 ||
         public_key_length != result.ed25519_public_key.size())
     {
-        set_crypto_error(ec, boost::system::errc::io_error, "failed to extract Ed25519 public key");
+        set_crypto_error(ec, boost::system::errc::io_error, "failed to extract ed25519 public key");
         return {};
     }
 
@@ -425,7 +425,7 @@ void verify_ed25519(std::span<const std::uint8_t, kEd25519PublicKeySize> public_
     bssl::UniquePtr<EVP_MD_CTX> context(EVP_MD_CTX_new());
     if (!key || !context || EVP_DigestVerifyInit(context.get(), nullptr, nullptr, nullptr, key.get()) != 1)
     {
-        set_crypto_error(ec, boost::system::errc::io_error, "Ed25519 verification initialization failed");
+        set_crypto_error(ec, boost::system::errc::io_error, "ed25519 verification initialization failed");
         return;
     }
 
@@ -440,7 +440,7 @@ void verify_ed25519(std::span<const std::uint8_t, kEd25519PublicKeySize> public_
         ERR_clear_error();
         return;
     }
-    set_crypto_error(ec, boost::system::errc::io_error, "Ed25519 verification failed");
+    set_crypto_error(ec, boost::system::errc::io_error, "ed25519 verification failed");
 }
 
 }    // namespace rv::crypto
