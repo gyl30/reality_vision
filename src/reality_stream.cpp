@@ -21,7 +21,7 @@ namespace rv::reality
 namespace
 {
 
-constexpr std::array<std::uint8_t, 2> kCloseNotify{1, 0};
+constexpr std::array<std::uint8_t, 2> kCloseNotify{tls::kAlertLevelWarning, tls::kAlertCloseNotify};
 
 std::size_t handshake_message_length(std::span<const std::uint8_t> input) noexcept
 {
@@ -146,8 +146,12 @@ std::optional<std::size_t> reality_stream::process_decrypted_record(const opened
 
     if (plaintext.inner_type == tls::kRecordAlert)
     {
-        const bool close_notify = std::ranges::equal(plaintext.content, kCloseNotify);
-        if (close_notify)
+        const auto description = parse_alert_description(plaintext.content, ec);
+        if (ec)
+        {
+            return 0;
+        }
+        if (*description == tls::kAlertCloseNotify)
         {
             receive_mode_ = receive_mode::kClosed;
             return 0;
@@ -176,6 +180,11 @@ boost::asio::awaitable<std::size_t> reality_stream::read_tls(std::span<std::uint
 
         if (record->header[0] == tls::kRecordChangeCipherSpec)
         {
+            if (!is_compatibility_change_cipher_spec(record->header, record->payload))
+            {
+                ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
+                co_return 0;
+            }
             if (++ignored_tls_record_count_ > 3)
             {
                 ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);

@@ -286,6 +286,36 @@ void test_record_roundtrip()
     expect_error(ec, boost::system::errc::message_size, "TLS record accepted oversized inner plaintext");
 }
 
+void test_tls_control_records()
+{
+    constexpr std::array<std::uint8_t, 5> kCompatibilityCcsHeader{0x14, 0x03, 0x03, 0x00, 0x01};
+    constexpr std::array<std::uint8_t, 1> kCompatibilityCcsPayload{0x01};
+    expect(rv::reality::is_compatibility_change_cipher_spec(kCompatibilityCcsHeader, kCompatibilityCcsPayload),
+           "TLS rejected valid compatibility CCS");
+
+    constexpr std::array<std::uint8_t, 5> kWrongCcsVersion{0x14, 0x03, 0x01, 0x00, 0x01};
+    constexpr std::array<std::uint8_t, 1> kWrongCcsPayload{0x02};
+    constexpr std::array<std::uint8_t, 2> kLongCcsPayload{0x01, 0x00};
+    expect(!rv::reality::is_compatibility_change_cipher_spec(kWrongCcsVersion, kCompatibilityCcsPayload),
+           "TLS accepted compatibility CCS with wrong version");
+    expect(!rv::reality::is_compatibility_change_cipher_spec(kCompatibilityCcsHeader, kWrongCcsPayload),
+           "TLS accepted compatibility CCS with wrong payload");
+    expect(!rv::reality::is_compatibility_change_cipher_spec(kCompatibilityCcsHeader, kLongCcsPayload),
+           "TLS accepted compatibility CCS with trailing payload");
+
+    boost::system::error_code ec = boost::system::errc::make_error_code(boost::system::errc::invalid_argument);
+    constexpr std::array<std::uint8_t, 2> kCloseNotify{0x01, 0x00};
+    const auto close_notify = rv::reality::parse_alert_description(kCloseNotify, ec);
+    expect(!ec && close_notify == 0, "TLS close notify parse failed");
+
+    constexpr std::array<std::uint8_t, 1> kTruncatedAlert{0x02};
+    constexpr std::array<std::uint8_t, 3> kLongAlert{0x02, 0x28, 0x00};
+    static_cast<void>(rv::reality::parse_alert_description(kTruncatedAlert, ec));
+    expect_error(ec, boost::system::errc::bad_message, "TLS accepted truncated alert");
+    static_cast<void>(rv::reality::parse_alert_description(kLongAlert, ec));
+    expect_error(ec, boost::system::errc::bad_message, "TLS accepted alert with trailing bytes");
+}
+
 void test_finished_verification()
 {
     boost::system::error_code ec;
@@ -906,6 +936,7 @@ int run_protocol_tests()
         std::pair{"network address", &test_network_address},
         std::pair{"HKDF", &test_hkdf_rfc5869},
         std::pair{"TLS records", &test_record_roundtrip},
+        std::pair{"TLS control records", &test_tls_control_records},
         std::pair{"TLS Finished verification", &test_finished_verification},
         std::pair{"ClientHello", &test_client_hello},
         std::pair{"VLESS header", &test_vless_header},

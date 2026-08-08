@@ -60,6 +60,25 @@ cipher_suite_properties cipher_properties(cipher_suite suite) noexcept
     return {crypto::hash_algorithm::kSha256, crypto::aead_algorithm::kAes128Gcm, 0};
 }
 
+bool is_compatibility_change_cipher_spec(const std::span<const std::uint8_t, tls::kRecordHeaderSize> header,
+                                         const std::span<const std::uint8_t> payload) noexcept
+{
+    return header[0] == tls::kRecordChangeCipherSpec && core::read_be16(header.data() + tls::kRecordVersionOffset) == tls::kLegacyVersion &&
+           core::read_be16(header.data() + tls::kRecordLengthOffset) == payload.size() && payload.size() == 1 &&
+           payload[0] == tls::kChangeCipherSpecMessage;
+}
+
+std::optional<std::uint8_t> parse_alert_description(const std::span<const std::uint8_t> content, boost::system::error_code& ec)
+{
+    ec.clear();
+    if (content.size() != 2)
+    {
+        ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
+        return std::nullopt;
+    }
+    return content[1];
+}
+
 std::vector<std::uint8_t> hkdf_expand_label(crypto::hash_algorithm hash,
                                             std::span<const std::uint8_t> secret,
                                             std::span<const std::uint8_t> label,

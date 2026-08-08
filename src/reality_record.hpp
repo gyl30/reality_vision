@@ -33,6 +33,9 @@ struct cipher_suite_properties
 
 [[nodiscard]] cipher_suite parse_cipher_suite(std::uint16_t value, boost::system::error_code& ec);
 [[nodiscard]] cipher_suite_properties cipher_properties(cipher_suite suite) noexcept;
+[[nodiscard]] bool is_compatibility_change_cipher_spec(std::span<const std::uint8_t, tls::kRecordHeaderSize> header,
+                                                       std::span<const std::uint8_t> payload) noexcept;
+[[nodiscard]] std::optional<std::uint8_t> parse_alert_description(std::span<const std::uint8_t> content, boost::system::error_code& ec);
 
 struct opened_record
 {

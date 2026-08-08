@@ -131,9 +131,14 @@ boost::asio::awaitable<handshake_message> read_plain_handshake_message(net::tcp_
         }
         if (record.type == tls::kRecordChangeCipherSpec)
         {
+            if (!is_compatibility_change_cipher_spec(record.header, record.payload))
+            {
+                ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
+                co_return handshake_message{};
+            }
             continue;
         }
-        if (record.type != tls::kRecordHandshake || record.header[tls::kRecordVersionOffset] != static_cast<std::uint8_t>(tls::kLegacyVersion >> 8U))
+        if (record.type != tls::kRecordHandshake || core::read_be16(record.header.data() + tls::kRecordVersionOffset) != tls::kLegacyVersion)
         {
             ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
             co_return handshake_message{};
@@ -169,6 +174,11 @@ boost::asio::awaitable<handshake_message> read_encrypted_handshake_message(net::
         }
         if (record.type == tls::kRecordChangeCipherSpec)
         {
+            if (!is_compatibility_change_cipher_spec(record.header, record.payload))
+            {
+                ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
+                co_return handshake_message{};
+            }
             continue;
         }
         if (record.type != tls::kRecordApplicationData || core::read_be16(record.header.data() + tls::kRecordVersionOffset) != tls::kLegacyVersion)
@@ -184,6 +194,11 @@ boost::asio::awaitable<handshake_message> read_encrypted_handshake_message(net::
         }
         if (opened.inner_type == tls::kRecordAlert)
         {
+            static_cast<void>(parse_alert_description(opened.content, ec));
+            if (ec)
+            {
+                co_return handshake_message{};
+            }
             ec = boost::system::errc::make_error_code(boost::system::errc::connection_aborted);
             co_return handshake_message{};
         }

@@ -25,6 +25,9 @@ inline constexpr std::uint8_t kRecordChangeCipherSpec = 20;
 inline constexpr std::uint8_t kRecordAlert = 21;
 inline constexpr std::uint8_t kRecordHandshake = 22;
 inline constexpr std::uint8_t kRecordApplicationData = 23;
+inline constexpr std::uint8_t kChangeCipherSpecMessage = 1;
+inline constexpr std::uint8_t kAlertLevelWarning = 1;
+inline constexpr std::uint8_t kAlertCloseNotify = 0;
 
 inline constexpr std::uint8_t kHandshakeClientHello = 1;
 inline constexpr std::uint8_t kHandshakeServerHello = 2;
