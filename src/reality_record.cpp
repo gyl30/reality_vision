@@ -195,6 +195,11 @@ opened_record record_key::open(std::span<const std::uint8_t, 5> header, std::spa
     {
         return {};
     }
+    if (plaintext.size() > tls::kMaximumInnerPlaintextSize)
+    {
+        ec = boost::system::errc::make_error_code(boost::system::errc::message_size);
+        return {};
+    }
     const auto type_position = std::find_if(plaintext.rbegin(), plaintext.rend(), [](std::uint8_t value) { return value != 0; });
     if (type_position == plaintext.rend())
     {

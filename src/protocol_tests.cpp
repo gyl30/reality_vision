@@ -249,6 +249,13 @@ void test_record_roundtrip()
         expect(opened.inner_type == rv::tls::kRecordApplicationData, "TLS inner type mismatch");
         expect(opened.content == std::vector<std::uint8_t>(kMessage.begin(), kMessage.end()), "TLS plaintext mismatch");
 
+        std::vector<std::uint8_t> maximum_plaintext(16384, 0x5a);
+        const auto maximum_wire = writer.seal(rv::tls::kRecordApplicationData, maximum_plaintext, ec);
+        expect(!ec && maximum_wire.size() == 16406, "maximum TLS record seal failed");
+        const auto maximum_header = std::span<const std::uint8_t, 5>(maximum_wire.data(), 5);
+        const auto maximum_opened = reader.open(maximum_header, std::span(maximum_wire).subspan(5), ec);
+        expect(!ec && maximum_opened.content == maximum_plaintext, "maximum TLS record roundtrip failed");
+
         rv::reality::record_key tamper_writer(suite, secret, ec);
         rv::reality::record_key tamper_reader(suite, secret, ec);
         auto tampered = tamper_writer.seal(rv::tls::kRecordApplicationData, kMessage, ec);
@@ -257,6 +264,26 @@ void test_record_roundtrip()
         static_cast<void>(tamper_reader.open(tamper_header, std::span(tampered).subspan(5), ec));
         expect_error(ec, boost::system::errc::bad_message, "TLS tamper returned wrong error");
     }
+
+    constexpr std::array<std::uint8_t, 3> kKeyLabel{'k', 'e', 'y'};
+    constexpr std::array<std::uint8_t, 2> kIvLabel{'i', 'v'};
+    constexpr std::array<std::uint8_t, 5> kOversizedRecordHeader{0x17, 0x03, 0x03, 0x40, 0x12};
+    std::vector<std::uint8_t> oversized_secret(32, 1);
+    const auto oversized_key = rv::reality::hkdf_expand_label(rv::crypto::hash_algorithm::kSha256, oversized_secret, kKeyLabel, {}, 16, ec);
+    expect(!ec, "oversized TLS record key derivation failed");
+    const auto initial_nonce = rv::reality::hkdf_expand_label(rv::crypto::hash_algorithm::kSha256, oversized_secret, kIvLabel, {}, 12, ec);
+    expect(!ec, "oversized TLS record nonce derivation failed");
+    std::vector<std::uint8_t> oversized_inner(16385, 0x5a);
+    oversized_inner.push_back(0x17);
+    rv::crypto::aead oversized_cipher(rv::crypto::aead_algorithm::kAes128Gcm, oversized_key, ec);
+    expect(!ec, "oversized TLS record cipher construction failed");
+    const auto oversized_ciphertext = oversized_cipher.seal(initial_nonce, oversized_inner, kOversizedRecordHeader, ec);
+    expect(!ec && oversized_ciphertext.size() == 16402, "oversized TLS record construction failed");
+
+    rv::reality::record_key oversized_reader(rv::reality::cipher_suite::kTlsAes128GcmSha256, oversized_secret, ec);
+    expect(!ec, "oversized TLS record reader construction failed");
+    static_cast<void>(oversized_reader.open(kOversizedRecordHeader, oversized_ciphertext, ec));
+    expect_error(ec, boost::system::errc::message_size, "TLS record accepted oversized inner plaintext");
 }
 
 void test_finished_verification()

@@ -14,6 +14,7 @@ inline constexpr std::size_t kX25519KeyShareSize = 32;
 inline constexpr std::size_t kMaximumHandshakeBodyLength = (1U << 24U) - 1U;
 inline constexpr std::size_t kAeadTagSize = 16;
 inline constexpr std::size_t kMaximumPlaintextSize = 1U << 14U;
+inline constexpr std::size_t kMaximumInnerPlaintextSize = kMaximumPlaintextSize + 1U;
 inline constexpr std::size_t kMaximumCiphertextSize = kMaximumPlaintextSize + 256U;
 inline constexpr std::size_t kMaximumHandshakeMessageSize = 1U << 20U;
 
