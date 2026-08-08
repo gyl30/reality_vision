@@ -70,10 +70,7 @@ void append_destination(const client_config& configuration, std::vector<std::uin
         configuration.destination);
 }
 
-std::vector<std::uint8_t> encode_request(const client_config& configuration,
-                                         const std::uint8_t command,
-                                         const bool vision_flow,
-                                         boost::system::error_code& ec)
+std::vector<std::uint8_t> encode_request(const client_config& configuration, const std::uint8_t command, boost::system::error_code& ec)
 {
     if (configuration.destination_port == 0)
     {
@@ -86,7 +83,7 @@ std::vector<std::uint8_t> encode_request(const client_config& configuration,
     output.push_back(kVersion);
     output.insert(output.end(), configuration.user_id.begin(), configuration.user_id.end());
 
-    if (vision_flow)
+    if (command == kTcpCommand)
     {
         append_vision_flow_addon(output);
     }
@@ -108,12 +105,12 @@ std::vector<std::uint8_t> encode_request(const client_config& configuration,
 
 std::vector<std::uint8_t> encode_tcp_request(const client_config& configuration, boost::system::error_code& ec)
 {
-    return encode_request(configuration, kTcpCommand, true, ec);
+    return encode_request(configuration, kTcpCommand, ec);
 }
 
 std::vector<std::uint8_t> encode_udp_request(const client_config& configuration, boost::system::error_code& ec)
 {
-    return encode_request(configuration, kUdpCommand, false, ec);
+    return encode_request(configuration, kUdpCommand, ec);
 }
 
 }    // namespace rv::vless
