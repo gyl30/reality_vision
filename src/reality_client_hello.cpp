@@ -49,6 +49,7 @@ constexpr std::size_t kRealityAuthenticationSize = 16;
 constexpr std::size_t kRealitySaltSize = 20;
 constexpr std::size_t kRealityNonceSize = tls::kRandomSize - kRealitySaltSize;
 static_assert(kRealityNonceSize == 12);
+static_assert(kRealityAuthenticationSize + crypto::kAeadTagSize == kRealitySessionIdSize);
 
 void append_u16_vector(std::span<const std::uint16_t> values, std::vector<std::uint8_t>& output, boost::system::error_code& ec)
 {
