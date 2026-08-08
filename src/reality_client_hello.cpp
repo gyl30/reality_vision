@@ -44,8 +44,8 @@ constexpr std::uint16_t kHpkeKdfHkdfSha256 = 0x0001;
 constexpr std::uint16_t kHpkeAeadAes128Gcm = 0x0001;
 constexpr std::uint16_t kHpkeAeadChacha20Poly1305 = 0x0003;
 constexpr std::size_t kGreaseEchPayloadSize = 239;
-constexpr std::size_t kP256KeyShareSize = 65;
 
+constexpr std::size_t kRealityAuthenticationSize = 16;
 constexpr std::size_t kRealitySaltSize = 20;
 constexpr std::size_t kRealityNonceSize = tls::kRandomSize - kRealitySaltSize;
 static_assert(kRealityNonceSize == 12);
@@ -115,9 +115,8 @@ std::vector<std::uint8_t> alpn_extension()
     return output;
 }
 
-std::vector<std::uint8_t> key_share_extension(
-    const std::array<std::uint8_t, tls::kX25519KeyShareSize>& x25519_public,
-    const std::array<std::uint8_t, kP256KeyShareSize>& p256_public)
+std::vector<std::uint8_t> key_share_extension(const std::array<std::uint8_t, tls::kX25519KeyShareSize>& x25519_public,
+                                              const std::array<std::uint8_t, crypto::kP256PublicKeySize>& p256_public)
 {
     std::vector<std::uint8_t> shares;
     core::append_be16(shares, tls::kNamedGroupX25519);
@@ -289,7 +288,7 @@ std::vector<std::uint8_t> firefox_120_extensions(const client_config& configurat
 
 std::vector<std::uint8_t> build_firefox_120_handshake(const client_config& configuration,
                                                       const std::array<std::uint8_t, tls::kRandomSize>& random,
-                                                      const std::array<std::uint8_t, 32>& session_id,
+                                                      const std::array<std::uint8_t, kRealitySessionIdSize>& session_id,
                                                       const std::array<std::uint8_t, tls::kX25519KeyShareSize>& x25519_public_key,
                                                       boost::system::error_code& ec)
 {
@@ -365,11 +364,11 @@ void derive_reality_auth_key(client_hello_material& material, const client_confi
     crypto::cleanse(auth_key);
 }
 
-std::array<std::uint8_t, 16> build_reality_authentication(const client_config& configuration,
-                                                          const std::chrono::system_clock::time_point now,
-                                                          boost::system::error_code& ec)
+std::array<std::uint8_t, kRealityAuthenticationSize> build_reality_authentication(const client_config& configuration,
+                                                                                  const std::chrono::system_clock::time_point now,
+                                                                                  boost::system::error_code& ec)
 {
-    std::array<std::uint8_t, 16> authentication{};
+    std::array<std::uint8_t, kRealityAuthenticationSize> authentication{};
     authentication[0] = configuration.version.major;
     authentication[1] = configuration.version.minor;
     authentication[2] = configuration.version.patch;

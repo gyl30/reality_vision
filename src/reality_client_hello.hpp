@@ -1,12 +1,15 @@
 #ifndef REALITY_VISION_REALITY_CLIENT_HELLO_HPP
 #define REALITY_VISION_REALITY_CLIENT_HELLO_HPP
 
+#include "crypto.hpp"
 #include "reality_config.hpp"
+#include "tls_constants.hpp"
 
 #include <boost/system/error_code.hpp>
 
 #include <array>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <vector>
@@ -14,12 +17,14 @@
 namespace rv::reality
 {
 
+inline constexpr std::size_t kRealitySessionIdSize = 32;
+
 struct client_hello_material
 {
     std::vector<std::uint8_t> handshake_bytes;
-    std::array<std::uint8_t, 32> client_random{};
-    std::array<std::uint8_t, 32> session_id{};
-    std::array<std::uint8_t, 32> x25519_private_key{};
+    std::array<std::uint8_t, tls::kRandomSize> client_random{};
+    std::array<std::uint8_t, kRealitySessionIdSize> session_id{};
+    std::array<std::uint8_t, crypto::kX25519KeySize> x25519_private_key{};
     std::array<std::uint8_t, 32> reality_auth_key{};
 };
 

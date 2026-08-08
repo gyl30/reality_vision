@@ -322,7 +322,7 @@ void test_client_hello()
     expect(wire.size() > 111 && wire[0] == 0x01, "ClientHello wire mismatch");
     expect(read_test_u24(wire, 1, "ClientHello length missing") == wire.size() - 4, "ClientHello handshake length mismatch");
     expect(wire[4] == 0x03 && wire[5] == 0x03, "ClientHello legacy version mismatch");
-    expect(wire[38] == hello->session_id.size(), "ClientHello session ID length mismatch");
+    expect(wire[38] == 32, "ClientHello session ID length mismatch");
     expect(std::equal(hello->session_id.begin(), hello->session_id.end(), wire.begin() + 39), "ClientHello session ID mismatch");
 
     constexpr std::array<std::uint16_t, 17> kExpectedCiphers{
