@@ -51,7 +51,7 @@ asio::awaitable<void> write_all(asio::ip::tcp::socket& socket, std::span<const s
 
 boost::system::error_code decode_address(const std::span<const std::uint8_t> input,
                                          const std::size_t type_offset,
-                                         address& destination,
+                                         net::address& destination,
                                          std::size_t& next_offset)
 {
     using boost::system::errc::make_error_code;
@@ -71,7 +71,7 @@ boost::system::error_code decode_address(const std::span<const std::uint8_t> inp
             {
                 return make_error_code(boost::system::errc::bad_message);
             }
-            ipv4_address ipv4;
+            net::ipv4_address ipv4;
             std::copy_n(input.begin() + static_cast<std::ptrdiff_t>(begin), ipv4.bytes.size(), ipv4.bytes.begin());
             destination = ipv4;
             next_offset = begin + kAddressSize;
@@ -97,7 +97,7 @@ boost::system::error_code decode_address(const std::span<const std::uint8_t> inp
                 return make_error_code(boost::system::errc::bad_message);
             }
 
-            destination = domain_address{std::string(reinterpret_cast<const char*>(domain.data()), domain.size())};
+            destination = net::domain_address{std::string(reinterpret_cast<const char*>(domain.data()), domain.size())};
             next_offset = begin + domain_length;
             return {};
         }
@@ -109,7 +109,7 @@ boost::system::error_code decode_address(const std::span<const std::uint8_t> inp
             {
                 return make_error_code(boost::system::errc::bad_message);
             }
-            ipv6_address ipv6;
+            net::ipv6_address ipv6;
             std::copy_n(input.begin() + static_cast<std::ptrdiff_t>(begin), ipv6.bytes.size(), ipv6.bytes.begin());
             destination = ipv6;
             next_offset = begin + kAddressSize;
@@ -120,18 +120,18 @@ boost::system::error_code decode_address(const std::span<const std::uint8_t> inp
     }
 }
 
-void encode_address(const address& source, std::vector<std::uint8_t>& output, boost::system::error_code& ec)
+void encode_address(const net::address& source, std::vector<std::uint8_t>& output, boost::system::error_code& ec)
 {
     std::visit(
         [&output, &ec](const auto& value)
         {
             using address_type = std::decay_t<decltype(value)>;
-            if constexpr (std::is_same_v<address_type, ipv4_address>)
+            if constexpr (std::is_same_v<address_type, net::ipv4_address>)
             {
                 output.push_back(kIpv4Type);
                 output.insert(output.end(), value.bytes.begin(), value.bytes.end());
             }
-            else if constexpr (std::is_same_v<address_type, ipv6_address>)
+            else if constexpr (std::is_same_v<address_type, net::ipv6_address>)
             {
                 output.push_back(kIpv6Type);
                 output.insert(output.end(), value.bytes.begin(), value.bytes.end());
@@ -392,7 +392,7 @@ boost::system::error_code decode_request(const std::span<const std::uint8_t> req
             return make_error_code(boost::system::errc::operation_not_supported);
     }
 
-    address destination;
+    net::address destination;
     std::size_t port_offset = 0;
     auto ec = decode_address(request_bytes, 3, destination, port_offset);
     if (ec)
@@ -431,7 +431,7 @@ boost::system::error_code decode_udp_datagram(const std::span<const std::uint8_t
         return make_error_code(boost::system::errc::operation_not_supported);
     }
 
-    address destination;
+    net::address destination;
     std::size_t port_offset = 0;
     auto ec = decode_address(packet, 3, destination, port_offset);
     if (ec)
@@ -473,7 +473,7 @@ std::array<std::uint8_t, 10> encode_reply(const reply value) noexcept
     };
 }
 
-std::vector<std::uint8_t> encode_udp_datagram(const address& source,
+std::vector<std::uint8_t> encode_udp_datagram(const net::address& source,
                                               const std::uint16_t port,
                                               const std::span<const std::uint8_t> payload,
                                               boost::system::error_code& ec)
@@ -497,18 +497,18 @@ std::vector<std::uint8_t> encode_udp_datagram(const address& source,
     return output;
 }
 
-std::string format_destination(const address& destination, const std::uint16_t port)
+std::string format_destination(const net::address& destination, const std::uint16_t port)
 {
     const auto host = std::visit(
         [](const auto& value) -> std::string
         {
             using address_type = std::decay_t<decltype(value)>;
-            if constexpr (std::is_same_v<address_type, ipv4_address>)
+            if constexpr (std::is_same_v<address_type, net::ipv4_address>)
             {
                 return std::to_string(value.bytes[0]) + "." + std::to_string(value.bytes[1]) + "." + std::to_string(value.bytes[2]) + "." +
                        std::to_string(value.bytes[3]);
             }
-            else if constexpr (std::is_same_v<address_type, ipv6_address>)
+            else if constexpr (std::is_same_v<address_type, net::ipv6_address>)
             {
                 asio::ip::address_v6::bytes_type bytes{};
                 std::copy(value.bytes.begin(), value.bytes.end(), bytes.begin());

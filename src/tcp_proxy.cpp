@@ -1,5 +1,7 @@
 #include "tcp_proxy.hpp"
 
+#include "network_address.hpp"
+
 #include "reality_config.hpp"
 #include "reality_stream.hpp"
 #include "socks5_protocol.hpp"
@@ -31,7 +33,6 @@
 #include <span>
 #include <string>
 #include <string_view>
-#include <type_traits>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -53,7 +54,7 @@ enum class transparent_mode : std::uint8_t
 
 struct proxy_target
 {
-    rv::vless::address destination;
+    rv::net::address destination;
     std::uint16_t port{};
 };
 
@@ -171,31 +172,10 @@ boost::asio::awaitable<void> relay_with_initial_data(tcp::socket& client_socket,
     co_await relay_bidirectional(client_socket, upstream, ec);
 }
 
-rv::vless::address to_vless_address(const rv::socks5::address& address)
-{
-    return std::visit(
-        []<typename address_type>(const address_type& value) -> rv::vless::address
-        {
-            if constexpr (std::is_same_v<address_type, rv::socks5::ipv4_address>)
-            {
-                return rv::vless::ipv4_address{value.bytes};
-            }
-            else if constexpr (std::is_same_v<address_type, rv::socks5::ipv6_address>)
-            {
-                return rv::vless::ipv6_address{value.bytes};
-            }
-            else
-            {
-                return rv::vless::domain_address{value.name};
-            }
-        },
-        address);
-}
-
 proxy_target make_proxy_target(const rv::socks5::request& request)
 {
     return proxy_target{
-        .destination = to_vless_address(request.destination),
+        .destination = request.destination,
         .port = request.port,
     };
 }
@@ -203,7 +183,7 @@ proxy_target make_proxy_target(const rv::socks5::request& request)
 proxy_target make_proxy_target(const tcp::endpoint& endpoint)
 {
     return proxy_target{
-        .destination = rv::vless::ipv4_address{endpoint.address().to_v4().to_bytes()},
+        .destination = rv::net::ipv4_address{endpoint.address().to_v4().to_bytes()},
         .port = endpoint.port(),
     };
 }
@@ -313,7 +293,7 @@ boost::asio::awaitable<initial_client_data> sniff_initial_client_data(tcp::socke
 
 [[nodiscard]] bool should_sniff_destination(const rv::socks5::request& request) noexcept
 {
-    return !std::holds_alternative<rv::socks5::domain_address>(request.destination);
+    return !std::holds_alternative<rv::net::domain_address>(request.destination);
 }
 
 void apply_sniffed_destination(proxy_target& target, const initial_client_data& initial_data, const std::string& session_id)
@@ -323,7 +303,7 @@ void apply_sniffed_destination(proxy_target& target, const initial_client_data& 
         return;
     }
 
-    target.destination = rv::vless::domain_address{*initial_data.domain};
+    target.destination = rv::net::domain_address{*initial_data.domain};
     spdlog::info("{} sniffed destination {}:{}", session_id, *initial_data.domain, target.port);
 }
 

@@ -6,33 +6,17 @@
 #include <boost/asio/ip/udp.hpp>
 #include <boost/system/error_code.hpp>
 
+#include "network_address.hpp"
+
 #include <array>
 #include <cstdint>
 #include <optional>
 #include <span>
 #include <string>
-#include <variant>
 #include <vector>
 
 namespace rv::socks5
 {
-
-struct ipv4_address
-{
-    std::array<std::uint8_t, 4> bytes{};
-};
-
-struct ipv6_address
-{
-    std::array<std::uint8_t, 16> bytes{};
-};
-
-struct domain_address
-{
-    std::string name;
-};
-
-using address = std::variant<ipv4_address, domain_address, ipv6_address>;
 
 enum class command : std::uint8_t
 {
@@ -43,13 +27,13 @@ enum class command : std::uint8_t
 struct request
 {
     command requested_command{command::kConnect};
-    address destination;
+    net::address destination;
     std::uint16_t port{};
 };
 
 struct udp_datagram
 {
-    address destination;
+    net::address destination;
     std::uint16_t port{};
     std::span<const std::uint8_t> payload;
 };
@@ -75,11 +59,11 @@ enum class reply : std::uint8_t
 [[nodiscard]] boost::system::error_code decode_request(std::span<const std::uint8_t> request_bytes, request& output);
 [[nodiscard]] boost::system::error_code decode_udp_datagram(std::span<const std::uint8_t> packet, udp_datagram& output);
 [[nodiscard]] std::array<std::uint8_t, 10> encode_reply(reply value) noexcept;
-[[nodiscard]] std::vector<std::uint8_t> encode_udp_datagram(const address& source,
+[[nodiscard]] std::vector<std::uint8_t> encode_udp_datagram(const net::address& source,
                                                             std::uint16_t port,
                                                             std::span<const std::uint8_t> payload,
                                                             boost::system::error_code& ec);
-[[nodiscard]] std::string format_destination(const address& destination, std::uint16_t port);
+[[nodiscard]] std::string format_destination(const net::address& destination, std::uint16_t port);
 [[nodiscard]] std::string format_destination(const request& request);
 
 [[nodiscard]] boost::asio::awaitable<std::optional<request>> negotiate(boost::asio::ip::tcp::socket& socket,

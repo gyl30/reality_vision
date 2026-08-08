@@ -23,12 +23,12 @@ void append_destination(const client_config& configuration, std::vector<std::uin
         [&output, &ec](const auto& address)
         {
             using type = std::decay_t<decltype(address)>;
-            if constexpr (std::is_same_v<type, ipv4_address>)
+            if constexpr (std::is_same_v<type, net::ipv4_address>)
             {
                 output.push_back(0x01);
                 output.insert(output.end(), address.bytes.begin(), address.bytes.end());
             }
-            else if constexpr (std::is_same_v<type, domain_address>)
+            else if constexpr (std::is_same_v<type, net::domain_address>)
             {
                 if (address.name.empty() || address.name.size() > 255 || address.name.find('\0') != std::string::npos)
                 {

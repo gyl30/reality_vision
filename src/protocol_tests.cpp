@@ -1,5 +1,7 @@
 #include "protocol_tests.hpp"
 
+#include "network_address.hpp"
+
 #include "base64.hpp"
 #include "byte_order.hpp"
 #include "byte_queue.hpp"
@@ -369,7 +371,7 @@ void test_vless_header()
     boost::system::error_code ec;
     rv::vless::client_config config;
     config.user_id.fill(0x11);
-    config.destination = rv::vless::domain_address{"example.com"};
+    config.destination = rv::net::domain_address{"example.com"};
     config.destination_port = 443;
 
     const auto request = rv::vless::encode_tcp_request(config, ec);
@@ -394,7 +396,7 @@ void test_vless_header()
     expected_udp.insert(expected_udp.end(), kDomain.begin(), kDomain.end());
     expect(!ec && udp_request == expected_udp, "VLESS UDP header mismatch");
 
-    config.destination = rv::vless::ipv4_address{{192, 0, 2, 1}};
+    config.destination = rv::net::ipv4_address{{192, 0, 2, 1}};
     const auto ipv4_request = rv::vless::encode_udp_request(config, ec);
     expect(!ec, "VLESS IPv4 encoding failed");
     constexpr std::array<std::uint8_t, 7> kExpectedIpv4Suffix{0x00, 0x35, 0x01, 192, 0, 2, 1};
@@ -402,7 +404,7 @@ void test_vless_header()
                std::equal(kExpectedIpv4Suffix.begin(), kExpectedIpv4Suffix.end(), ipv4_request.end() - kExpectedIpv4Suffix.size()),
            "VLESS IPv4 address mismatch");
 
-    config.destination = rv::vless::ipv6_address{{0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}};
+    config.destination = rv::net::ipv6_address{{0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}};
     config.destination_port = 443;
     const auto ipv6_request = rv::vless::encode_udp_request(config, ec);
     expect(!ec, "VLESS IPv6 encoding failed");
@@ -412,23 +414,23 @@ void test_vless_header()
                std::equal(kExpectedIpv6Suffix.begin(), kExpectedIpv6Suffix.end(), ipv6_request.end() - kExpectedIpv6Suffix.size()),
            "VLESS IPv6 address mismatch");
 
-    config.destination = rv::vless::domain_address{};
+    config.destination = rv::net::domain_address{};
     static_cast<void>(rv::vless::encode_tcp_request(config, ec));
     expect_error(ec, boost::system::errc::invalid_argument, "VLESS empty domain returned wrong error");
 
-    config.destination = rv::vless::domain_address{std::string("bad\0domain", 10)};
+    config.destination = rv::net::domain_address{std::string("bad\0domain", 10)};
     static_cast<void>(rv::vless::encode_tcp_request(config, ec));
     expect_error(ec, boost::system::errc::invalid_argument, "VLESS embedded NUL domain returned wrong error");
 
-    config.destination = rv::vless::domain_address{std::string(255, 'a')};
+    config.destination = rv::net::domain_address{std::string(255, 'a')};
     const auto maximum_domain_request = rv::vless::encode_tcp_request(config, ec);
     expect(!ec && !maximum_domain_request.empty(), "VLESS maximum domain length rejected");
 
-    config.destination = rv::vless::domain_address{std::string(256, 'a')};
+    config.destination = rv::net::domain_address{std::string(256, 'a')};
     static_cast<void>(rv::vless::encode_tcp_request(config, ec));
     expect_error(ec, boost::system::errc::invalid_argument, "VLESS oversized domain returned wrong error");
 
-    config.destination = rv::vless::domain_address{"example.com"};
+    config.destination = rv::net::domain_address{"example.com"};
     config.destination_port = 0;
     static_cast<void>(rv::vless::encode_tcp_request(config, ec));
     expect_error(ec, boost::system::errc::invalid_argument, "VLESS zero port returned wrong error");
@@ -705,7 +707,7 @@ void test_socks5_request_decode()
     expect(!ec, "SOCKS5 IPv4 CONNECT decode failed");
     expect(request.requested_command == rv::socks5::command::kConnect, "SOCKS5 CONNECT command mismatch");
     expect(request.port == 443, "SOCKS5 IPv4 CONNECT port mismatch");
-    const auto* ipv4 = std::get_if<rv::socks5::ipv4_address>(&request.destination);
+    const auto* ipv4 = std::get_if<rv::net::ipv4_address>(&request.destination);
     expect(ipv4 != nullptr && ipv4->bytes == std::array<std::uint8_t, 4>{127, 0, 0, 1}, "SOCKS5 IPv4 CONNECT address mismatch");
 
     constexpr std::array<std::uint8_t, 18> kDomainRequest{
@@ -713,7 +715,7 @@ void test_socks5_request_decode()
     };
     ec = rv::socks5::decode_request(kDomainRequest, request);
     expect(!ec, "SOCKS5 domain CONNECT decode failed");
-    const auto* domain = std::get_if<rv::socks5::domain_address>(&request.destination);
+    const auto* domain = std::get_if<rv::net::domain_address>(&request.destination);
     expect(domain != nullptr && domain->name == "example.com" && request.port == 443, "SOCKS5 domain CONNECT mismatch");
 
     constexpr std::array<std::uint8_t, 22> kIpv6Request{
@@ -723,7 +725,7 @@ void test_socks5_request_decode()
     };
     ec = rv::socks5::decode_request(kIpv6Request, request);
     expect(!ec, "SOCKS5 IPv6 CONNECT decode failed");
-    const auto* ipv6 = std::get_if<rv::socks5::ipv6_address>(&request.destination);
+    const auto* ipv6 = std::get_if<rv::net::ipv6_address>(&request.destination);
     constexpr std::array<std::uint8_t, 16> kExpectedIpv6{0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
     expect(ipv6 != nullptr && ipv6->bytes == kExpectedIpv6 && request.port == 443, "SOCKS5 IPv6 CONNECT mismatch");
 
@@ -788,7 +790,7 @@ void test_socks5_udp_codec()
     constexpr std::array<std::uint8_t, 12> kDomainPacket{0, 0, 0, 3, 3, 'd', 'n', 's', 0, 53, 0xaa, 0xbb};
     ec = rv::socks5::decode_udp_datagram(kDomainPacket, datagram);
     expect(!ec && datagram.port == 53 && datagram.payload.size() == 2, "SOCKS5 domain UDP datagram decode failed");
-    const auto* domain = std::get_if<rv::socks5::domain_address>(&datagram.destination);
+    const auto* domain = std::get_if<rv::net::domain_address>(&datagram.destination);
     expect(domain != nullptr && domain->name == "dns", "SOCKS5 domain UDP destination mismatch");
 
     constexpr std::array<std::uint8_t, 25> kIpv6Packet{
@@ -828,7 +830,7 @@ void test_socks5_udp_codec()
     ec = rv::socks5::decode_udp_datagram(kNulDomain, datagram);
     expect_error(ec, boost::system::errc::bad_message, "SOCKS5 UDP accepted domain containing NUL");
 
-    const rv::socks5::domain_address invalid_domain{std::string("a\0b", 3)};
+    const rv::net::domain_address invalid_domain{std::string("a\0b", 3)};
     const auto invalid_encoded = rv::socks5::encode_udp_datagram(invalid_domain, 53, {}, ec);
     expect(invalid_encoded.empty(), "SOCKS5 UDP encoded domain containing NUL");
     expect_error(ec, boost::system::errc::invalid_argument, "SOCKS5 UDP invalid domain returned wrong encode error");

@@ -1,5 +1,7 @@
 #include "udp_proxy.hpp"
 
+#include "network_address.hpp"
+
 #include "reality_config.hpp"
 #include "reality_stream.hpp"
 #include "tcp_byte_stream.hpp"
@@ -77,35 +79,14 @@ asio::awaitable<void> run_udp_flow_cleanup(std::shared_ptr<State> state, CloseFl
 
 struct proxy_target
 {
-    vless::address destination;
+    net::address destination;
     std::uint16_t port{};
 };
 
-vless::address to_vless_address(const socks5::address& address)
-{
-    return std::visit(
-        []<typename address_type>(const address_type& value) -> vless::address
-        {
-            if constexpr (std::is_same_v<address_type, socks5::ipv4_address>)
-            {
-                return vless::ipv4_address{value.bytes};
-            }
-            else if constexpr (std::is_same_v<address_type, socks5::ipv6_address>)
-            {
-                return vless::ipv6_address{value.bytes};
-            }
-            else
-            {
-                return vless::domain_address{value.name};
-            }
-        },
-        address);
-}
-
-proxy_target make_proxy_target(const socks5::address& destination, const std::uint16_t port)
+proxy_target make_proxy_target(const net::address& destination, const std::uint16_t port)
 {
     return {
-        .destination = to_vless_address(destination),
+        .destination = destination,
         .port = port,
     };
 }
@@ -113,12 +94,12 @@ proxy_target make_proxy_target(const socks5::address& destination, const std::ui
 proxy_target make_proxy_target(const udp::endpoint& destination)
 {
     return {
-        .destination = vless::ipv4_address{destination.address().to_v4().to_bytes()},
+        .destination = net::ipv4_address{destination.address().to_v4().to_bytes()},
         .port = destination.port(),
     };
 }
 
-std::string socks_flow_key(const socks5::address& destination, const std::uint16_t port)
+std::string socks_flow_key(const net::address& destination, const std::uint16_t port)
 {
     std::string key;
     key.push_back(static_cast<char>(destination.index()));
@@ -126,7 +107,7 @@ std::string socks_flow_key(const socks5::address& destination, const std::uint16
         [&key](const auto& value)
         {
             using address_type = std::decay_t<decltype(value)>;
-            if constexpr (std::is_same_v<address_type, socks5::domain_address>)
+            if constexpr (std::is_same_v<address_type, net::domain_address>)
             {
                 key.append(value.name);
             }
@@ -190,7 +171,7 @@ asio::awaitable<std::optional<vless::vless_udp_stream>> connect_udp_upstream(con
 struct socks_udp_flow
 {
     vless::vless_udp_stream upstream;
-    socks5::address remote_address;
+    net::address remote_address;
     std::uint16_t remote_port{};
     std::chrono::steady_clock::time_point last_activity{std::chrono::steady_clock::now()};
     std::string session_id;
