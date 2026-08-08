@@ -36,6 +36,10 @@ class EchoServer(socketserver.ThreadingTCPServer):
     daemon_threads = True
 
 
+class Ipv6EchoServer(EchoServer):
+    address_family = socket.AF_INET6
+
+
 class UdpEchoHandler(socketserver.BaseRequestHandler):
     def handle(self) -> None:
         data, sock = self.request
@@ -160,12 +164,13 @@ def socks5_echo_roundtrip(
     proxy_port: int,
     target_port: int,
     payload: bytes,
+    target_host: str = "localhost",
     username: str | None = SOCKS_USERNAME,
     password: str | None = SOCKS_PASSWORD,
 ) -> None:
     with open_socks5_connection(
         proxy_port,
-        "localhost",
+        target_host,
         target_port,
         username,
         password,
@@ -602,10 +607,20 @@ def main() -> int:
             )
         return command
 
-    with EchoServer(("127.0.0.1", 0), EchoHandler) as echo_server, UdpEchoServer(("127.0.0.1", 0), UdpEchoHandler) as udp_echo_server:
+    with (
+        EchoServer(("127.0.0.1", 0), EchoHandler) as echo_server,
+        Ipv6EchoServer(("::1", 0), EchoHandler) as ipv6_echo_server,
+        UdpEchoServer(("127.0.0.1", 0), UdpEchoHandler) as udp_echo_server,
+    ):
         echo_port = int(echo_server.server_address[1])
         echo_thread = threading.Thread(target=echo_server.serve_forever, daemon=True)
         echo_thread.start()
+        ipv6_echo_port = int(ipv6_echo_server.server_address[1])
+        ipv6_echo_thread = threading.Thread(
+            target=ipv6_echo_server.serve_forever,
+            daemon=True,
+        )
+        ipv6_echo_thread.start()
         udp_echo_port = int(udp_echo_server.server_address[1])
         udp_echo_thread = threading.Thread(target=udp_echo_server.serve_forever, daemon=True)
         udp_echo_thread.start()
@@ -760,6 +775,20 @@ def main() -> int:
                         wait_for_text(
                             vision_no_auth_socks_log_path,
                             "socks_1 socks5 tcp session completed",
+                            vision_no_auth_socks_process,
+                        )
+
+                        socks5_echo_roundtrip(
+                            vision_no_auth_socks_port,
+                            ipv6_echo_port,
+                            b"xray-reality-socks5-ipv6-interoperability",
+                            target_host="::1",
+                            username=None,
+                            password=None,
+                        )
+                        wait_for_text(
+                            vision_no_auth_socks_log_path,
+                            "socks_2 socks5 tcp session completed",
                             vision_no_auth_socks_process,
                         )
 
@@ -959,12 +988,14 @@ def main() -> int:
             stop_process(decoy_process)
             echo_server.shutdown()
             echo_thread.join(timeout=2)
+            ipv6_echo_server.shutdown()
+            ipv6_echo_thread.join(timeout=2)
             udp_echo_server.shutdown()
             udp_echo_thread.join(timeout=2)
 
     print(
         "Xray REALITY, VLESS Vision, VLESS UDP including UDP/443 and address-type flow isolation, "
-        "SOCKS5 no-authentication and username/password authentication, UDP ASSOCIATE, destination sniffing, "
+        "SOCKS5 IPv6, no-authentication and username/password authentication, UDP ASSOCIATE, destination sniffing, "
         "TLS 1.2 fallback, and TLS 1.3 Direct tests passed"
     )
     return 0
