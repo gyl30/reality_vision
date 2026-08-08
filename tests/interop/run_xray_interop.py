@@ -94,10 +94,14 @@ class P256ServerHelloServer(socketserver.ThreadingTCPServer):
     daemon_threads = True
 
 
-def reserve_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+def reserve_listener() -> socket.socket:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
         sock.bind(("127.0.0.1", 0))
-        return int(sock.getsockname()[1])
+        return sock
+    except Exception:
+        sock.close()
+        raise
 
 
 def recv_exact(sock: socket.socket, size: int) -> bytes:
@@ -645,13 +649,17 @@ def trigger_socks5_connect_failure(proxy_port: int) -> None:
 
 def test_p256_key_share_error(client: Path, public_key: str, work_dir: Path) -> None:
     log_path = work_dir / "p256-key-share.log"
-    socks_port = reserve_port()
     process: subprocess.Popen[bytes] | None = None
-    with P256ServerHelloServer(("127.0.0.1", 0), P256ServerHelloHandler) as server:
+    with (
+        P256ServerHelloServer(("127.0.0.1", 0), P256ServerHelloHandler) as server,
+        reserve_listener() as socks_reservation,
+    ):
+        socks_port = int(socks_reservation.getsockname()[1])
         server_port = int(server.server_address[1])
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
+            socks_reservation.close()
             with log_path.open("wb") as log:
                 process = subprocess.Popen(
                     [
@@ -714,13 +722,6 @@ def main() -> int:
         stderr=subprocess.DEVNULL,
     )
 
-    decoy_port = reserve_port()
-    inner_tls_port = reserve_port()
-    inner_tls12_port = reserve_port()
-    xray_port = reserve_port()
-    vision_socks_port = reserve_port()
-    vision_no_auth_socks_port = reserve_port()
-
     def client_command(
         socks_port: int,
         username: str | None = None,
@@ -763,7 +764,22 @@ def main() -> int:
         HalfCloseServer(("127.0.0.1", 0)) as half_close_server,
         UdpEchoServer(("127.0.0.1", 0), UdpEchoHandler) as udp_echo_server,
         Ipv6UdpEchoServer(("::1", 0), UdpEchoHandler) as ipv6_udp_echo_server,
+        reserve_listener() as decoy_reservation,
+        reserve_listener() as inner_tls_reservation,
+        reserve_listener() as inner_tls12_reservation,
+        reserve_listener() as xray_reservation,
+        reserve_listener() as vision_socks_reservation,
+        reserve_listener() as vision_no_auth_socks_reservation,
     ):
+        decoy_port = int(decoy_reservation.getsockname()[1])
+        inner_tls_port = int(inner_tls_reservation.getsockname()[1])
+        inner_tls12_port = int(inner_tls12_reservation.getsockname()[1])
+        xray_port = int(xray_reservation.getsockname()[1])
+        vision_socks_port = int(vision_socks_reservation.getsockname()[1])
+        vision_no_auth_socks_port = int(
+            vision_no_auth_socks_reservation.getsockname()[1]
+        )
+
         echo_port = int(echo_server.server_address[1])
         echo_thread = threading.Thread(target=echo_server.serve_forever, daemon=True)
         echo_thread.start()
@@ -835,6 +851,7 @@ def main() -> int:
                 inner_tls_log_path.open("wb") as inner_tls_log,
                 inner_tls12_log_path.open("wb") as inner_tls12_log,
             ):
+                decoy_reservation.close()
                 decoy_process = subprocess.Popen(
                     [
                         str(args.xray.parent / "openssl")
@@ -855,6 +872,7 @@ def main() -> int:
                 )
                 wait_for_listener(decoy_port, decoy_process)
 
+                inner_tls_reservation.close()
                 inner_tls_process = subprocess.Popen(
                     [
                         "openssl",
@@ -873,6 +891,7 @@ def main() -> int:
                 )
                 wait_for_listener(inner_tls_port, inner_tls_process)
 
+                inner_tls12_reservation.close()
                 inner_tls12_process = subprocess.Popen(
                     [
                         "openssl",
@@ -892,6 +911,7 @@ def main() -> int:
                 wait_for_listener(inner_tls12_port, inner_tls12_process)
 
                 with xray_log_path.open("wb") as xray_log:
+                    xray_reservation.close()
                     xray_process = subprocess.Popen(
                         [str(args.xray), "run", "-config", str(config_path)],
                         stdout=xray_log,
@@ -903,6 +923,7 @@ def main() -> int:
                         vision_socks_log_path.open("wb") as vision_socks_log,
                         vision_no_auth_socks_log_path.open("wb") as vision_no_auth_socks_log,
                     ):
+                        vision_socks_reservation.close()
                         vision_socks_process = subprocess.Popen(
                             client_command(
                                 vision_socks_port,
@@ -918,6 +939,7 @@ def main() -> int:
                             vision_socks_process,
                         )
 
+                        vision_no_auth_socks_reservation.close()
                         vision_no_auth_socks_process = subprocess.Popen(
                             client_command(vision_no_auth_socks_port),
                             stdout=vision_no_auth_socks_log,
