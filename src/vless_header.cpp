@@ -5,6 +5,8 @@
 #include <boost/system/errc.hpp>
 
 #include <cstdint>
+#include <limits>
+#include <string_view>
 #include <type_traits>
 #include <variant>
 
@@ -13,8 +15,28 @@ namespace rv::vless
 namespace
 {
 
+constexpr std::uint8_t kVersion = 0x00;
 constexpr std::uint8_t kTcpCommand = 0x01;
 constexpr std::uint8_t kUdpCommand = 0x02;
+constexpr std::uint8_t kIpv4AddressType = 0x01;
+constexpr std::uint8_t kDomainAddressType = 0x02;
+constexpr std::uint8_t kIpv6AddressType = 0x03;
+constexpr std::uint8_t kNoAddonLength = 0x00;
+constexpr std::uint8_t kFlowFieldTag = 0x0a;
+constexpr std::size_t kMaximumDomainLength = std::numeric_limits<std::uint8_t>::max();
+constexpr std::size_t kRequestReserveSize = 64;
+constexpr std::string_view kVisionFlowName = "xtls-rprx-vision";
+constexpr std::size_t kVisionAddonLength = 2 + kVisionFlowName.size();
+static_assert(kVisionFlowName.size() <= std::numeric_limits<std::uint8_t>::max());
+static_assert(kVisionAddonLength <= std::numeric_limits<std::uint8_t>::max());
+
+void append_vision_flow_addon(std::vector<std::uint8_t>& output)
+{
+    output.push_back(static_cast<std::uint8_t>(kVisionAddonLength));
+    output.push_back(kFlowFieldTag);
+    output.push_back(static_cast<std::uint8_t>(kVisionFlowName.size()));
+    output.insert(output.end(), kVisionFlowName.begin(), kVisionFlowName.end());
+}
 
 void append_destination(const client_config& configuration, std::vector<std::uint8_t>& output, boost::system::error_code& ec)
 {
@@ -25,23 +47,23 @@ void append_destination(const client_config& configuration, std::vector<std::uin
             using type = std::decay_t<decltype(address)>;
             if constexpr (std::is_same_v<type, net::ipv4_address>)
             {
-                output.push_back(0x01);
+                output.push_back(kIpv4AddressType);
                 output.insert(output.end(), address.bytes.begin(), address.bytes.end());
             }
             else if constexpr (std::is_same_v<type, net::domain_address>)
             {
-                if (address.name.empty() || address.name.size() > 255 || address.name.find('\0') != std::string::npos)
+                if (address.name.empty() || address.name.size() > kMaximumDomainLength || address.name.find('\0') != std::string::npos)
                 {
                     ec = boost::system::errc::make_error_code(boost::system::errc::invalid_argument);
                     return;
                 }
-                output.push_back(0x02);
+                output.push_back(kDomainAddressType);
                 output.push_back(static_cast<std::uint8_t>(address.name.size()));
                 output.insert(output.end(), address.name.begin(), address.name.end());
             }
             else
             {
-                output.push_back(0x03);
+                output.push_back(kIpv6AddressType);
                 output.insert(output.end(), address.bytes.begin(), address.bytes.end());
             }
         },
@@ -61,21 +83,17 @@ std::vector<std::uint8_t> encode_request(const client_config& configuration,
     }
 
     std::vector<std::uint8_t> output;
-    output.reserve(64);
-    output.push_back(0x00);
+    output.reserve(kRequestReserveSize);
+    output.push_back(kVersion);
     output.insert(output.end(), configuration.user_id.begin(), configuration.user_id.end());
 
     if (vision_flow)
     {
-        constexpr char kFlowName[] = "xtls-rprx-vision";
-        output.push_back(18);
-        output.push_back(0x0a);
-        output.push_back(0x10);
-        output.insert(output.end(), kFlowName, kFlowName + 16);
+        append_vision_flow_addon(output);
     }
     else
     {
-        output.push_back(0x00);
+        output.push_back(kNoAddonLength);
     }
 
     output.push_back(command);
