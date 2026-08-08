@@ -156,7 +156,7 @@ std::vector<std::uint8_t> record_key::seal(std::uint8_t inner_type, std::span<co
 
     std::vector<std::uint8_t> inner(plaintext.begin(), plaintext.end());
     inner.push_back(inner_type);
-    const auto ciphertext_length = inner.size() + tls::kAeadTagSize;
+    const auto ciphertext_length = inner.size() + crypto::kAeadTagSize;
     std::array<std::uint8_t, tls::kRecordHeaderSize> header{};
     header[0] = tls::kRecordApplicationData;
     core::write_be16(header.data() + 1, tls::kLegacyVersion);
@@ -182,7 +182,7 @@ opened_record record_key::open(std::span<const std::uint8_t, tls::kRecordHeaderS
                                boost::system::error_code& ec)
 {
     ec.clear();
-    if (ciphertext.size() <= tls::kAeadTagSize || ciphertext.size() > tls::kMaximumCiphertextSize)
+    if (ciphertext.size() <= crypto::kAeadTagSize || ciphertext.size() > tls::kMaximumCiphertextSize)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
         return {};

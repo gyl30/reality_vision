@@ -20,6 +20,7 @@ inline constexpr std::size_t kEd25519SignatureSize = 64;
 inline constexpr std::size_t kSha256DigestSize = 32;
 inline constexpr std::size_t kSha384DigestSize = 48;
 inline constexpr std::size_t kSha512DigestSize = 64;
+inline constexpr std::size_t kAeadTagSize = 16;
 
 enum class hash_algorithm
 {

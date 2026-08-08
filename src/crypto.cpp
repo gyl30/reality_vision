@@ -320,7 +320,7 @@ std::vector<std::uint8_t> aead::seal(std::span<const std::uint8_t> nonce,
         ec = boost::system::errc::make_error_code(boost::system::errc::state_not_recoverable);
         return {};
     }
-    std::vector<std::uint8_t> output(plaintext.size() + 16);
+    std::vector<std::uint8_t> output(plaintext.size() + kAeadTagSize);
     std::size_t written = 0;
     ERR_clear_error();
     if (EVP_AEAD_CTX_seal(impl_->context.get(),
