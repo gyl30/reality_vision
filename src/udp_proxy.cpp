@@ -45,6 +45,36 @@ constexpr std::size_t kMaxUdpPacketSize = 65535;
 constexpr auto kUdpFlowIdleTimeout = std::chrono::seconds(120);
 constexpr auto kUdpFlowCleanupInterval = std::chrono::seconds(30);
 
+template <typename State, typename CloseFlow>
+asio::awaitable<void> run_udp_flow_cleanup(std::shared_ptr<State> state, CloseFlow close_flow)
+{
+    while (!state->closed)
+    {
+        state->cleanup_timer.expires_after(kUdpFlowCleanupInterval);
+        boost::system::error_code ec;
+        co_await state->cleanup_timer.async_wait(asio::redirect_error(asio::use_awaitable, ec));
+        if (ec || state->closed)
+        {
+            co_return;
+        }
+
+        const auto now = std::chrono::steady_clock::now();
+        for (auto iterator = state->flows.begin(); iterator != state->flows.end();)
+        {
+            auto& flow = *iterator->second;
+            if (flow.closed || now - flow.last_activity >= kUdpFlowIdleTimeout)
+            {
+                close_flow(flow);
+                iterator = state->flows.erase(iterator);
+            }
+            else
+            {
+                ++iterator;
+            }
+        }
+    }
+}
+
 struct proxy_target
 {
     vless::address destination;
@@ -188,39 +218,6 @@ void close_socks_flow(socks_udp_flow& flow)
     flow.upstream.shutdown();
 }
 
-void cleanup_socks_flows(const std::shared_ptr<socks_udp_state>& state)
-{
-    const auto now = std::chrono::steady_clock::now();
-    for (auto iterator = state->flows.begin(); iterator != state->flows.end();)
-    {
-        auto& flow = *iterator->second;
-        if (flow.closed || now - flow.last_activity >= kUdpFlowIdleTimeout)
-        {
-            close_socks_flow(flow);
-            iterator = state->flows.erase(iterator);
-        }
-        else
-        {
-            ++iterator;
-        }
-    }
-}
-
-asio::awaitable<void> run_socks_cleanup(std::shared_ptr<socks_udp_state> state)
-{
-    while (!state->closed)
-    {
-        state->cleanup_timer.expires_after(kUdpFlowCleanupInterval);
-        boost::system::error_code ec;
-        co_await state->cleanup_timer.async_wait(asio::redirect_error(asio::use_awaitable, ec));
-        if (ec || state->closed)
-        {
-            co_return;
-        }
-        cleanup_socks_flows(state);
-    }
-}
-
 void shutdown_socks_state(const std::shared_ptr<socks_udp_state>& state)
 {
     if (state->closed)
@@ -253,6 +250,10 @@ asio::awaitable<void> run_socks_downlink(std::shared_ptr<socks_udp_state> state,
                 spdlog::warn("{} socks5 udp downlink read failed: {}", flow->session_id, ec.message());
             }
             close_socks_flow(*flow);
+            co_return;
+        }
+        if (state->closed || flow->closed)
+        {
             co_return;
         }
 
@@ -511,6 +512,10 @@ asio::awaitable<void> run_tproxy_downlink(std::shared_ptr<tproxy_udp_flow> flow)
             close_tproxy_flow(*flow);
             co_return;
         }
+        if (flow->closed)
+        {
+            co_return;
+        }
 
         flow->last_activity = std::chrono::steady_clock::now();
         co_await flow->reply_socket.async_send_to(
@@ -591,39 +596,6 @@ asio::awaitable<std::shared_ptr<tproxy_udp_flow>> get_tproxy_flow(const std::sha
     co_return flow;
 }
 
-void cleanup_tproxy_flows(const std::shared_ptr<tproxy_udp_state>& state)
-{
-    const auto now = std::chrono::steady_clock::now();
-    for (auto iterator = state->flows.begin(); iterator != state->flows.end();)
-    {
-        auto& flow = *iterator->second;
-        if (flow.closed || now - flow.last_activity >= kUdpFlowIdleTimeout)
-        {
-            close_tproxy_flow(flow);
-            iterator = state->flows.erase(iterator);
-        }
-        else
-        {
-            ++iterator;
-        }
-    }
-}
-
-asio::awaitable<void> run_tproxy_cleanup(std::shared_ptr<tproxy_udp_state> state)
-{
-    while (!state->closed)
-    {
-        state->cleanup_timer.expires_after(kUdpFlowCleanupInterval);
-        boost::system::error_code ec;
-        co_await state->cleanup_timer.async_wait(asio::redirect_error(asio::use_awaitable, ec));
-        if (ec || state->closed)
-        {
-            co_return;
-        }
-        cleanup_tproxy_flows(state);
-    }
-}
-
 void shutdown_tproxy_state(const std::shared_ptr<tproxy_udp_state>& state)
 {
     if (state->closed)
@@ -691,7 +663,7 @@ asio::awaitable<void> run_socks_association(tcp::socket control_socket,
         .cleanup_timer = asio::steady_timer(executor),
     });
     asio::co_spawn(executor,
-                   run_socks_cleanup(state),
+                   run_udp_flow_cleanup(state, close_socks_flow),
                    [session_id](const std::exception_ptr& exception) { log_session_exception(session_id + "_udp_cleanup", exception); });
 
     using namespace asio::experimental::awaitable_operators;    // NOLINT
@@ -767,7 +739,7 @@ asio::awaitable<void> run_tproxy_server(udp::socket socket, app::config configur
         .cleanup_timer = asio::steady_timer(executor),
     });
     asio::co_spawn(executor,
-                   run_tproxy_cleanup(state),
+                   run_udp_flow_cleanup(state, close_tproxy_flow),
                    [](const std::exception_ptr& exception) { log_session_exception("tproxy_udp_cleanup", exception); });
 
     std::array<std::uint8_t, kMaxUdpPacketSize> buffer{};
