@@ -51,10 +51,10 @@ class record_key
                                      boost::system::error_code& ec);
 
    private:
-    [[nodiscard]] std::array<std::uint8_t, 12> next_nonce(boost::system::error_code& ec);
+    [[nodiscard]] std::array<std::uint8_t, tls::kRecordIvSize> next_nonce(boost::system::error_code& ec);
 
     crypto::aead cipher_;
-    std::array<std::uint8_t, 12> iv_{};
+    std::array<std::uint8_t, tls::kRecordIvSize> iv_{};
     std::uint64_t sequence_{0};
     bool sequence_exhausted_{false};
 };

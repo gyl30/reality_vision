@@ -121,7 +121,7 @@ record_key::record_key(cipher_suite suite, std::span<const std::uint8_t> traffic
     crypto::cleanse(iv);
 }
 
-std::array<std::uint8_t, 12> record_key::next_nonce(boost::system::error_code& ec)
+std::array<std::uint8_t, tls::kRecordIvSize> record_key::next_nonce(boost::system::error_code& ec)
 {
     ec.clear();
     if (sequence_exhausted_)
@@ -137,9 +137,9 @@ std::array<std::uint8_t, 12> record_key::next_nonce(boost::system::error_code& e
     {
         ++sequence_;
     }
-    for (std::size_t index = 0; index < 8; ++index)
+    for (std::size_t index = 0; index < sizeof(sequence); ++index)
     {
-        nonce[11 - index] ^= static_cast<std::uint8_t>(sequence);
+        nonce[nonce.size() - 1U - index] ^= static_cast<std::uint8_t>(sequence);
         sequence >>= 8U;
     }
     return nonce;
