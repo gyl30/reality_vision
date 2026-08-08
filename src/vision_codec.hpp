@@ -19,6 +19,7 @@ inline constexpr std::size_t kUserIdSize = 16;
 inline constexpr std::size_t kShortHeaderSize = 5;
 inline constexpr std::size_t kFullHeaderSize = kUserIdSize + kShortHeaderSize;
 inline constexpr std::size_t kXrayBufferSize = 8192;
+inline constexpr std::size_t kMaximumContentSize = kXrayBufferSize - kFullHeaderSize;
 
 enum class command : std::uint8_t
 {

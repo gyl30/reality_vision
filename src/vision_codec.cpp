@@ -67,7 +67,7 @@ std::size_t padding_length(std::size_t content_length, bool long_padding, boost:
     {
         return 0;
     }
-    const auto maximum = content_length <= kXrayBufferSize - kFullHeaderSize ? kXrayBufferSize - kFullHeaderSize - content_length : 0;
+    const auto maximum = content_length <= kMaximumContentSize ? kMaximumContentSize - content_length : 0;
     return std::min(result, maximum);
 }
 
@@ -132,7 +132,7 @@ std::vector<std::uint8_t> encode_frame(command frame_command,
                                        boost::system::error_code& ec)
 {
     const auto header_size = user_id ? kFullHeaderSize : kShortHeaderSize;
-    if (content.size() > kXrayBufferSize - kFullHeaderSize || content.size() > std::numeric_limits<std::uint16_t>::max())
+    if (content.size() > kMaximumContentSize || content.size() > std::numeric_limits<std::uint16_t>::max())
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::message_size);
         return {};

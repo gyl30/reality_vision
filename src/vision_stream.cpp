@@ -242,14 +242,12 @@ boost::asio::awaitable<void> vision_stream::write_vision_frames(const std::span<
                                                                 const bool use_long_padding,
                                                                 boost::system::error_code& ec)
 {
-    constexpr std::size_t kMaximumContent = kXrayBufferSize - kFullHeaderSize;
-
     std::size_t offset = 0;
     bool first_frame = true;
     while (first_frame || offset != input.size())
     {
         first_frame = false;
-        const auto content_size = std::min(kMaximumContent, input.size() - offset);
+        const auto content_size = std::min(kMaximumContentSize, input.size() - offset);
         const bool is_final_frame = offset + content_size == input.size();
         const auto frame_command = is_final_frame ? final_command : command::kContinuePadding;
 
