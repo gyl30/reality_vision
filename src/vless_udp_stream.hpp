@@ -33,7 +33,6 @@ class vless_udp_stream
     vless_udp_stream(reality::reality_stream reality, std::string session_id);
 
     [[nodiscard]] boost::asio::awaitable<void> read_response_header(boost::system::error_code& ec);
-    [[nodiscard]] boost::asio::awaitable<void> read_exact(std::span<std::uint8_t> output, boost::system::error_code& ec);
 
     reality::reality_stream reality_;
     bool response_header_pending_{true};

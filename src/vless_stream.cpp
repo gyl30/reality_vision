@@ -1,6 +1,7 @@
 #include "vless_stream.hpp"
 
-#include <boost/asio/error.hpp>
+#include "stream_io.hpp"
+
 #include <boost/system/errc.hpp>
 #include <spdlog/spdlog.h>
 
@@ -13,29 +14,6 @@
 
 namespace rv::vless
 {
-namespace
-{
-
-boost::asio::awaitable<void> read_exact(reality::reality_stream& stream, std::span<std::uint8_t> output, boost::system::error_code& ec)
-{
-    std::size_t offset = 0;
-    while (offset != output.size())
-    {
-        const auto count = co_await stream.read(output.subspan(offset), ec);
-        if (ec)
-        {
-            co_return;
-        }
-        if (count == 0)
-        {
-            ec = boost::asio::error::eof;
-            co_return;
-        }
-        offset += count;
-    }
-}
-
-}    // namespace
 
 boost::asio::awaitable<std::optional<vless_stream>> vless_stream::connect(reality::reality_stream reality,
                                                                           client_config configuration,
@@ -65,7 +43,7 @@ vless_stream::vless_stream(reality::reality_stream reality, std::string session_
 boost::asio::awaitable<void> vless_stream::read_response_header(boost::system::error_code& ec)
 {
     std::array<std::uint8_t, 2> header{};
-    co_await read_exact(reality_, header, ec);
+    co_await net::read_exact(reality_, header, ec);
     if (ec)
     {
         co_return;
@@ -79,7 +57,7 @@ boost::asio::awaitable<void> vless_stream::read_response_header(boost::system::e
     if (header[1] != 0)
     {
         std::vector<std::uint8_t> addon(header[1]);
-        co_await read_exact(reality_, addon, ec);
+        co_await net::read_exact(reality_, addon, ec);
         if (ec)
         {
             co_return;
@@ -92,6 +70,7 @@ boost::asio::awaitable<void> vless_stream::read_response_header(boost::system::e
 
 boost::asio::awaitable<std::size_t> vless_stream::read(std::span<std::uint8_t> output, boost::system::error_code& ec)
 {
+    ec.clear();
     if (output.empty())
     {
         co_return 0;
@@ -118,6 +97,7 @@ boost::asio::awaitable<void> vless_stream::shutdown_send(boost::system::error_co
 
 void vless_stream::switch_receive_to_raw(boost::system::error_code& ec)
 {
+    ec.clear();
     if (response_header_pending_)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::operation_not_permitted);

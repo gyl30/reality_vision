@@ -2,8 +2,8 @@
 
 #include "byte_order.hpp"
 #include "byte_writer.hpp"
+#include "stream_io.hpp"
 
-#include <boost/asio/error.hpp>
 #include <boost/system/errc.hpp>
 #include <spdlog/spdlog.h>
 
@@ -44,29 +44,10 @@ vless_udp_stream::vless_udp_stream(reality::reality_stream reality, std::string 
 {
 }
 
-boost::asio::awaitable<void> vless_udp_stream::read_exact(std::span<std::uint8_t> output, boost::system::error_code& ec)
-{
-    std::size_t offset = 0;
-    while (offset != output.size())
-    {
-        const auto count = co_await reality_.read(output.subspan(offset), ec);
-        if (ec)
-        {
-            co_return;
-        }
-        if (count == 0)
-        {
-            ec = boost::asio::error::eof;
-            co_return;
-        }
-        offset += count;
-    }
-}
-
 boost::asio::awaitable<void> vless_udp_stream::read_response_header(boost::system::error_code& ec)
 {
     std::array<std::uint8_t, 2> header{};
-    co_await read_exact(header, ec);
+    co_await net::read_exact(reality_, header, ec);
     if (ec)
     {
         co_return;
@@ -80,7 +61,7 @@ boost::asio::awaitable<void> vless_udp_stream::read_response_header(boost::syste
     if (header[1] != 0)
     {
         std::vector<std::uint8_t> addon(header[1]);
-        co_await read_exact(addon, ec);
+        co_await net::read_exact(reality_, addon, ec);
         if (ec)
         {
             co_return;
@@ -93,6 +74,7 @@ boost::asio::awaitable<void> vless_udp_stream::read_response_header(boost::syste
 
 boost::asio::awaitable<void> vless_udp_stream::write_datagram(std::span<const std::uint8_t> payload, boost::system::error_code& ec)
 {
+    ec.clear();
     if (payload.empty())
     {
         co_return;
@@ -112,6 +94,7 @@ boost::asio::awaitable<void> vless_udp_stream::write_datagram(std::span<const st
 
 boost::asio::awaitable<std::vector<std::uint8_t>> vless_udp_stream::read_datagram(boost::system::error_code& ec)
 {
+    ec.clear();
     if (response_header_pending_)
     {
         co_await read_response_header(ec);
@@ -122,7 +105,7 @@ boost::asio::awaitable<std::vector<std::uint8_t>> vless_udp_stream::read_datagra
     }
 
     std::array<std::uint8_t, 2> length_bytes{};
-    co_await read_exact(length_bytes, ec);
+    co_await net::read_exact(reality_, length_bytes, ec);
     if (ec)
     {
         co_return std::vector<std::uint8_t>{};
@@ -136,7 +119,7 @@ boost::asio::awaitable<std::vector<std::uint8_t>> vless_udp_stream::read_datagra
     }
 
     std::vector<std::uint8_t> payload(length);
-    co_await read_exact(payload, ec);
+    co_await net::read_exact(reality_, payload, ec);
     if (ec)
     {
         co_return std::vector<std::uint8_t>{};

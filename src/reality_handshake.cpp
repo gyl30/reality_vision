@@ -6,10 +6,10 @@
 #include "byte_writer.hpp"
 #include "crypto.hpp"
 #include "reality_client_hello.hpp"
+#include "stream_io.hpp"
 #include "tls_constants.hpp"
 
 #include <boost/asio/awaitable.hpp>
-#include <boost/asio/error.hpp>
 #include <boost/system/errc.hpp>
 #include <spdlog/spdlog.h>
 
@@ -66,29 +66,10 @@ struct parsed_server_hello
 
 void set_bad_message_error(boost::system::error_code& ec) { ec = boost::system::errc::make_error_code(boost::system::errc::bad_message); }
 
-boost::asio::awaitable<void> read_exact(net::tcp_byte_stream& stream, std::span<std::uint8_t> output, boost::system::error_code& ec)
-{
-    std::size_t offset = 0;
-    while (offset != output.size())
-    {
-        const auto count = co_await stream.read(output.subspan(offset), ec);
-        if (ec)
-        {
-            co_return;
-        }
-        if (count == 0)
-        {
-            ec = boost::asio::error::eof;
-            co_return;
-        }
-        offset += count;
-    }
-}
-
 boost::asio::awaitable<tls_record> read_tls_record(net::tcp_byte_stream& stream, boost::system::error_code& ec)
 {
     tls_record record;
-    co_await read_exact(stream, record.header, ec);
+    co_await net::read_exact(stream, record.header, ec);
     if (ec)
     {
         co_return record;
@@ -102,7 +83,7 @@ boost::asio::awaitable<tls_record> read_tls_record(net::tcp_byte_stream& stream,
         co_return record;
     }
     record.payload.resize(length);
-    co_await read_exact(stream, record.payload, ec);
+    co_await net::read_exact(stream, record.payload, ec);
     co_return record;
 }
 

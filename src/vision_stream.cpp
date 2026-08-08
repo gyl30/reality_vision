@@ -1,5 +1,7 @@
 #include "vision_stream.hpp"
 
+#include "stream_io.hpp"
+
 #include <boost/asio/error.hpp>
 #include <spdlog/spdlog.h>
 
@@ -13,29 +15,6 @@
 
 namespace rv::vision
 {
-namespace
-{
-
-boost::asio::awaitable<void> read_exact(vless::vless_stream& stream, std::span<std::uint8_t> output, boost::system::error_code& ec)
-{
-    std::size_t offset = 0;
-    while (offset != output.size())
-    {
-        const auto count = co_await stream.read(output.subspan(offset), ec);
-        if (ec)
-        {
-            co_return;
-        }
-        if (count == 0)
-        {
-            ec = boost::asio::error::eof;
-            co_return;
-        }
-        offset += count;
-    }
-}
-
-}    // namespace
 
 boost::asio::awaitable<std::optional<vision_stream>> vision_stream::connect(vless::vless_stream vless,
                                                                             std::array<std::uint8_t, kUserIdSize> user_id,
@@ -79,7 +58,7 @@ boost::asio::awaitable<bool> vision_stream::read_next_frame_header(boost::system
         co_return false;
     }
 
-    co_await read_exact(vless_, std::span(storage.data() + 1, header_size - 1), ec);
+    co_await net::read_exact(vless_, std::span(storage.data() + 1, header_size - 1), ec);
     if (ec)
     {
         co_return false;
@@ -187,6 +166,7 @@ boost::asio::awaitable<void> vision_stream::finish_received_frame(boost::system:
 
 boost::asio::awaitable<std::size_t> vision_stream::read(std::span<std::uint8_t> output, boost::system::error_code& ec)
 {
+    ec.clear();
     if (output.empty())
     {
         co_return 0;
@@ -297,6 +277,7 @@ boost::asio::awaitable<void> vision_stream::write_vision_frames(const std::span<
 
 boost::asio::awaitable<void> vision_stream::write(const std::span<const std::uint8_t> input, boost::system::error_code& ec)
 {
+    ec.clear();
     if (input.empty())
     {
         co_return;
@@ -352,6 +333,7 @@ boost::asio::awaitable<void> vision_stream::end_padding_before_shutdown(boost::s
 
 boost::asio::awaitable<void> vision_stream::shutdown_send(boost::system::error_code& ec)
 {
+    ec.clear();
     co_await end_padding_before_shutdown(ec);
     if (ec)
     {

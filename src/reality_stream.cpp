@@ -2,6 +2,7 @@
 
 #include "byte_order.hpp"
 #include "reality_handshake.hpp"
+#include "stream_io.hpp"
 
 #include <boost/asio/error.hpp>
 #include <boost/system/errc.hpp>
@@ -19,25 +20,6 @@ namespace rv::reality
 {
 namespace
 {
-
-boost::asio::awaitable<void> read_exact(net::tcp_byte_stream& stream, std::span<std::uint8_t> output, boost::system::error_code& ec)
-{
-    std::size_t offset = 0;
-    while (offset != output.size())
-    {
-        const auto count = co_await stream.read(output.subspan(offset), ec);
-        if (ec)
-        {
-            co_return;
-        }
-        if (count == 0)
-        {
-            ec = boost::asio::error::eof;
-            co_return;
-        }
-        offset += count;
-    }
-}
 
 std::size_t handshake_message_length(std::span<const std::uint8_t> input) noexcept
 {
@@ -67,6 +49,7 @@ reality_stream::reality_stream(net::tcp_byte_stream tcp, record_key receive_key,
 
 boost::asio::awaitable<std::size_t> reality_stream::read(std::span<std::uint8_t> output, boost::system::error_code& ec)
 {
+    ec.clear();
     if (output.empty())
     {
         co_return 0;
@@ -102,7 +85,7 @@ boost::asio::awaitable<std::size_t> reality_stream::read_raw(std::span<std::uint
 boost::asio::awaitable<std::optional<reality_stream::encrypted_record>> reality_stream::read_tls_record(boost::system::error_code& ec)
 {
     encrypted_record record;
-    co_await read_exact(tcp_, record.header, ec);
+    co_await net::read_exact(tcp_, record.header, ec);
     if (ec)
     {
         co_return std::nullopt;
@@ -116,7 +99,7 @@ boost::asio::awaitable<std::optional<reality_stream::encrypted_record>> reality_
     }
 
     record.payload.resize(payload_size);
-    co_await read_exact(tcp_, record.payload, ec);
+    co_await net::read_exact(tcp_, record.payload, ec);
     if (ec)
     {
         co_return std::nullopt;
@@ -241,6 +224,7 @@ boost::asio::awaitable<void> reality_stream::write_tls_records(std::span<const s
 
 boost::asio::awaitable<void> reality_stream::write(std::span<const std::uint8_t> input, boost::system::error_code& ec)
 {
+    ec.clear();
     if (send_mode_ == send_mode::kRaw)
     {
         co_await tcp_.write(input, ec);
@@ -257,6 +241,7 @@ boost::asio::awaitable<void> reality_stream::write(std::span<const std::uint8_t>
 
 boost::asio::awaitable<void> reality_stream::shutdown_send(boost::system::error_code& ec)
 {
+    ec.clear();
     if (send_mode_ == send_mode::kClosed)
     {
         co_return;
@@ -288,6 +273,7 @@ boost::asio::awaitable<void> reality_stream::shutdown_send(boost::system::error_
 
 void reality_stream::switch_receive_to_raw(boost::system::error_code& ec)
 {
+    ec.clear();
     if (receive_mode_ != receive_mode::kTls || !plaintext_buffer_.empty() || !post_handshake_buffer_.empty())
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::operation_not_permitted);
@@ -301,6 +287,7 @@ void reality_stream::switch_receive_to_raw(boost::system::error_code& ec)
 boost::asio::awaitable<void> reality_stream::write_final_tls_and_switch_to_raw(std::span<const std::uint8_t> final_plaintext,
                                                                                boost::system::error_code& ec)
 {
+    ec.clear();
     if (send_mode_ != send_mode::kTls)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::operation_not_permitted);

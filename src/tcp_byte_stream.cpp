@@ -39,6 +39,7 @@ boost::asio::awaitable<std::optional<tcp_byte_stream>> tcp_byte_stream::connect(
 
 boost::asio::awaitable<std::size_t> tcp_byte_stream::read(std::span<std::uint8_t> output, boost::system::error_code& ec)
 {
+    ec.clear();
     if (output.empty())
     {
         co_return 0;
@@ -49,6 +50,7 @@ boost::asio::awaitable<std::size_t> tcp_byte_stream::read(std::span<std::uint8_t
 
 boost::asio::awaitable<void> tcp_byte_stream::write(std::span<const std::uint8_t> input, boost::system::error_code& ec)
 {
+    ec.clear();
     if (input.empty())
     {
         co_return;
