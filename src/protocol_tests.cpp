@@ -266,6 +266,17 @@ void test_record_roundtrip()
         ec.clear();
     }
 
+    std::vector<std::uint8_t> maximum_plain_record_payload(16384, 0x5a);
+    const auto maximum_plain_record = rv::reality::wrap_plain_record(0x16, maximum_plain_record_payload, ec);
+    expect(!ec && maximum_plain_record.size() == 16389 && read_test_u16(maximum_plain_record, 3, "maximum plain TLS record length missing") == 16384,
+           "maximum plain TLS record construction failed");
+
+    std::vector<std::uint8_t> oversized_plain_record_payload(16385, 0x5a);
+    const auto oversized_plain_record = rv::reality::wrap_plain_record(0x16, oversized_plain_record_payload, ec);
+    expect(oversized_plain_record.empty(), "plain TLS record accepted oversized payload");
+    expect_error(ec, boost::system::errc::message_size, "oversized plain TLS record returned wrong error");
+    ec.clear();
+
     constexpr std::array<std::uint8_t, 3> kKeyLabel{'k', 'e', 'y'};
     constexpr std::array<std::uint8_t, 2> kIvLabel{'i', 'v'};
     constexpr std::array<std::uint8_t, 5> kOversizedRecordHeader{0x17, 0x03, 0x03, 0x40, 0x12};
@@ -304,7 +315,25 @@ void test_tls_control_records()
     expect(!rv::reality::is_compatibility_change_cipher_spec(kCompatibilityCcsHeader, kLongCcsPayload),
            "TLS accepted compatibility CCS with trailing payload");
 
+    expect(rv::reality::is_valid_record_payload_size(0x16, 16384), "TLS rejected maximum plaintext record payload");
+    expect(!rv::reality::is_valid_record_payload_size(0x16, 16385), "TLS accepted oversized plaintext record payload");
+    expect(rv::reality::is_valid_record_payload_size(0x17, 16640), "TLS rejected maximum ciphertext record payload");
+    expect(!rv::reality::is_valid_record_payload_size(0x17, 16641), "TLS accepted oversized ciphertext record payload");
+
     boost::system::error_code ec;
+    constexpr std::array<std::uint8_t, 4> kMaximumHandshakeHeader{0x0b, 0x0f, 0xff, 0xfc};
+    expect(rv::reality::parse_handshake_message_size(kMaximumHandshakeHeader, ec) == 1048576 && !ec, "TLS rejected maximum handshake message");
+
+    constexpr std::array<std::uint8_t, 4> kOversizedHandshakeHeader{0x0b, 0x0f, 0xff, 0xfd};
+    static_cast<void>(rv::reality::parse_handshake_message_size(kOversizedHandshakeHeader, ec));
+    expect_error(ec, boost::system::errc::message_size, "TLS accepted oversized handshake message");
+    ec.clear();
+
+    constexpr std::array<std::uint8_t, 3> kTruncatedHandshakeHeader{0x0b, 0x00, 0x00};
+    static_cast<void>(rv::reality::parse_handshake_message_size(kTruncatedHandshakeHeader, ec));
+    expect_error(ec, boost::system::errc::bad_message, "TLS accepted truncated handshake header");
+    ec.clear();
+
     constexpr std::array<std::uint8_t, 2> kCloseNotify{0x01, 0x00};
     const auto close_notify = rv::reality::parse_alert_description(kCloseNotify, ec);
     expect(!ec && close_notify == 0, "TLS close notify parse failed");

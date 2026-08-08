@@ -78,7 +78,7 @@ boost::asio::awaitable<tls_record> read_tls_record(net::tcp_byte_stream& stream,
 
     record.type = record.header[0];
     const auto length = static_cast<std::size_t>(core::read_be16(record.header.data() + tls::kRecordLengthOffset));
-    if (length > tls::kMaximumCiphertextSize)
+    if (!is_valid_record_payload_size(record.type, length))
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::message_size);
         co_return record;
@@ -94,18 +94,16 @@ std::optional<handshake_message> pop_handshake_message(core::byte_queue& queue, 
     {
         return std::nullopt;
     }
-    const auto data = queue.data();
-    const auto body_length = static_cast<std::size_t>(core::read_be24(data.data() + tls::kHandshakeLengthOffset));
-    if (body_length > tls::kMaximumHandshakeMessageSize)
-    {
-        ec = boost::system::errc::make_error_code(boost::system::errc::message_size);
-        return std::nullopt;
-    }
-    if (queue.size() < tls::kHandshakeHeaderSize + body_length)
+    const auto message_size = parse_handshake_message_size(queue.data(), ec);
+    if (ec)
     {
         return std::nullopt;
     }
-    auto raw = queue.take(tls::kHandshakeHeaderSize + body_length);
+    if (queue.size() < message_size)
+    {
+        return std::nullopt;
+    }
+    auto raw = queue.take(message_size);
     return handshake_message{raw[0], std::move(raw)};
 }
 

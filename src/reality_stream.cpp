@@ -23,11 +23,6 @@ namespace
 
 constexpr std::array<std::uint8_t, 2> kCloseNotify{tls::kAlertLevelWarning, tls::kAlertCloseNotify};
 
-std::size_t handshake_message_length(std::span<const std::uint8_t> input) noexcept
-{
-    return tls::kHandshakeHeaderSize + static_cast<std::size_t>(core::read_be24(input.data() + tls::kHandshakeLengthOffset));
-}
-
 }    // namespace
 
 boost::asio::awaitable<std::optional<reality_stream>> reality_stream::connect(net::tcp_byte_stream tcp,
@@ -93,7 +88,7 @@ boost::asio::awaitable<std::optional<reality_stream::encrypted_record>> reality_
     }
 
     const auto payload_size = static_cast<std::size_t>(core::read_be16(record.header.data() + tls::kRecordLengthOffset));
-    if (payload_size > tls::kMaximumCiphertextSize)
+    if (!is_valid_record_payload_size(record.header[0], payload_size))
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::message_size);
         co_return std::nullopt;
@@ -316,10 +311,9 @@ void reality_stream::process_post_handshake_messages(boost::system::error_code& 
 {
     while (post_handshake_buffer_.size() >= tls::kHandshakeHeaderSize)
     {
-        const auto message_length = handshake_message_length(post_handshake_buffer_.data());
-        if (message_length > tls::kMaximumHandshakeMessageSize)
+        const auto message_length = parse_handshake_message_size(post_handshake_buffer_.data(), ec);
+        if (ec)
         {
-            ec = boost::system::errc::make_error_code(boost::system::errc::message_size);
             return;
         }
         if (post_handshake_buffer_.size() < message_length)

@@ -460,7 +460,7 @@ std::optional<client_hello_material> build_client_hello(const client_config& con
 
 std::vector<std::uint8_t> wrap_plain_record(std::uint8_t content_type, std::span<const std::uint8_t> payload, boost::system::error_code& ec)
 {
-    if (payload.size() > std::numeric_limits<std::uint16_t>::max())
+    if (payload.size() > tls::kMaximumPlaintextSize)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::message_size);
         return {};

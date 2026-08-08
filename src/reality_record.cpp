@@ -59,6 +59,29 @@ cipher_suite_properties cipher_properties(cipher_suite suite) noexcept
     return {crypto::hash_algorithm::kSha256, crypto::aead_algorithm::kAes128Gcm, 0};
 }
 
+bool is_valid_record_payload_size(const std::uint8_t outer_type, const std::size_t payload_size) noexcept
+{
+    const auto maximum_size = outer_type == tls::kRecordApplicationData ? tls::kMaximumCiphertextSize : tls::kMaximumPlaintextSize;
+    return payload_size <= maximum_size;
+}
+
+std::size_t parse_handshake_message_size(const std::span<const std::uint8_t> header, boost::system::error_code& ec)
+{
+    if (header.size() < tls::kHandshakeHeaderSize)
+    {
+        ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
+        return 0;
+    }
+
+    const auto body_size = static_cast<std::size_t>(core::read_be24(header.data() + tls::kHandshakeLengthOffset));
+    if (body_size > tls::kMaximumHandshakeMessageSize - tls::kHandshakeHeaderSize)
+    {
+        ec = boost::system::errc::make_error_code(boost::system::errc::message_size);
+        return 0;
+    }
+    return tls::kHandshakeHeaderSize + body_size;
+}
+
 bool is_compatibility_change_cipher_spec(const std::span<const std::uint8_t, tls::kRecordHeaderSize> header,
                                          const std::span<const std::uint8_t> payload) noexcept
 {
