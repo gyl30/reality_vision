@@ -815,6 +815,14 @@ void test_vision_tls_trackers()
     tls12_tracker.observe(make_test_tls_server_hello(0x1301, false));
     expect(!tls12_tracker.direct_supported(), "Vision server tracker accepted TLS 1.2");
 
+    auto oversized_server_hello = make_test_tls_server_hello(0x1301, true);
+    oversized_server_hello[3] = 0x40;
+    oversized_server_hello[4] = 0x01;
+    oversized_server_hello.resize(5 + 16385, 0);
+    rv::vision::server_hello_tracker oversized_server_tracker;
+    oversized_server_tracker.observe(oversized_server_hello);
+    expect(!oversized_server_tracker.direct_supported(), "Vision server tracker accepted an oversized plaintext record");
+
     auto false_positive_server_hello = make_test_tls_server_hello(0x1301, false);
     constexpr std::array<std::uint8_t, 6> kTls13ExtensionBytes{0x00, 0x2b, 0x00, 0x02, 0x03, 0x04};
     std::copy(kTls13ExtensionBytes.begin(), kTls13ExtensionBytes.end(), false_positive_server_hello.begin() + 11);

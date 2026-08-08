@@ -21,7 +21,7 @@ namespace rv::vision
 namespace
 {
 
-inline constexpr std::size_t kMaximumServerHelloRecordSize = 64UL * 1024U;
+inline constexpr std::size_t kMaximumServerHelloRecordSize = tls::kRecordHeaderSize + tls::kMaximumPlaintextSize;
 inline constexpr std::uint16_t kFirstDirectCipher = 0x1301;
 inline constexpr std::uint16_t kLastDirectCipher = 0x1304;
 inline constexpr std::uint16_t kMinimumRecordVersion = 0x0301;
