@@ -1,5 +1,5 @@
-#ifndef reality_vision_config_hpp
-#define reality_vision_config_hpp
+#ifndef REALITY_VISION_CONFIG_HPP
+#define REALITY_VISION_CONFIG_HPP
 
 #include "socks5_protocol.hpp"
 
@@ -38,4 +38,4 @@ enum class config_exit_code : int
 
 }    // namespace rv::app
 
-#endif    // reality_vision_config_hpp
+#endif    // REALITY_VISION_CONFIG_HPP

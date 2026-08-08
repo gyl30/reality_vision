@@ -1,5 +1,5 @@
-#ifndef reality_vision_rv_core_base64_hpp
-#define reality_vision_rv_core_base64_hpp
+#ifndef REALITY_VISION_RV_CORE_BASE64_HPP
+#define REALITY_VISION_RV_CORE_BASE64_HPP
 
 #include <cstdint>
 #include <string>
@@ -24,4 +24,4 @@ class base64
 };
 }    // namespace rv::core
 
-#endif    // reality_vision_rv_core_base64_hpp
+#endif    // REALITY_VISION_RV_CORE_BASE64_HPP

@@ -1,5 +1,5 @@
-#ifndef reality_vision_rv_testing_protocol_tests_hpp
-#define reality_vision_rv_testing_protocol_tests_hpp
+#ifndef REALITY_VISION_RV_TESTING_PROTOCOL_TESTS_HPP
+#define REALITY_VISION_RV_TESTING_PROTOCOL_TESTS_HPP
 
 namespace rv::testing
 {
@@ -8,4 +8,4 @@ int run_protocol_tests();
 
 }    // namespace rv::testing
 
-#endif    // reality_vision_rv_testing_protocol_tests_hpp
+#endif    // REALITY_VISION_RV_TESTING_PROTOCOL_TESTS_HPP

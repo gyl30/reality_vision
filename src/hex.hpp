@@ -1,5 +1,5 @@
-#ifndef reality_vision_rv_core_hex_hpp
-#define reality_vision_rv_core_hex_hpp
+#ifndef REALITY_VISION_RV_CORE_HEX_HPP
+#define REALITY_VISION_RV_CORE_HEX_HPP
 
 #include <cstdint>
 #include <string>
@@ -27,4 +27,4 @@ class hex
 
 }    // namespace rv::core
 
-#endif    // reality_vision_rv_core_hex_hpp
+#endif    // REALITY_VISION_RV_CORE_HEX_HPP

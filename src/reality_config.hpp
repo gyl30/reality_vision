@@ -1,5 +1,5 @@
-#ifndef reality_vision_rv_reality_config_hpp
-#define reality_vision_rv_reality_config_hpp
+#ifndef REALITY_VISION_RV_REALITY_CONFIG_HPP
+#define REALITY_VISION_RV_REALITY_CONFIG_HPP
 
 #include <array>
 #include <cstdint>
@@ -31,4 +31,4 @@ struct client_config
 
 }    // namespace rv::reality
 
-#endif    // reality_vision_rv_reality_config_hpp
+#endif    // REALITY_VISION_RV_REALITY_CONFIG_HPP
