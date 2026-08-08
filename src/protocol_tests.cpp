@@ -789,6 +789,16 @@ void test_vision_tls_trackers()
     observation = malformed_tracker.observe(kInvalidRecordHeader);
     expect(observation.tracking_failed, "TLS tracker did not report loss of record framing");
 
+    rv::vision::client_tls_record_tracker maximum_plaintext_tracker;
+    constexpr std::array<std::uint8_t, 6> kMaximumPlaintextClientHello{0x16, 0x03, 0x03, 0x40, 0x00, 0x01};
+    observation = maximum_plaintext_tracker.observe(kMaximumPlaintextClientHello);
+    expect(observation.kind == rv::vision::client_stream_kind::kTls, "TLS tracker rejected a maximum plaintext record");
+
+    rv::vision::client_tls_record_tracker oversized_plaintext_tracker;
+    constexpr std::array<std::uint8_t, 6> kOversizedPlaintextClientHello{0x16, 0x03, 0x03, 0x40, 0x01, 0x01};
+    observation = oversized_plaintext_tracker.observe(kOversizedPlaintextClientHello);
+    expect(observation.kind == rv::vision::client_stream_kind::kNonTls, "TLS tracker accepted an oversized plaintext record");
+
     for (const auto cipher : std::array<std::uint16_t, 4>{0x1301, 0x1302, 0x1303, 0x1304})
     {
         rv::vision::server_hello_tracker server_tracker;

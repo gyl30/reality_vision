@@ -173,7 +173,8 @@ bool is_tls_record_header(const std::array<std::uint8_t, tls::kRecordHeaderSize>
     }
 
     const auto length = static_cast<std::size_t>(core::read_be16(header.data() + tls::kRecordLengthOffset));
-    return length <= tls::kMaximumCiphertextSize && (!first_record || length != 0);
+    const auto maximum_length = type == tls::kRecordApplicationData ? tls::kMaximumCiphertextSize : tls::kMaximumPlaintextSize;
+    return length <= maximum_length && (!first_record || length != 0);
 }
 
 bool extensions_support_tls13(const std::span<const std::uint8_t> extensions)
