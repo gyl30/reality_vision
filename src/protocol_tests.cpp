@@ -650,21 +650,37 @@ void test_vision_tls_trackers()
     expect(fragmented_tracker.direct_supported(), "Vision server tracker missed a fragmented ServerHello");
 }
 
-void test_socks5_decode()
+void test_socks5_request_decode()
 {
     boost::system::error_code ec;
-    constexpr std::array<std::uint8_t, 10> wire{5, 1, 0, 1, 127, 0, 0, 1, 0x01, 0xbb};
     rv::socks5::request request;
-    ec = rv::socks5::decode_request(wire, request);
-    expect(!ec, "SOCKS5 decode failed");
-    expect(request.requested_command == rv::socks5::command::connect, "SOCKS5 CONNECT command mismatch");
-    expect(request.port == 443, "SOCKS5 port mismatch");
 
-    auto malformed = wire;
-    malformed[0] = 4;
-    ec = rv::socks5::decode_request(malformed, request);
-    expect(static_cast<bool>(ec), "SOCKS5 accepted wrong version");
-    expect_error(ec, boost::system::errc::bad_message, "SOCKS5 malformed request returned wrong error");
+    constexpr std::array<std::uint8_t, 10> ipv4_request{5, 1, 0, 1, 127, 0, 0, 1, 0x01, 0xbb};
+    ec = rv::socks5::decode_request(ipv4_request, request);
+    expect(!ec, "SOCKS5 IPv4 CONNECT decode failed");
+    expect(request.requested_command == rv::socks5::command::connect, "SOCKS5 CONNECT command mismatch");
+    expect(request.port == 443, "SOCKS5 IPv4 CONNECT port mismatch");
+    const auto* ipv4 = std::get_if<rv::socks5::ipv4_address>(&request.destination);
+    expect(ipv4 != nullptr && ipv4->bytes == std::array<std::uint8_t, 4>{127, 0, 0, 1}, "SOCKS5 IPv4 CONNECT address mismatch");
+
+    constexpr std::array<std::uint8_t, 18> domain_request{
+        5, 1, 0, 3, 11, 'e', 'x', 'a', 'm', 'p', 'l', 'e', '.', 'c', 'o', 'm', 0x01, 0xbb,
+    };
+    ec = rv::socks5::decode_request(domain_request, request);
+    expect(!ec, "SOCKS5 domain CONNECT decode failed");
+    const auto* domain = std::get_if<rv::socks5::domain_address>(&request.destination);
+    expect(domain != nullptr && domain->name == "example.com" && request.port == 443, "SOCKS5 domain CONNECT mismatch");
+
+    constexpr std::array<std::uint8_t, 22> ipv6_request{
+        5, 1, 0, 4,
+        0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+        0x01, 0xbb,
+    };
+    ec = rv::socks5::decode_request(ipv6_request, request);
+    expect(!ec, "SOCKS5 IPv6 CONNECT decode failed");
+    const auto* ipv6 = std::get_if<rv::socks5::ipv6_address>(&request.destination);
+    constexpr std::array<std::uint8_t, 16> expected_ipv6{0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
+    expect(ipv6 != nullptr && ipv6->bytes == expected_ipv6 && request.port == 443, "SOCKS5 IPv6 CONNECT mismatch");
 
     constexpr std::array<std::uint8_t, 10> associate{5, 3, 0, 1, 0, 0, 0, 0, 0, 0};
     ec = rv::socks5::decode_request(associate, request);
@@ -672,19 +688,107 @@ void test_socks5_decode()
     expect(request.requested_command == rv::socks5::command::udp_associate && request.port == 0,
            "SOCKS5 UDP ASSOCIATE command mismatch");
 
-    constexpr std::array<std::uint8_t, 13> udp_packet{0, 0, 0, 1, 8, 8, 8, 8, 0, 53, 'd', 'n', 's'};
-    rv::socks5::udp_datagram datagram;
-    ec = rv::socks5::decode_udp_datagram(udp_packet, datagram);
-    expect(!ec && datagram.port == 53 && datagram.payload.size() == 3, "SOCKS5 UDP datagram decode failed");
+    auto malformed = ipv4_request;
+    malformed[0] = 4;
+    ec = rv::socks5::decode_request(malformed, request);
+    expect_error(ec, boost::system::errc::bad_message, "SOCKS5 accepted wrong version");
 
-    const auto encoded = rv::socks5::encode_udp_datagram(datagram.destination, datagram.port, datagram.payload, ec);
-    expect(!ec && encoded == std::vector<std::uint8_t>(udp_packet.begin(), udp_packet.end()), "SOCKS5 UDP datagram encode mismatch");
+    malformed = ipv4_request;
+    malformed[2] = 1;
+    ec = rv::socks5::decode_request(malformed, request);
+    expect_error(ec, boost::system::errc::bad_message, "SOCKS5 accepted nonzero reserved byte");
 
-    auto fragmented = udp_packet;
-    fragmented[2] = 1;
-    ec = rv::socks5::decode_udp_datagram(fragmented, datagram);
-    expect_error(ec, boost::system::errc::operation_not_supported, "SOCKS5 UDP fragmentation returned wrong error");
+    malformed = ipv4_request;
+    malformed[1] = 2;
+    ec = rv::socks5::decode_request(malformed, request);
+    expect_error(ec, boost::system::errc::operation_not_supported, "SOCKS5 unsupported command returned wrong error");
+
+    malformed = ipv4_request;
+    malformed[3] = 2;
+    ec = rv::socks5::decode_request(malformed, request);
+    expect_error(ec, boost::system::errc::address_family_not_supported, "SOCKS5 unsupported address type returned wrong error");
+
+    constexpr std::array<std::uint8_t, 9> truncated_ipv4{5, 1, 0, 1, 127, 0, 0, 1, 0x01};
+    ec = rv::socks5::decode_request(truncated_ipv4, request);
+    expect_error(ec, boost::system::errc::bad_message, "SOCKS5 accepted truncated IPv4 request");
+
+    constexpr std::array<std::uint8_t, 7> empty_domain{5, 1, 0, 3, 0, 0, 80};
+    ec = rv::socks5::decode_request(empty_domain, request);
+    expect_error(ec, boost::system::errc::bad_message, "SOCKS5 accepted empty domain");
+
+    constexpr std::array<std::uint8_t, 10> nul_domain{5, 1, 0, 3, 3, 'a', 0, 'b', 0, 80};
+    ec = rv::socks5::decode_request(nul_domain, request);
+    expect_error(ec, boost::system::errc::bad_message, "SOCKS5 accepted domain containing NUL");
+
+    constexpr std::array<std::uint8_t, 11> trailing_bytes{5, 1, 0, 1, 127, 0, 0, 1, 0, 80, 0};
+    ec = rv::socks5::decode_request(trailing_bytes, request);
+    expect_error(ec, boost::system::errc::bad_message, "SOCKS5 accepted trailing request bytes");
+
+    constexpr std::array<std::uint8_t, 10> zero_connect_port{5, 1, 0, 1, 127, 0, 0, 1, 0, 0};
+    ec = rv::socks5::decode_request(zero_connect_port, request);
+    expect_error(ec, boost::system::errc::invalid_argument, "SOCKS5 CONNECT accepted port zero");
 }
+
+void test_socks5_udp_codec()
+{
+    boost::system::error_code ec;
+    rv::socks5::udp_datagram datagram;
+
+    constexpr std::array<std::uint8_t, 13> ipv4_packet{0, 0, 0, 1, 8, 8, 8, 8, 0, 53, 'd', 'n', 's'};
+    ec = rv::socks5::decode_udp_datagram(ipv4_packet, datagram);
+    expect(!ec && datagram.port == 53 && datagram.payload.size() == 3, "SOCKS5 IPv4 UDP datagram decode failed");
+    const auto encoded_ipv4 = rv::socks5::encode_udp_datagram(datagram.destination, datagram.port, datagram.payload, ec);
+    expect(!ec && encoded_ipv4 == std::vector<std::uint8_t>(ipv4_packet.begin(), ipv4_packet.end()), "SOCKS5 IPv4 UDP roundtrip mismatch");
+
+    constexpr std::array<std::uint8_t, 12> domain_packet{0, 0, 0, 3, 3, 'd', 'n', 's', 0, 53, 0xaa, 0xbb};
+    ec = rv::socks5::decode_udp_datagram(domain_packet, datagram);
+    expect(!ec && datagram.port == 53 && datagram.payload.size() == 2, "SOCKS5 domain UDP datagram decode failed");
+    const auto* domain = std::get_if<rv::socks5::domain_address>(&datagram.destination);
+    expect(domain != nullptr && domain->name == "dns", "SOCKS5 domain UDP destination mismatch");
+
+    constexpr std::array<std::uint8_t, 25> ipv6_packet{
+        0, 0, 0, 4,
+        0x20, 0x01, 0x48, 0x60, 0x48, 0x60, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x88,
+        0, 53, 1, 2, 3,
+    };
+    ec = rv::socks5::decode_udp_datagram(ipv6_packet, datagram);
+    expect(!ec && datagram.port == 53 && datagram.payload.size() == 3, "SOCKS5 IPv6 UDP datagram decode failed");
+    const auto encoded_ipv6 = rv::socks5::encode_udp_datagram(datagram.destination, datagram.port, datagram.payload, ec);
+    expect(!ec && encoded_ipv6 == std::vector<std::uint8_t>(ipv6_packet.begin(), ipv6_packet.end()), "SOCKS5 IPv6 UDP roundtrip mismatch");
+
+    auto malformed = ipv4_packet;
+    malformed[0] = 1;
+    ec = rv::socks5::decode_udp_datagram(malformed, datagram);
+    expect_error(ec, boost::system::errc::bad_message, "SOCKS5 UDP accepted nonzero reserved field");
+
+    malformed = ipv4_packet;
+    malformed[2] = 1;
+    ec = rv::socks5::decode_udp_datagram(malformed, datagram);
+    expect_error(ec, boost::system::errc::operation_not_supported, "SOCKS5 UDP fragmentation returned wrong error");
+
+    malformed = ipv4_packet;
+    malformed[3] = 2;
+    ec = rv::socks5::decode_udp_datagram(malformed, datagram);
+    expect_error(ec, boost::system::errc::address_family_not_supported, "SOCKS5 UDP unsupported address type returned wrong error");
+
+    constexpr std::array<std::uint8_t, 9> truncated_ipv4{0, 0, 0, 1, 8, 8, 8, 8, 0};
+    ec = rv::socks5::decode_udp_datagram(truncated_ipv4, datagram);
+    expect_error(ec, boost::system::errc::bad_message, "SOCKS5 UDP accepted truncated datagram");
+
+    constexpr std::array<std::uint8_t, 10> zero_port{0, 0, 0, 1, 8, 8, 8, 8, 0, 0};
+    ec = rv::socks5::decode_udp_datagram(zero_port, datagram);
+    expect_error(ec, boost::system::errc::invalid_argument, "SOCKS5 UDP accepted port zero");
+
+    constexpr std::array<std::uint8_t, 10> nul_domain{0, 0, 0, 3, 3, 'a', 0, 'b', 0, 53};
+    ec = rv::socks5::decode_udp_datagram(nul_domain, datagram);
+    expect_error(ec, boost::system::errc::bad_message, "SOCKS5 UDP accepted domain containing NUL");
+
+    const rv::socks5::domain_address invalid_domain{std::string("a\0b", 3)};
+    const auto invalid_encoded = rv::socks5::encode_udp_datagram(invalid_domain, 53, {}, ec);
+    expect(invalid_encoded.empty(), "SOCKS5 UDP encoded domain containing NUL");
+    expect_error(ec, boost::system::errc::invalid_argument, "SOCKS5 UDP invalid domain returned wrong encode error");
+}
+
 
 }    // namespace
 
@@ -701,7 +805,8 @@ int run_protocol_tests()
         std::pair{"destination sniffer", &test_destination_sniffer},
         std::pair{"Vision frame codec", &test_vision_frame_codec},
         std::pair{"Vision TLS trackers", &test_vision_tls_trackers},
-        std::pair{"SOCKS5 decode", &test_socks5_decode},
+        std::pair{"SOCKS5 request decode", &test_socks5_request_decode},
+        std::pair{"SOCKS5 UDP codec", &test_socks5_udp_codec},
     };
 
     try

@@ -98,7 +98,14 @@ boost::system::error_code decode_address(const std::span<const std::uint8_t> inp
             {
                 return make_error_code(boost::system::errc::bad_message);
             }
-            destination = domain_address{std::string(reinterpret_cast<const char*>(input.data() + begin), domain_length)};
+
+            const auto domain = input.subspan(begin, domain_length);
+            if (std::ranges::find(domain, std::uint8_t{0}) != domain.end())
+            {
+                return make_error_code(boost::system::errc::bad_message);
+            }
+
+            destination = domain_address{std::string(reinterpret_cast<const char*>(domain.data()), domain.size())};
             next_offset = begin + domain_length;
             return {};
         }
