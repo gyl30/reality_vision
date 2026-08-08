@@ -34,9 +34,9 @@ constexpr std::uint8_t kCertificateVerifyPaddingByte = 0x20;
 constexpr std::uint8_t kCertificateVerifySeparator = 0;
 constexpr std::string_view kCertificateVerifyContext = "TLS 1.3, server CertificateVerify";
 
-constexpr std::array<std::uint8_t, tls::kRandomSize> kHelloRetryRequestRandom{
-    0xcf, 0x21, 0xad, 0x74, 0xe5, 0x9a, 0x61, 0x11, 0xbe, 0x1d, 0x8c, 0x02, 0x1e, 0x65, 0xb8, 0x91,
-    0xc2, 0xa2, 0x11, 0x16, 0x7a, 0xbb, 0x8c, 0x5e, 0x07, 0x9e, 0x09, 0xe2, 0xc8, 0xa8, 0x33, 0x9c};
+constexpr std::array<std::uint8_t, tls::kRandomSize> kHelloRetryRequestRandom{0xcf, 0x21, 0xad, 0x74, 0xe5, 0x9a, 0x61, 0x11, 0xbe, 0x1d, 0x8c,
+                                                                              0x02, 0x1e, 0x65, 0xb8, 0x91, 0xc2, 0xa2, 0x11, 0x16, 0x7a, 0xbb,
+                                                                              0x8c, 0x5e, 0x07, 0x9e, 0x09, 0xe2, 0xc8, 0xa8, 0x33, 0x9c};
 
 struct tls_record
 {
@@ -133,8 +133,7 @@ boost::asio::awaitable<handshake_message> read_plain_handshake_message(net::tcp_
         {
             continue;
         }
-        if (record.type != tls::kRecordHandshake ||
-            record.header[1] != static_cast<std::uint8_t>(tls::kLegacyVersion >> 8U))
+        if (record.type != tls::kRecordHandshake || record.header[1] != static_cast<std::uint8_t>(tls::kLegacyVersion >> 8U))
         {
             ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
             co_return handshake_message{};
@@ -232,9 +231,7 @@ void parse_server_key_share(const std::span<const std::uint8_t> extension_data, 
     std::copy(share->begin(), share->end(), server_hello.x25519_key_share.begin());
 }
 
-void parse_server_hello_extensions(const std::span<const std::uint8_t> extensions,
-                                   parsed_server_hello& server_hello,
-                                   boost::system::error_code& ec)
+void parse_server_hello_extensions(const std::span<const std::uint8_t> extensions, parsed_server_hello& server_hello, boost::system::error_code& ec)
 {
     bool tls13_seen = false;
     bool key_share_seen = false;
@@ -293,7 +290,6 @@ parsed_server_hello parse_server_hello(const handshake_message& message, boost::
         ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
         return result;
     }
-
 
     core::byte_reader reader(handshake_body(message));
     std::uint16_t legacy_version = 0;
@@ -458,8 +454,7 @@ void verify_certificate_verify(const handshake_message& message,
         return;
     }
     const auto signature = reader.read_bytes(signature_length);
-    if (!signature || !reader.empty() || algorithm != kSignatureSchemeEd25519 ||
-        signature->size() != crypto::kEd25519SignatureSize)
+    if (!signature || !reader.empty() || algorithm != kSignatureSchemeEd25519 || signature->size() != crypto::kEd25519SignatureSize)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
         return;
@@ -471,14 +466,13 @@ void verify_certificate_verify(const handshake_message& message,
         return;
     }
     std::vector<std::uint8_t> signed_message(kCertificateVerifyPaddingSize, kCertificateVerifyPaddingByte);
-    signed_message.reserve(
-        kCertificateVerifyPaddingSize + kCertificateVerifyContext.size() + sizeof(kCertificateVerifySeparator) + transcript_hash.size());
+    signed_message.reserve(kCertificateVerifyPaddingSize + kCertificateVerifyContext.size() + sizeof(kCertificateVerifySeparator) +
+                           transcript_hash.size());
     signed_message.insert(signed_message.end(), kCertificateVerifyContext.begin(), kCertificateVerifyContext.end());
     signed_message.push_back(kCertificateVerifySeparator);
     signed_message.insert(signed_message.end(), transcript_hash.begin(), transcript_hash.end());
 
-    const std::span<const std::uint8_t, crypto::kEd25519SignatureSize> fixed_signature(
-        signature->data(), crypto::kEd25519SignatureSize);
+    const std::span<const std::uint8_t, crypto::kEd25519SignatureSize> fixed_signature(signature->data(), crypto::kEd25519SignatureSize);
     crypto::verify_ed25519(public_key, signed_message, fixed_signature, ec);
 }
 
@@ -585,15 +579,9 @@ void accept_server_finished(const handshake_message& message,
         return;
     }
 
-    const auto expected_verify_data = finished_verify_data(server_hello.suite, secrets.server_secret, transcript, ec);
+    verify_finished_data(server_hello.suite, secrets.server_secret, transcript, handshake_body(message), ec);
     if (ec)
     {
-        return;
-    }
-
-    if (!crypto::constant_time_equal(expected_verify_data, handshake_body(message)))
-    {
-        ec = boost::system::errc::make_error_code(boost::system::errc::permission_denied);
         return;
     }
 
@@ -643,21 +631,12 @@ boost::asio::awaitable<void> read_server_handshake_flight(net::tcp_byte_stream& 
         co_return;
     }
 
-    for (;;)
+    message = co_await read_encrypted_handshake_message(tcp, secrets.server_key, encrypted_handshake, ec);
+    if (ec)
     {
-        message = co_await read_encrypted_handshake_message(tcp, secrets.server_key, encrypted_handshake, ec);
-        if (ec)
-        {
-            co_return;
-        }
-        if (message.type == tls::kHandshakeNewSessionTicket)
-        {
-            continue;
-        }
-
-        accept_server_finished(message, server_hello, secrets, transcript, ec);
         co_return;
     }
+    accept_server_finished(message, server_hello, secrets, transcript, ec);
 }
 
 boost::asio::awaitable<std::optional<client_hello_material>> send_client_hello(net::tcp_byte_stream& tcp,

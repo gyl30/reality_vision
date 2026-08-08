@@ -42,19 +42,15 @@ struct opened_record
 
 class record_key
 {
-public:
+   public:
     record_key(cipher_suite suite, std::span<const std::uint8_t> traffic_secret, boost::system::error_code& ec);
 
-    [[nodiscard]] std::vector<std::uint8_t> seal(
-        std::uint8_t inner_type,
-        std::span<const std::uint8_t> plaintext,
-        boost::system::error_code& ec);
-    [[nodiscard]] opened_record open(
-        std::span<const std::uint8_t, 5> header,
-        std::span<const std::uint8_t> ciphertext,
-        boost::system::error_code& ec);
+    [[nodiscard]] std::vector<std::uint8_t> seal(std::uint8_t inner_type, std::span<const std::uint8_t> plaintext, boost::system::error_code& ec);
+    [[nodiscard]] opened_record open(std::span<const std::uint8_t, 5> header,
+                                     std::span<const std::uint8_t> ciphertext,
+                                     boost::system::error_code& ec);
 
-private:
+   private:
     [[nodiscard]] std::array<std::uint8_t, 12> next_nonce(boost::system::error_code& ec);
 
     crypto::aead cipher_;
@@ -78,29 +74,30 @@ struct application_keys
     record_key server_key;
 };
 
-[[nodiscard]] std::optional<handshake_secrets> derive_handshake_secrets(
-    cipher_suite suite,
-    std::span<const std::uint8_t> shared_secret,
-    std::span<const std::uint8_t> transcript,
-    boost::system::error_code& ec);
-[[nodiscard]] std::optional<application_keys> derive_application_keys(
-    cipher_suite suite,
-    std::span<const std::uint8_t> master_secret,
-    std::span<const std::uint8_t> transcript,
-    boost::system::error_code& ec);
-[[nodiscard]] std::vector<std::uint8_t> finished_verify_data(
-    cipher_suite suite,
-    std::span<const std::uint8_t> traffic_secret,
-    std::span<const std::uint8_t> transcript,
-    boost::system::error_code& ec);
+[[nodiscard]] std::optional<handshake_secrets> derive_handshake_secrets(cipher_suite suite,
+                                                                        std::span<const std::uint8_t> shared_secret,
+                                                                        std::span<const std::uint8_t> transcript,
+                                                                        boost::system::error_code& ec);
+[[nodiscard]] std::optional<application_keys> derive_application_keys(cipher_suite suite,
+                                                                      std::span<const std::uint8_t> master_secret,
+                                                                      std::span<const std::uint8_t> transcript,
+                                                                      boost::system::error_code& ec);
+[[nodiscard]] std::vector<std::uint8_t> finished_verify_data(cipher_suite suite,
+                                                             std::span<const std::uint8_t> traffic_secret,
+                                                             std::span<const std::uint8_t> transcript,
+                                                             boost::system::error_code& ec);
+void verify_finished_data(cipher_suite suite,
+                          std::span<const std::uint8_t> traffic_secret,
+                          std::span<const std::uint8_t> transcript,
+                          std::span<const std::uint8_t> received,
+                          boost::system::error_code& ec);
 
-[[nodiscard]] std::vector<std::uint8_t> hkdf_expand_label(
-    crypto::hash_algorithm hash,
-    std::span<const std::uint8_t> secret,
-    std::span<const std::uint8_t> label,
-    std::span<const std::uint8_t> context,
-    std::size_t output_length,
-    boost::system::error_code& ec);
+[[nodiscard]] std::vector<std::uint8_t> hkdf_expand_label(crypto::hash_algorithm hash,
+                                                          std::span<const std::uint8_t> secret,
+                                                          std::span<const std::uint8_t> label,
+                                                          std::span<const std::uint8_t> context,
+                                                          std::size_t output_length,
+                                                          boost::system::error_code& ec);
 
 }    // namespace rv::reality
 

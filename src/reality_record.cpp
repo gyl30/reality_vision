@@ -358,4 +358,26 @@ std::vector<std::uint8_t> finished_verify_data(cipher_suite suite,
     return result;
 }
 
+void verify_finished_data(const cipher_suite suite,
+                          const std::span<const std::uint8_t> traffic_secret,
+                          const std::span<const std::uint8_t> transcript,
+                          const std::span<const std::uint8_t> received,
+                          boost::system::error_code& ec)
+{
+    const auto expected = finished_verify_data(suite, traffic_secret, transcript, ec);
+    if (ec)
+    {
+        return;
+    }
+    if (received.size() != expected.size())
+    {
+        ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
+        return;
+    }
+    if (!crypto::constant_time_equal(expected, received))
+    {
+        ec = boost::system::errc::make_error_code(boost::system::errc::permission_denied);
+    }
+}
+
 }    // namespace rv::reality
