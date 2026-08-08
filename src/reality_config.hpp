@@ -4,11 +4,14 @@
 #include "crypto.hpp"
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <string>
 
 namespace rv::reality
 {
+
+inline constexpr std::size_t kShortIdSize = 8;
 
 enum class client_hello_profile
 {
@@ -26,7 +29,7 @@ struct client_config
 {
     std::string server_name;
     std::array<std::uint8_t, crypto::kX25519KeySize> server_public_key{};
-    std::array<std::uint8_t, 8> short_id{};
+    std::array<std::uint8_t, kShortIdSize> short_id{};
     client_version version{};
     client_hello_profile profile{client_hello_profile::kFirefox120};
 };
