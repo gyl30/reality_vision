@@ -70,6 +70,10 @@ class UdpEchoServer(socketserver.ThreadingUDPServer):
     daemon_threads = True
 
 
+class Ipv6UdpEchoServer(UdpEchoServer):
+    address_family = socket.AF_INET6
+
+
 class P256ServerHelloHandler(socketserver.BaseRequestHandler):
     def handle(self) -> None:
         header = recv_exact(self.request, 5)
@@ -328,10 +332,14 @@ def open_socks5_udp_association(
         raise
 
 
-def make_socks5_udp_request(target_port: int, payload: bytes) -> bytes:
+def make_socks5_udp_request(
+    target_host: str,
+    target_port: int,
+    payload: bytes,
+) -> bytes:
     return (
-        b"\x00\x00\x00\x01"
-        + socket.inet_aton("127.0.0.1")
+        b"\x00\x00\x00"
+        + encode_socks5_address(target_host)
         + target_port.to_bytes(2, "big")
         + payload
     )
@@ -348,7 +356,12 @@ def make_socks5_udp_domain_request(target_port: int, payload: bytes) -> bytes:
     )
 
 
-def socks5_udp_roundtrip(proxy_port: int, target_port: int, payload: bytes) -> None:
+def socks5_udp_roundtrip(
+    proxy_port: int,
+    target_port: int,
+    payload: bytes,
+    target_host: str = "127.0.0.1",
+) -> None:
     control, relay, relay_endpoint = open_socks5_udp_association(proxy_port)
     try:
         relay.settimeout(15)
@@ -357,15 +370,16 @@ def socks5_udp_roundtrip(proxy_port: int, target_port: int, payload: bytes) -> N
             malformed_source.sendto(b"\x00", relay_endpoint)
         time.sleep(0.05)
 
-        relay.sendto(make_socks5_udp_request(target_port, payload), relay_endpoint)
+        address = encode_socks5_address(target_host)
+        relay.sendto(
+            make_socks5_udp_request(target_host, target_port, payload),
+            relay_endpoint,
+        )
         response, _ = relay.recvfrom(65535)
-        if len(response) < 10 or response[:4] != b"\x00\x00\x00\x01":
+        header = b"\x00\x00\x00" + address + target_port.to_bytes(2, "big")
+        if not response.startswith(header):
             raise RuntimeError(f"invalid SOCKS5 UDP response: {response.hex()}")
-        if response[4:8] != socket.inet_aton("127.0.0.1"):
-            raise RuntimeError("SOCKS5 UDP response source address mismatch")
-        if int.from_bytes(response[8:10], "big") != target_port:
-            raise RuntimeError("SOCKS5 UDP response source port mismatch")
-        if response[10:] != payload:
+        if response[len(header) :] != payload:
             raise RuntimeError("SOCKS5 UDP echo response mismatch")
     finally:
         relay.close()
@@ -419,7 +433,7 @@ def socks5_udp_address_types_use_distinct_flows(
         )
 
         relay.sendto(
-            make_socks5_udp_request(target_port, b"udp-ipv4-flow"),
+            make_socks5_udp_request("127.0.0.1", target_port, b"udp-ipv4-flow"),
             relay_endpoint,
         )
         wait_for_text_count(
@@ -439,7 +453,10 @@ def socks5_udp_request_reaches_xray(
 ) -> None:
     control, relay, relay_endpoint = open_socks5_udp_association(proxy_port)
     try:
-        relay.sendto(make_socks5_udp_request(target_port, payload), relay_endpoint)
+        relay.sendto(
+            make_socks5_udp_request("127.0.0.1", target_port, payload),
+            relay_endpoint,
+        )
         wait_for_text(
             xray_log_path,
             f"received request for udp:127.0.0.1:{target_port}",
@@ -658,6 +675,7 @@ def main() -> int:
         Ipv6EchoServer(("::1", 0), EchoHandler) as ipv6_echo_server,
         HalfCloseServer(("127.0.0.1", 0)) as half_close_server,
         UdpEchoServer(("127.0.0.1", 0), UdpEchoHandler) as udp_echo_server,
+        Ipv6UdpEchoServer(("::1", 0), UdpEchoHandler) as ipv6_udp_echo_server,
     ):
         echo_port = int(echo_server.server_address[1])
         echo_thread = threading.Thread(target=echo_server.serve_forever, daemon=True)
@@ -677,6 +695,12 @@ def main() -> int:
         udp_echo_port = int(udp_echo_server.server_address[1])
         udp_echo_thread = threading.Thread(target=udp_echo_server.serve_forever, daemon=True)
         udp_echo_thread.start()
+        ipv6_udp_echo_port = int(ipv6_udp_echo_server.server_address[1])
+        ipv6_udp_echo_thread = threading.Thread(
+            target=ipv6_udp_echo_server.serve_forever,
+            daemon=True,
+        )
+        ipv6_udp_echo_thread.start()
 
         config = {
             "log": {"loglevel": "debug"},
@@ -955,6 +979,18 @@ def main() -> int:
                             "socks_8 socks5 udp association completed",
                             vision_socks_process,
                         )
+
+                        socks5_udp_roundtrip(
+                            vision_socks_port,
+                            ipv6_udp_echo_port,
+                            b"xray-reality-socks5-udp-ipv6-interoperability",
+                            target_host="::1",
+                        )
+                        wait_for_text(
+                            vision_socks_log_path,
+                            "socks_9 socks5 udp association completed",
+                            vision_socks_process,
+                        )
                         time.sleep(0.1)
 
                         if vision_socks_process.poll() is not None:
@@ -1008,6 +1044,8 @@ def main() -> int:
                             "socks_8_udp_1 vless udp request header sent",
                             "socks_8_udp_2 vless udp request header sent",
                             "socks_8 socks5 udp association completed",
+                            "socks_9_udp_1 vless udp request header sent",
+                            "socks_9 socks5 udp association completed",
                         )
                         missing_udp = [marker for marker in udp_markers if marker not in socks_output]
                         udp_vision_markers = [
@@ -1058,9 +1096,11 @@ def main() -> int:
             half_close_thread.join(timeout=2)
             udp_echo_server.shutdown()
             udp_echo_thread.join(timeout=2)
+            ipv6_udp_echo_server.shutdown()
+            ipv6_udp_echo_thread.join(timeout=2)
 
     print(
-        "Xray REALITY, VLESS Vision, VLESS UDP including UDP/443 and address-type flow isolation, "
+        "Xray REALITY, VLESS Vision, VLESS UDP including IPv6, UDP/443, and address-type flow isolation, "
         "SOCKS5 IPv6 and TCP half-close, no-authentication and username/password authentication, "
         "UDP ASSOCIATE, destination sniffing, "
         "TLS 1.2 fallback, and TLS 1.3 Direct tests passed"
