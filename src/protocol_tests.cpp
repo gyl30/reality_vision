@@ -172,6 +172,8 @@ void test_text_codecs()
 void test_byte_queue()
 {
     rv::core::byte_queue queue(8);
+    expect(queue.data().empty() && queue.take(0).empty(), "byte_queue empty view mismatch");
+
     boost::system::error_code ec;
     constexpr std::array<std::uint8_t, 5> kFirst{1, 2, 3, 4, 5};
     queue.append(kFirst, ec);
@@ -182,6 +184,9 @@ void test_byte_queue()
     queue.append(kOversized, ec);
     expect(ec == boost::system::errc::make_error_code(boost::system::errc::message_size), "byte_queue accepted oversized append");
     expect_error(ec, boost::system::errc::message_size, "byte_queue returned wrong error");
+    ec.clear();
+
+    expect(queue.take(3) == std::vector<std::uint8_t>({3, 4, 5}) && queue.data().empty(), "byte_queue drain mismatch");
 }
 
 void test_byte_reader()

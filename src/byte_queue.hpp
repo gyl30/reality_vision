@@ -21,7 +21,7 @@ class byte_queue
 
     [[nodiscard]] bool empty() const noexcept { return size() == 0; }
     [[nodiscard]] std::size_t size() const noexcept { return storage_.size() - read_offset_; }
-    [[nodiscard]] std::span<const std::uint8_t> data() const noexcept { return {storage_.data() + read_offset_, size()}; }
+    [[nodiscard]] std::span<const std::uint8_t> data() const noexcept { return std::span<const std::uint8_t>(storage_).subspan(read_offset_); }
 
     void append(std::span<const std::uint8_t> input, boost::system::error_code& ec)
     {
@@ -58,7 +58,12 @@ class byte_queue
     [[nodiscard]] std::vector<std::uint8_t> take(std::size_t count)
     {
         count = std::min(count, size());
-        std::vector<std::uint8_t> result(data().begin(), data().begin() + static_cast<std::ptrdiff_t>(count));
+        if (count == 0)
+        {
+            return {};
+        }
+        const auto bytes = data().first(count);
+        std::vector<std::uint8_t> result(bytes.begin(), bytes.end());
         consume(count);
         return result;
     }
