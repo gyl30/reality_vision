@@ -21,6 +21,7 @@
 #include <chrono>
 #include <cstdint>
 #include <exception>
+#include <optional>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -454,6 +455,35 @@ std::vector<std::uint8_t> make_test_tls_client_hello(const std::string_view doma
     return wire;
 }
 
+std::vector<std::uint8_t> make_test_tls_server_hello(const std::uint16_t cipher, const bool tls13)
+{
+    std::vector<std::uint8_t> extensions;
+    put_test_u16(0x002b, extensions);
+    put_test_u16(2, extensions);
+    extensions.push_back(0x03);
+    extensions.push_back(tls13 ? 0x04 : 0x03);
+
+    std::vector<std::uint8_t> body;
+    body.push_back(0x03);
+    body.push_back(0x03);
+    body.insert(body.end(), 32, 0x22);
+    body.push_back(0x00);
+    put_test_u16(cipher, body);
+    body.push_back(0x00);
+    put_test_u16(extensions.size(), body);
+    body.insert(body.end(), extensions.begin(), extensions.end());
+
+    std::vector<std::uint8_t> handshake;
+    handshake.push_back(0x02);
+    put_test_u24(body.size(), handshake);
+    handshake.insert(handshake.end(), body.begin(), body.end());
+
+    std::vector<std::uint8_t> wire{0x16, 0x03, 0x03};
+    put_test_u16(handshake.size(), wire);
+    wire.insert(wire.end(), handshake.begin(), handshake.end());
+    return wire;
+}
+
 void test_destination_sniffer()
 {
     constexpr std::string_view http_request = "GET / HTTP/1.1\r\nHoSt: example.com:443\r\nUser-Agent: test\r\n\r\n";
@@ -479,26 +509,76 @@ void test_destination_sniffer()
     expect(result.state == rv::sniff::status::no_match, "destination sniffer accepted an unrelated protocol");
 }
 
-void test_vision_codec()
+void test_vision_frame_codec()
 {
     boost::system::error_code ec;
     std::array<std::uint8_t, rv::vision::user_id_size> user_id{};
     user_id.fill(0x42);
     constexpr std::array<std::uint8_t, 4> content{1, 2, 3, 4};
+
     const auto frame = rv::vision::encode_frame(
         rv::vision::command::end_padding, std::span<const std::uint8_t, rv::vision::user_id_size>(user_id), content, false, ec);
-    expect(!ec && frame.size() >= rv::vision::full_header_size + content.size(), "Vision encode failed");
+    expect(!ec && frame.size() >= rv::vision::full_header_size + content.size() && frame.size() <= rv::vision::xray_buffer_size,
+           "Vision full frame encode failed");
 
     rv::vision::frame_header header;
     ec = rv::vision::decode_header(std::span<const std::uint8_t>(frame.data(), rv::vision::full_header_size), true, user_id, header);
-    expect(!ec, "Vision decode failed");
-    expect(header.content_length == content.size(), "Vision content length mismatch");
+    expect(!ec, "Vision full header decode failed");
+    expect(header.frame_command == rv::vision::command::end_padding, "Vision full header command mismatch");
+    expect(header.content_length == content.size(), "Vision full header content length mismatch");
+    expect(frame.size() == rv::vision::full_header_size + header.content_length + header.padding_length,
+           "Vision full frame length mismatch");
+    expect(header.padding_length <= 255, "Vision short padding length mismatch");
+    const auto padding = std::span(frame).subspan(rv::vision::full_header_size + header.content_length);
+    expect(std::all_of(padding.begin(), padding.end(), [](const std::uint8_t byte) { return byte == 0; }),
+           "Vision padding contains non-zero data");
 
     auto wrong_user = user_id;
     wrong_user[0] ^= 1;
     ec = rv::vision::decode_header(std::span<const std::uint8_t>(frame.data(), rv::vision::full_header_size), true, wrong_user, header);
     expect_error(ec, boost::system::errc::permission_denied, "Vision wrong user returned wrong error");
 
+    for (const auto frame_command :
+         std::array{rv::vision::command::continue_padding, rv::vision::command::end_padding, rv::vision::command::direct})
+    {
+        auto header_bytes = std::array<std::uint8_t, rv::vision::short_header_size>{};
+        header_bytes[0] = static_cast<std::uint8_t>(frame_command);
+        ec = rv::vision::decode_header(header_bytes, false, user_id, header);
+        expect(!ec && header.frame_command == frame_command, "Vision command decode mismatch");
+    }
+
+    ec.clear();
+    const auto short_frame = rv::vision::encode_frame(rv::vision::command::direct, std::nullopt, content, false, ec);
+    expect(!ec && short_frame.size() >= rv::vision::short_header_size + content.size(), "Vision short frame encode failed");
+    ec = rv::vision::decode_header(std::span<const std::uint8_t>(short_frame.data(), rv::vision::short_header_size), false, user_id, header);
+    expect(!ec && header.frame_command == rv::vision::command::direct && header.content_length == content.size(),
+           "Vision short header decode mismatch");
+
+    constexpr std::array<std::uint8_t, rv::vision::short_header_size> invalid_command{0x03, 0x00, 0x00, 0x00, 0x00};
+    ec = rv::vision::decode_header(invalid_command, false, user_id, header);
+    expect_error(ec, boost::system::errc::bad_message, "Vision invalid command returned wrong error");
+
+    constexpr std::array<std::uint8_t, rv::vision::short_header_size> oversized_header{0x00, 0x1f, 0xfe, 0x00, 0x00};
+    ec = rv::vision::decode_header(oversized_header, false, user_id, header);
+    expect_error(ec, boost::system::errc::message_size, "Vision oversized frame header returned wrong error");
+
+    const std::vector<std::uint8_t> oversized_content(rv::vision::xray_buffer_size - rv::vision::short_header_size + 1, 0x55);
+    ec.clear();
+    static_cast<void>(rv::vision::encode_frame(rv::vision::command::continue_padding, std::nullopt, oversized_content, false, ec));
+    expect_error(ec, boost::system::errc::message_size, "Vision encoder accepted oversized content");
+
+    ec.clear();
+    const auto long_padding_frame = rv::vision::encode_frame(
+        rv::vision::command::continue_padding, std::span<const std::uint8_t, rv::vision::user_id_size>(user_id), content, true, ec);
+    expect(!ec, "Vision long padding encode failed");
+    ec = rv::vision::decode_header(
+        std::span<const std::uint8_t>(long_padding_frame.data(), rv::vision::full_header_size), true, user_id, header);
+    expect(!ec && header.padding_length >= 900 - content.size() && header.padding_length < 1400 - content.size(),
+           "Vision long padding length mismatch");
+}
+
+void test_vision_tls_trackers()
+{
     rv::vision::client_tls_record_tracker tracker;
     constexpr std::array<std::uint8_t, 9> client_hello{0x16, 0x03, 0x01, 0x00, 0x04, 0x01, 0x00, 0x00, 0x00};
 
@@ -539,6 +619,35 @@ void test_vision_codec()
     constexpr std::array<std::uint8_t, 5> invalid_record_header{0x99, 0x03, 0x03, 0x00, 0x01};
     observation = malformed_tracker.observe(invalid_record_header);
     expect(observation.tracking_failed, "TLS tracker did not report loss of record framing");
+
+    for (const auto cipher : std::array<std::uint16_t, 4>{0x1301, 0x1302, 0x1303, 0x1304})
+    {
+        rv::vision::server_hello_tracker server_tracker;
+        const auto server_hello = make_test_tls_server_hello(cipher, true);
+        server_tracker.observe(server_hello);
+        expect(server_tracker.direct_supported(), "Vision server tracker rejected a Direct TLS 1.3 cipher");
+    }
+
+    rv::vision::server_hello_tracker ccm8_tracker;
+    ccm8_tracker.observe(make_test_tls_server_hello(0x1305, true));
+    expect(!ccm8_tracker.direct_supported(), "Vision server tracker accepted TLS_AES_128_CCM_8_SHA256");
+
+    rv::vision::server_hello_tracker tls12_tracker;
+    tls12_tracker.observe(make_test_tls_server_hello(0x1301, false));
+    expect(!tls12_tracker.direct_supported(), "Vision server tracker accepted TLS 1.2");
+
+    const auto fragmented_server_hello = make_test_tls_server_hello(0x1303, true);
+    rv::vision::server_hello_tracker fragmented_tracker;
+    constexpr std::array<std::uint8_t, 3> prefix{0xaa, 0xbb, 0xcc};
+    fragmented_tracker.observe(prefix);
+    fragmented_tracker.observe(std::span(fragmented_server_hello).first(2));
+    expect(!fragmented_tracker.direct_supported(), "Vision server tracker decided before a complete record header");
+    fragmented_tracker.observe(std::span(fragmented_server_hello).subspan(2, 3));
+    expect(!fragmented_tracker.direct_supported(), "Vision server tracker decided without a handshake type");
+    fragmented_tracker.observe(std::span(fragmented_server_hello).subspan(5, 7));
+    expect(!fragmented_tracker.direct_supported(), "Vision server tracker decided on a partial ServerHello");
+    fragmented_tracker.observe(std::span(fragmented_server_hello).subspan(12));
+    expect(fragmented_tracker.direct_supported(), "Vision server tracker missed a fragmented ServerHello");
 }
 
 void test_socks5_decode()
@@ -590,7 +699,8 @@ int run_protocol_tests()
         std::pair{"ClientHello", &test_client_hello},
         std::pair{"VLESS header", &test_vless_header},
         std::pair{"destination sniffer", &test_destination_sniffer},
-        std::pair{"Vision codec", &test_vision_codec},
+        std::pair{"Vision frame codec", &test_vision_frame_codec},
+        std::pair{"Vision TLS trackers", &test_vision_tls_trackers},
         std::pair{"SOCKS5 decode", &test_socks5_decode},
     };
 
