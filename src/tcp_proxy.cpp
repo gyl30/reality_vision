@@ -325,7 +325,6 @@ boost::asio::awaitable<void> run_socks_connect_session(tcp::socket& client_socke
         initial_data = co_await sniff_initial_client_data(client_socket, ec);
         if (ec == boost::asio::error::eof)
         {
-            ec.clear();
             co_return;
         }
         if (ec)
@@ -426,7 +425,6 @@ boost::asio::awaitable<void> run_transparent_session(tcp::socket client_socket,
     auto initial_data = co_await sniff_initial_client_data(client_socket, ec);
     if (ec == boost::asio::error::eof)
     {
-        ec.clear();
         co_return;
     }
     if (ec)

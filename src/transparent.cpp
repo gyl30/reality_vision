@@ -129,7 +129,6 @@ std::optional<std::size_t> receive_ipv4_original_datagram(boost::asio::ip::udp::
     {
         if (errno == EAGAIN || errno == EWOULDBLOCK)
         {
-            ec.clear();
             return std::nullopt;
         }
         ec = system_error();
@@ -165,7 +164,6 @@ std::optional<std::size_t> receive_ipv4_original_datagram(boost::asio::ip::udp::
 
     source = to_udp_endpoint(source_address);
     destination = to_udp_endpoint(original_destination);
-    ec.clear();
     return static_cast<std::size_t>(received);
 #else
     static_cast<void>(socket);
