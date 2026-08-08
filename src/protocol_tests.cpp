@@ -2,6 +2,7 @@
 
 #include "base64.hpp"
 #include "byte_queue.hpp"
+#include "config.hpp"
 #include "crypto.hpp"
 #include "hex.hpp"
 #include "reality_client_hello.hpp"
@@ -48,6 +49,51 @@ void expect(bool condition, std::string_view message)
 void expect_error(const boost::system::error_code& ec, boost::system::errc::errc_t expected, std::string_view message)
 {
     expect(ec == boost::system::errc::make_error_code(expected), message);
+}
+
+rv::app::config parse_short_id_test_config(const std::string& short_id)
+{
+    std::vector<std::string> arguments{
+        "reality_vision",
+        "--server",
+        "127.0.0.1",
+        "--port",
+        "8443",
+        "--server_name",
+        "apple.com",
+        "--server_public_key",
+        "uL4rG3uX_6B359RLXYFNTmSWnrBSLVv1PIG6NUWjMVk",
+        "--short_id",
+        short_id,
+        "--uuid",
+        "b831381d-6324-4d53-ad4f-8cda48b30811",
+        "--socks_port",
+        "1080",
+    };
+    std::vector<char*> argv;
+    argv.reserve(arguments.size());
+    for (auto& argument : arguments)
+    {
+        argv.push_back(argument.data());
+    }
+
+    const auto configuration = rv::app::parse_config(static_cast<int>(argv.size()), argv.data());
+    expect(configuration.has_value(), "short id configuration parse failed");
+    return *configuration;
+}
+
+void test_short_id_config()
+{
+    const auto short_id = parse_short_id_test_config("01234567");
+    constexpr std::array<std::uint8_t, 8> expected_short_id{0x01, 0x23, 0x45, 0x67, 0x00, 0x00, 0x00, 0x00};
+    expect(short_id.reality_short_id == expected_short_id, "short id zero padding mismatch");
+
+    const auto full_short_id = parse_short_id_test_config("0123456789abcdef");
+    constexpr std::array<std::uint8_t, 8> expected_full_short_id{0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef};
+    expect(full_short_id.reality_short_id == expected_full_short_id, "full short id mismatch");
+
+    const auto empty_short_id = parse_short_id_test_config("");
+    expect(empty_short_id.reality_short_id == std::array<std::uint8_t, 8>{}, "empty short id mismatch");
 }
 
 void test_text_codecs()
@@ -362,6 +408,7 @@ int run_protocol_tests()
 {
     const std::array tests{
         std::pair{"text codecs", &test_text_codecs},
+        std::pair{"short id config", &test_short_id_config},
         std::pair{"byte queue", &test_byte_queue},
         std::pair{"HKDF", &test_hkdf_rfc5869},
         std::pair{"TLS records", &test_record_roundtrip},

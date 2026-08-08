@@ -15,7 +15,7 @@ import threading
 import time
 
 
-SHORT_ID = "0123456789abcdef"
+SHORT_ID = "01234567"
 USER_ID = "b831381d-6324-4d53-ad4f-8cda48b30811"
 SERVER_NAME = "apple.com"
 SOCKS_USERNAME = "test_user"

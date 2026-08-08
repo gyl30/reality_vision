@@ -152,12 +152,14 @@ Xray 互通测试覆盖 SOCKS5 非 TLS、TLS 1.2 fallback、TLS 1.3 Direct、IP 
   --server 127.0.0.1 --port 8443 \
   --server_name apple.com \
   --server_public_key 'uL4rG3uX_6B359RLXYFNTmSWnrBSLVv1PIG6NUWjMVk' \
-  --short_id 0123456789abcdef \
+  --short_id 01234567 \
   --uuid b831381d-6324-4d53-ad4f-8cda48b30811 \
   --socks_port 1080 \
   --socks_username test_user \
   --socks_password test_password
 ```
+
+`--short_id` 与 Xray 的 REALITY 配置保持一致：允许 0～16 个十六进制字符，非空时必须为偶数长度；不足 8 字节的部分在尾部补 0。
 
 这条命令监听 `127.0.0.1:1080`。使用 `socks5h` 时 SOCKS 请求直接携带域名，不需要额外探测：
 
@@ -204,7 +206,7 @@ REDIRECT 是推荐主路径。程序对 accepted socket 使用 `SO_ORIGINAL_DST`
   --server 127.0.0.1 --port 8443 \
   --server_name apple.com \
   --server_public_key 'uL4rG3uX_6B359RLXYFNTmSWnrBSLVv1PIG6NUWjMVk' \
-  --short_id 0123456789abcdef \
+  --short_id 01234567 \
   --uuid b831381d-6324-4d53-ad4f-8cda48b30811 \
   --redirect_port 12346
 ```
@@ -232,7 +234,7 @@ TPROXY 使用独立 listener：
   --server 127.0.0.1 --port 8443 \
   --server_name apple.com \
   --server_public_key 'uL4rG3uX_6B359RLXYFNTmSWnrBSLVv1PIG6NUWjMVk' \
-  --short_id 0123456789abcdef \
+  --short_id 01234567 \
   --uuid b831381d-6324-4d53-ad4f-8cda48b30811 \
   --tproxy_port 12345
 ```

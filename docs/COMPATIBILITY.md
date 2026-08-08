@@ -46,6 +46,9 @@ private key；如果服务端选择 P-256 或发送 HelloRetryRequest，连接�
 GREASE ECH 保持 uTLS profile 的字段形状和 239-byte ciphertext 长度。它只用于指纹外形，
 不是一次真实 ECH 尝试。
 
+REALITY `shortId` 与 Xray 固定基线保持一致：允许 0～8 字节，命令行使用 0～16 个十六进制字符表示，
+非空时必须为偶数长度；不足 8 字节时在尾部补 0。互通测试使用 4-byte `shortId`，覆盖该补零路径。
+
 ## Xray 互通测试覆盖
 
 `tests/interop/run_xray_interop.py` 启动固定 Xray binary，并执行以下互通检查：

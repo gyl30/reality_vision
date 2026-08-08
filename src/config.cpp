@@ -90,16 +90,23 @@ bool decode_reality_public_key(const std::string& encoded, config& configuration
 
 bool decode_reality_short_id(const std::string& encoded, config& configuration)
 {
-    if (encoded.size() > std::numeric_limits<std::uint32_t>::max())
+    const auto maximum_hex_length = configuration.reality_short_id.size() * 2;
+    if (encoded.size() > maximum_hex_length || encoded.size() % 2 != 0)
     {
-        std::cerr << "--short_id is too long\n";
+        std::cerr << "--short_id must contain an even number of hexadecimal characters up to " << maximum_hex_length << '\n';
         return false;
     }
 
-    const auto decoded = core::hex::decode_to_bytes(encoded.data(), static_cast<std::uint32_t>(encoded.size()));
-    if (decoded.size() != configuration.reality_short_id.size())
+    configuration.reality_short_id.fill(0);
+    if (encoded.empty())
     {
-        std::cerr << "--short_id must decode to exactly 8 bytes\n";
+        return true;
+    }
+
+    const auto decoded = core::hex::decode_to_bytes(encoded.data(), static_cast<std::uint32_t>(encoded.size()));
+    if (decoded.size() != encoded.size() / 2)
+    {
+        std::cerr << "--short_id contains invalid hexadecimal characters\n";
         return false;
     }
 
