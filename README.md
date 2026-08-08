@@ -140,7 +140,7 @@ CMake 只创建一个 `reality_vision` executable，所有实现源文件直接�
 - `RV_XRAY_EXECUTABLE=/path/to/xray`：启用真实 Xray 互通测试。
 
 协议自测已经编入同一个二进制，也可以直接运行 `./build/reality_vision --self_test`。
-Xray 互通测试覆盖 SOCKS5 非 TLS、TLS 1.2 fallback、TLS 1.3 Direct、IP 目标 TLS SNI sniff、Vision framing，
+Xray 互通测试覆盖 SOCKS5 非 TLS、TCP half-close 后继续接收回程数据、TLS 1.2 fallback、TLS 1.3 Direct、IP 目标 TLS SNI sniff、Vision framing，
 并验证 SOCKS5 IPv6 TCP echo、正确/错误密码、`UDP ASSOCIATE -> VLESS UDP -> UDP echo`、SOCKS5 UDP 地址类型 flow 隔离以及 UDP/443 request；还需要 Python 3 和系统的 OpenSSL 命令行工具。
 
 ## 作为 SOCKS5 TCP / UDP 代理运行

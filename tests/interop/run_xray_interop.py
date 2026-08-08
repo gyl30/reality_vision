@@ -31,9 +31,28 @@ class EchoHandler(socketserver.BaseRequestHandler):
             self.request.sendall(data)
 
 
+class HalfCloseResponseHandler(socketserver.BaseRequestHandler):
+    def handle(self) -> None:
+        request = bytearray()
+        while not request.endswith(b"\n"):
+            data = self.request.recv(65536)
+            if not data:
+                return
+            request.extend(data)
+        if not self.server.response_ready.wait(timeout=5):
+            raise RuntimeError("timed out waiting for SOCKS5 client half-close")
+        self.request.sendall(b"half-close-response:" + request)
+
+
 class EchoServer(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
     daemon_threads = True
+
+
+class HalfCloseServer(EchoServer):
+    def __init__(self, server_address: tuple[str, int]) -> None:
+        super().__init__(server_address, HalfCloseResponseHandler)
+        self.response_ready = threading.Event()
 
 
 class Ipv6EchoServer(EchoServer):
@@ -178,6 +197,33 @@ def socks5_echo_roundtrip(
         sock.sendall(payload)
         if recv_exact(sock, len(payload)) != payload:
             raise RuntimeError("SOCKS5 echo response mismatch")
+
+
+def socks5_half_close_roundtrip(
+    proxy_port: int,
+    target_port: int,
+    response_ready: threading.Event,
+) -> None:
+    payload = b"xray-reality-socks5-half-close-request\n"
+    with open_socks5_connection(
+        proxy_port,
+        "localhost",
+        target_port,
+        username=None,
+        password=None,
+    ) as sock:
+        sock.sendall(payload)
+        sock.shutdown(socket.SHUT_WR)
+        time.sleep(0.25)
+        response_ready.set()
+        response = bytearray()
+        while True:
+            data = sock.recv(65536)
+            if not data:
+                break
+            response.extend(data)
+        if response != b"half-close-response:" + payload:
+            raise RuntimeError(f"SOCKS5 half-close response mismatch: {response!r}")
 
 
 def socks5_tls_request(
@@ -610,6 +656,7 @@ def main() -> int:
     with (
         EchoServer(("127.0.0.1", 0), EchoHandler) as echo_server,
         Ipv6EchoServer(("::1", 0), EchoHandler) as ipv6_echo_server,
+        HalfCloseServer(("127.0.0.1", 0)) as half_close_server,
         UdpEchoServer(("127.0.0.1", 0), UdpEchoHandler) as udp_echo_server,
     ):
         echo_port = int(echo_server.server_address[1])
@@ -621,6 +668,12 @@ def main() -> int:
             daemon=True,
         )
         ipv6_echo_thread.start()
+        half_close_port = int(half_close_server.server_address[1])
+        half_close_thread = threading.Thread(
+            target=half_close_server.serve_forever,
+            daemon=True,
+        )
+        half_close_thread.start()
         udp_echo_port = int(udp_echo_server.server_address[1])
         udp_echo_thread = threading.Thread(target=udp_echo_server.serve_forever, daemon=True)
         udp_echo_thread.start()
@@ -789,6 +842,17 @@ def main() -> int:
                         wait_for_text(
                             vision_no_auth_socks_log_path,
                             "socks_2 socks5 tcp session completed",
+                            vision_no_auth_socks_process,
+                        )
+
+                        socks5_half_close_roundtrip(
+                            vision_no_auth_socks_port,
+                            half_close_port,
+                            half_close_server.response_ready,
+                        )
+                        wait_for_text(
+                            vision_no_auth_socks_log_path,
+                            "socks_3 socks5 tcp session completed",
                             vision_no_auth_socks_process,
                         )
 
@@ -990,12 +1054,15 @@ def main() -> int:
             echo_thread.join(timeout=2)
             ipv6_echo_server.shutdown()
             ipv6_echo_thread.join(timeout=2)
+            half_close_server.shutdown()
+            half_close_thread.join(timeout=2)
             udp_echo_server.shutdown()
             udp_echo_thread.join(timeout=2)
 
     print(
         "Xray REALITY, VLESS Vision, VLESS UDP including UDP/443 and address-type flow isolation, "
-        "SOCKS5 IPv6, no-authentication and username/password authentication, UDP ASSOCIATE, destination sniffing, "
+        "SOCKS5 IPv6 and TCP half-close, no-authentication and username/password authentication, "
+        "UDP ASSOCIATE, destination sniffing, "
         "TLS 1.2 fallback, and TLS 1.3 Direct tests passed"
     )
     return 0
