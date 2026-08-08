@@ -122,6 +122,7 @@ boost::asio::awaitable<void> relay_bidirectional(tcp::socket& client_socket, rv:
 {
     using namespace boost::asio::experimental::awaitable_operators;    // NOLINT
 
+    ec.clear();
     boost::system::error_code client_to_upstream_ec;
     boost::system::error_code upstream_to_client_ec;
     co_await (relay_client_to_upstream(client_socket, upstream, client_to_upstream_ec) &&
