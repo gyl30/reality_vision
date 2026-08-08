@@ -13,16 +13,16 @@
 namespace rv::vision
 {
 
-inline constexpr std::size_t user_id_size = 16;
-inline constexpr std::size_t full_header_size = 21;
-inline constexpr std::size_t short_header_size = 5;
-inline constexpr std::size_t xray_buffer_size = 8192;
+inline constexpr std::size_t kUserIdSize = 16;
+inline constexpr std::size_t kFullHeaderSize = 21;
+inline constexpr std::size_t kShortHeaderSize = 5;
+inline constexpr std::size_t kXrayBufferSize = 8192;
 
 enum class command : std::uint8_t
 {
-    continue_padding = 0x00,
-    end_padding = 0x01,
-    direct = 0x02,
+    kContinuePadding = 0x00,
+    kEndPadding = 0x01,
+    kDirect = 0x02,
 };
 
 struct frame_header
@@ -34,25 +34,25 @@ struct frame_header
 
 [[nodiscard]] boost::system::error_code decode_header(std::span<const std::uint8_t> header,
                                                       bool contains_user_id,
-                                                      std::span<const std::uint8_t, user_id_size> expected_user_id,
+                                                      std::span<const std::uint8_t, kUserIdSize> expected_user_id,
                                                       frame_header& output);
 
 [[nodiscard]] std::vector<std::uint8_t> encode_frame(command frame_command,
-                                                     std::optional<std::span<const std::uint8_t, user_id_size>> user_id,
+                                                     std::optional<std::span<const std::uint8_t, kUserIdSize>> user_id,
                                                      std::span<const std::uint8_t> content,
                                                      bool long_padding,
                                                      boost::system::error_code& ec);
 
 enum class client_stream_kind : std::uint8_t
 {
-    undecided,
-    non_tls,
-    tls
+    kUndecided,
+    kNonTls,
+    kTls
 };
 
 struct client_tls_observation
 {
-    client_stream_kind kind{client_stream_kind::undecided};
+    client_stream_kind kind{client_stream_kind::kUndecided};
     // 当前输入中第一个完整加密 TLS record 结束位置的后一字节偏移。
     std::optional<std::size_t> encrypted_record_end_offset;
     bool tracking_failed{false};
@@ -62,14 +62,14 @@ class client_tls_record_tracker
 {
    public:
     [[nodiscard]] client_tls_observation observe(std::span<const std::uint8_t> input) noexcept;
-    [[nodiscard]] bool tls_detected() const noexcept { return kind_ == client_stream_kind::tls; }
+    [[nodiscard]] bool tls_detected() const noexcept { return kind_ == client_stream_kind::kTls; }
 
    private:
     enum class phase : std::uint8_t
     {
-        header,
-        payload,
-        disabled
+        kHeader,
+        kPayload,
+        kDisabled
     };
 
     void disable_tracking() noexcept;
@@ -81,8 +81,8 @@ class client_tls_record_tracker
     std::size_t header_size_{0};
     std::size_t remaining_payload_{0};
     std::uint8_t record_type_{0};
-    client_stream_kind kind_{client_stream_kind::undecided};
-    phase phase_{phase::header};
+    client_stream_kind kind_{client_stream_kind::kUndecided};
+    phase phase_{phase::kHeader};
     bool first_record_{true};
     bool tracking_failed_{false};
 };

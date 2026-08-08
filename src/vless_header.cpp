@@ -11,8 +11,8 @@ namespace rv::vless
 namespace
 {
 
-constexpr std::uint8_t tcp_command = 0x01;
-constexpr std::uint8_t udp_command = 0x02;
+constexpr std::uint8_t kTcpCommand = 0x01;
+constexpr std::uint8_t kUdpCommand = 0x02;
 
 void put_u16(std::uint16_t value, std::vector<std::uint8_t>& output)
 {
@@ -71,11 +71,11 @@ std::vector<std::uint8_t> encode_request(const client_config& configuration,
 
     if (vision_flow)
     {
-        constexpr char flow_name[] = "xtls-rprx-vision";
+        constexpr char kFlowName[] = "xtls-rprx-vision";
         output.push_back(18);
         output.push_back(0x0a);
         output.push_back(0x10);
-        output.insert(output.end(), flow_name, flow_name + 16);
+        output.insert(output.end(), kFlowName, kFlowName + 16);
     }
     else
     {
@@ -95,12 +95,12 @@ std::vector<std::uint8_t> encode_request(const client_config& configuration,
 
 std::vector<std::uint8_t> encode_tcp_request(const client_config& configuration, boost::system::error_code& ec)
 {
-    return encode_request(configuration, tcp_command, true, ec);
+    return encode_request(configuration, kTcpCommand, true, ec);
 }
 
 std::vector<std::uint8_t> encode_udp_request(const client_config& configuration, boost::system::error_code& ec)
 {
-    return encode_request(configuration, udp_command, false, ec);
+    return encode_request(configuration, kUdpCommand, false, ec);
 }
 
 }    // namespace rv::vless

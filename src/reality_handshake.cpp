@@ -26,20 +26,20 @@ namespace rv::reality
 namespace
 {
 
-constexpr std::uint8_t handshake_server_hello = 2;
-constexpr std::uint8_t handshake_new_session_ticket = 4;
-constexpr std::uint8_t handshake_encrypted_extensions = 8;
-constexpr std::uint8_t handshake_certificate = 11;
-constexpr std::uint8_t handshake_certificate_verify = 15;
-constexpr std::uint8_t handshake_finished = 20;
-constexpr std::uint16_t tls_legacy_version = 0x0303;
-constexpr std::uint16_t tls13_version = 0x0304;
-constexpr std::uint16_t extension_supported_versions = 0x002b;
-constexpr std::uint16_t extension_key_share = 0x0033;
-constexpr std::uint16_t named_group_x25519 = 0x001d;
-constexpr std::uint16_t signature_scheme_ed25519 = 0x0807;
-constexpr std::size_t maximum_handshake_message = 1U << 20;
-constexpr std::array<std::uint8_t, 32> hello_retry_request_random{
+constexpr std::uint8_t kHandshakeServerHello = 2;
+constexpr std::uint8_t kHandshakeNewSessionTicket = 4;
+constexpr std::uint8_t kHandshakeEncryptedExtensions = 8;
+constexpr std::uint8_t kHandshakeCertificate = 11;
+constexpr std::uint8_t kHandshakeCertificateVerify = 15;
+constexpr std::uint8_t kHandshakeFinished = 20;
+constexpr std::uint16_t kTlsLegacyVersion = 0x0303;
+constexpr std::uint16_t kTls13Version = 0x0304;
+constexpr std::uint16_t kExtensionSupportedVersions = 0x002b;
+constexpr std::uint16_t kExtensionKeyShare = 0x0033;
+constexpr std::uint16_t kNamedGroupX25519 = 0x001d;
+constexpr std::uint16_t kSignatureSchemeEd25519 = 0x0807;
+constexpr std::size_t kMaximumHandshakeMessage = 1U << 20;
+constexpr std::array<std::uint8_t, 32> kHelloRetryRequestRandom{
     0xcf, 0x21, 0xad, 0x74, 0xe5, 0x9a, 0x61, 0x11, 0xbe, 0x1d, 0x8c, 0x02, 0x1e, 0x65, 0xb8, 0x91,
     0xc2, 0xa2, 0x11, 0x16, 0x7a, 0xbb, 0x8c, 0x5e, 0x07, 0x9e, 0x09, 0xe2, 0xc8, 0xa8, 0x33, 0x9c};
 
@@ -68,7 +68,7 @@ std::span<const std::uint8_t> handshake_body(const handshake_message& message) n
 struct parsed_server_hello
 {
     std::vector<std::uint8_t> session_id;
-    cipher_suite suite{cipher_suite::unknown};
+    cipher_suite suite{cipher_suite::kUnknown};
     std::array<std::uint8_t, 32> x25519_key_share{};
 };
 
@@ -104,7 +104,7 @@ boost::asio::awaitable<tls_record> read_tls_record(net::tcp_byte_stream& stream,
 
     record.type = record.header[0];
     const auto length = static_cast<std::size_t>(core::read_be16(record.header.data() + 3));
-    if (length > max_tls_ciphertext)
+    if (length > kMaxTlsCiphertext)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::message_size);
         co_return record;
@@ -122,7 +122,7 @@ std::optional<handshake_message> pop_handshake_message(core::byte_queue& queue, 
     }
     const auto data = queue.data();
     const auto body_length = static_cast<std::size_t>(core::read_be24(data.data() + 1));
-    if (body_length > maximum_handshake_message)
+    if (body_length > kMaximumHandshakeMessage)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::message_size);
         return std::nullopt;
@@ -155,11 +155,11 @@ boost::asio::awaitable<handshake_message> read_plain_handshake_message(net::tcp_
         {
             co_return handshake_message{};
         }
-        if (record.type == tls_record_change_cipher_spec)
+        if (record.type == kTlsRecordChangeCipherSpec)
         {
             continue;
         }
-        if (record.type != tls_record_handshake || record.header[1] != 0x03)
+        if (record.type != kTlsRecordHandshake || record.header[1] != 0x03)
         {
             set_bad_message_error(ec);
             co_return handshake_message{};
@@ -193,11 +193,11 @@ boost::asio::awaitable<handshake_message> read_encrypted_handshake_message(net::
         {
             co_return handshake_message{};
         }
-        if (record.type == tls_record_change_cipher_spec)
+        if (record.type == kTlsRecordChangeCipherSpec)
         {
             continue;
         }
-        if (record.type != tls_record_application_data || record.header[1] != 0x03 || record.header[2] != 0x03)
+        if (record.type != kTlsRecordApplicationData || record.header[1] != 0x03 || record.header[2] != 0x03)
         {
             set_bad_message_error(ec);
             co_return handshake_message{};
@@ -208,12 +208,12 @@ boost::asio::awaitable<handshake_message> read_encrypted_handshake_message(net::
         {
             co_return handshake_message{};
         }
-        if (opened.inner_type == tls_record_alert)
+        if (opened.inner_type == kTlsRecordAlert)
         {
             ec = boost::system::errc::make_error_code(boost::system::errc::connection_aborted);
             co_return handshake_message{};
         }
-        if (opened.inner_type != tls_record_handshake)
+        if (opened.inner_type != kTlsRecordHandshake)
         {
             set_bad_message_error(ec);
             co_return handshake_message{};
@@ -238,7 +238,7 @@ void parse_server_key_share(const std::span<const std::uint8_t> extension_data, 
     }
 
     const auto share = reader.read_bytes(share_length);
-    if (!share || !reader.empty() || group != named_group_x25519 || share->size() != server_hello.x25519_key_share.size())
+    if (!share || !reader.empty() || group != kNamedGroupX25519 || share->size() != server_hello.x25519_key_share.size())
     {
         set_bad_message_error(ec);
         return;
@@ -272,9 +272,9 @@ void parse_server_hello_extensions(const std::span<const std::uint8_t> extension
             return;
         }
 
-        if (type == extension_supported_versions)
+        if (type == kExtensionSupportedVersions)
         {
-            if (extension_data->size() != 2 || core::read_be16(extension_data->data()) != tls13_version)
+            if (extension_data->size() != 2 || core::read_be16(extension_data->data()) != kTls13Version)
             {
                 set_bad_message_error(ec);
                 return;
@@ -283,7 +283,7 @@ void parse_server_hello_extensions(const std::span<const std::uint8_t> extension
             continue;
         }
 
-        if (type == extension_key_share)
+        if (type == kExtensionKeyShare)
         {
             parse_server_key_share(*extension_data, server_hello, ec);
             if (ec)
@@ -303,7 +303,7 @@ void parse_server_hello_extensions(const std::span<const std::uint8_t> extension
 parsed_server_hello parse_server_hello(const handshake_message& message, boost::system::error_code& ec)
 {
     parsed_server_hello result;
-    if (message.type != handshake_server_hello)
+    if (message.type != kHandshakeServerHello)
     {
         set_bad_message_error(ec);
         return result;
@@ -312,7 +312,7 @@ parsed_server_hello parse_server_hello(const handshake_message& message, boost::
 
     core::byte_reader reader(handshake_body(message));
     std::uint16_t legacy_version = 0;
-    if (!reader.read_u16(legacy_version) || legacy_version != tls_legacy_version)
+    if (!reader.read_u16(legacy_version) || legacy_version != kTlsLegacyVersion)
     {
         set_bad_message_error(ec);
         return result;
@@ -324,7 +324,7 @@ parsed_server_hello parse_server_hello(const handshake_message& message, boost::
         set_bad_message_error(ec);
         return result;
     }
-    if (std::equal(random->begin(), random->end(), hello_retry_request_random.begin()))
+    if (std::equal(random->begin(), random->end(), kHelloRetryRequestRandom.begin()))
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::operation_not_supported);
         return result;
@@ -473,15 +473,15 @@ void verify_certificate_verify(const handshake_message& message,
         return;
     }
     const auto signature = reader.read_bytes(signature_length);
-    if (!signature || !reader.empty() || algorithm != signature_scheme_ed25519)
+    if (!signature || !reader.empty() || algorithm != kSignatureSchemeEd25519)
     {
         set_bad_message_error(ec);
         return;
     }
 
     std::vector<std::uint8_t> signed_message(64, 0x20);
-    constexpr std::string_view context = "TLS 1.3, server CertificateVerify";
-    signed_message.insert(signed_message.end(), context.begin(), context.end());
+    constexpr std::string_view kContext = "TLS 1.3, server CertificateVerify";
+    signed_message.insert(signed_message.end(), kContext.begin(), kContext.end());
     signed_message.push_back(0);
 
     const auto transcript_hash = crypto::digest(cipher_properties(suite).hash, transcript, ec);
@@ -512,7 +512,7 @@ std::vector<std::uint8_t> make_handshake_message(std::uint8_t type, std::span<co
 
 void accept_encrypted_extensions(const handshake_message& message, std::vector<std::uint8_t>& transcript, boost::system::error_code& ec)
 {
-    if (message.type != handshake_encrypted_extensions)
+    if (message.type != kHandshakeEncryptedExtensions)
     {
         set_bad_message_error(ec);
         return;
@@ -532,7 +532,7 @@ void accept_server_certificate(const handshake_message& message,
                                std::vector<std::uint8_t>& transcript,
                                boost::system::error_code& ec)
 {
-    if (message.type != handshake_certificate)
+    if (message.type != kHandshakeCertificate)
     {
         set_bad_message_error(ec);
         return;
@@ -550,7 +550,7 @@ void accept_server_certificate(const handshake_message& message,
         return;
     }
 
-    const auto expected_signature = crypto::hmac(crypto::hash_algorithm::sha512, client_hello.reality_auth_key, certificate.ed25519_public_key, ec);
+    const auto expected_signature = crypto::hmac(crypto::hash_algorithm::kSha512, client_hello.reality_auth_key, certificate.ed25519_public_key, ec);
     if (ec)
     {
         return;
@@ -572,7 +572,7 @@ void accept_certificate_verify(const handshake_message& message,
                                std::vector<std::uint8_t>& transcript,
                                boost::system::error_code& ec)
 {
-    if (message.type != handshake_certificate_verify)
+    if (message.type != kHandshakeCertificateVerify)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::permission_denied);
         return;
@@ -592,7 +592,7 @@ void accept_server_finished(const handshake_message& message,
                             std::vector<std::uint8_t>& transcript,
                             boost::system::error_code& ec)
 {
-    if (message.type != handshake_finished)
+    if (message.type != kHandshakeFinished)
     {
         set_bad_message_error(ec);
         return;
@@ -620,7 +620,7 @@ boost::asio::awaitable<void> read_server_handshake_flight(net::tcp_byte_stream& 
                                                           std::vector<std::uint8_t>& transcript,
                                                           boost::system::error_code& ec)
 {
-    core::byte_queue encrypted_handshake(maximum_handshake_message);
+    core::byte_queue encrypted_handshake(kMaximumHandshakeMessage);
     std::array<std::uint8_t, 32> certificate_public_key{};
 
     auto message = co_await read_encrypted_handshake_message(tcp, secrets.server_key, encrypted_handshake, ec);
@@ -663,7 +663,7 @@ boost::asio::awaitable<void> read_server_handshake_flight(net::tcp_byte_stream& 
         {
             co_return;
         }
-        if (message.type == handshake_new_session_ticket)
+        if (message.type == kHandshakeNewSessionTicket)
         {
             continue;
         }
@@ -686,7 +686,7 @@ boost::asio::awaitable<std::optional<client_hello_material>> send_client_hello(n
     }
 
     transcript = client_hello->handshake_bytes;
-    const auto client_hello_record = wrap_plain_record(tls_record_handshake, client_hello->handshake_bytes, ec);
+    const auto client_hello_record = wrap_plain_record(kTlsRecordHandshake, client_hello->handshake_bytes, ec);
     if (ec)
     {
         co_return std::nullopt;
@@ -708,7 +708,7 @@ boost::asio::awaitable<std::optional<parsed_server_hello>> receive_server_hello(
                                                                                 const std::string& session_id,
                                                                                 boost::system::error_code& ec)
 {
-    core::byte_queue plain_handshake(maximum_handshake_message);
+    core::byte_queue plain_handshake(kMaximumHandshakeMessage);
     auto message = co_await read_plain_handshake_message(tcp, plain_handshake, ec);
     if (ec)
     {
@@ -759,12 +759,12 @@ boost::asio::awaitable<void> send_client_finished(net::tcp_byte_stream& tcp,
     {
         co_return;
     }
-    const auto finished_message = make_handshake_message(handshake_finished, verify_data, ec);
+    const auto finished_message = make_handshake_message(kHandshakeFinished, verify_data, ec);
     if (ec)
     {
         co_return;
     }
-    const auto finished_record = secrets.client_key.seal(tls_record_handshake, finished_message, ec);
+    const auto finished_record = secrets.client_key.seal(kTlsRecordHandshake, finished_message, ec);
     if (ec)
     {
         co_return;

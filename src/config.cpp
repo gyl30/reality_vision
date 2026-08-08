@@ -160,7 +160,7 @@ std::expected<config, config_exit_code> parse_config(const int argc, char* argv[
         if (options.contains("help"))
         {
             std::cout << description << '\n';
-            return std::unexpected(config_exit_code::success);
+            return std::unexpected(config_exit_code::kSuccess);
         }
         if (options.contains("self_test"))
         {
@@ -172,7 +172,7 @@ std::expected<config, config_exit_code> parse_config(const int argc, char* argv[
     catch (const po::error& error)
     {
         std::cerr << "configuration error: " << error.what() << '\n';
-        return std::unexpected(config_exit_code::failure);
+        return std::unexpected(config_exit_code::kFailure);
     }
 
     if (!validate_listen_and_server_ports(configuration) ||
@@ -180,7 +180,7 @@ std::expected<config, config_exit_code> parse_config(const int argc, char* argv[
         !decode_reality_public_key(server_public_key, configuration) || !decode_reality_short_id(short_id, configuration) ||
         !decode_vless_user_id(uuid, configuration))
     {
-        return std::unexpected(config_exit_code::failure);
+        return std::unexpected(config_exit_code::kFailure);
     }
 
     return configuration;

@@ -36,13 +36,13 @@ using address = std::variant<ipv4_address, domain_address, ipv6_address>;
 
 enum class command : std::uint8_t
 {
-    connect = 0x01,
-    udp_associate = 0x03,
+    kConnect = 0x01,
+    kUdpAssociate = 0x03,
 };
 
 struct request
 {
-    command requested_command{command::connect};
+    command requested_command{command::kConnect};
     address destination;
     std::uint16_t port{};
 };
@@ -62,14 +62,14 @@ struct credentials
 
 enum class reply : std::uint8_t
 {
-    succeeded = 0x00,
-    general_failure = 0x01,
-    network_unreachable = 0x03,
-    host_unreachable = 0x04,
-    connection_refused = 0x05,
-    ttl_expired = 0x06,
-    command_not_supported = 0x07,
-    address_type_not_supported = 0x08,
+    kSucceeded = 0x00,
+    kGeneralFailure = 0x01,
+    kNetworkUnreachable = 0x03,
+    kHostUnreachable = 0x04,
+    kConnectionRefused = 0x05,
+    kTtlExpired = 0x06,
+    kCommandNotSupported = 0x07,
+    kAddressTypeNotSupported = 0x08,
 };
 
 [[nodiscard]] boost::system::error_code decode_request(std::span<const std::uint8_t> request_bytes, request& output);

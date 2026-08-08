@@ -13,8 +13,8 @@
 namespace rv::crypto
 {
 
-enum class hash_algorithm { sha256, sha384, sha512 };
-enum class aead_algorithm { aes_128_gcm, aes_256_gcm, chacha20_poly1305 };
+enum class hash_algorithm { kSha256, kSha384, kSha512 };
+enum class aead_algorithm { kAes128Gcm, kAes256Gcm, kChacha20Poly1305 };
 
 struct x25519_key_pair
 {

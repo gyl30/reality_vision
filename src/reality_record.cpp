@@ -35,15 +35,15 @@ cipher_suite parse_cipher_suite(std::uint16_t value, boost::system::error_code& 
     ec.clear();
     switch (value)
     {
-        case static_cast<std::uint16_t>(cipher_suite::tls_aes_128_gcm_sha256):
-            return cipher_suite::tls_aes_128_gcm_sha256;
-        case static_cast<std::uint16_t>(cipher_suite::tls_aes_256_gcm_sha384):
-            return cipher_suite::tls_aes_256_gcm_sha384;
-        case static_cast<std::uint16_t>(cipher_suite::tls_chacha20_poly1305_sha256):
-            return cipher_suite::tls_chacha20_poly1305_sha256;
+        case static_cast<std::uint16_t>(cipher_suite::kTlsAes128GcmSha256):
+            return cipher_suite::kTlsAes128GcmSha256;
+        case static_cast<std::uint16_t>(cipher_suite::kTlsAes256GcmSha384):
+            return cipher_suite::kTlsAes256GcmSha384;
+        case static_cast<std::uint16_t>(cipher_suite::kTlsChacha20Poly1305Sha256):
+            return cipher_suite::kTlsChacha20Poly1305Sha256;
         default:
             ec = boost::system::errc::make_error_code(boost::system::errc::protocol_not_supported);
-            return cipher_suite::unknown;
+            return cipher_suite::kUnknown;
     }
 }
 
@@ -51,16 +51,16 @@ cipher_suite_properties cipher_properties(cipher_suite suite) noexcept
 {
     switch (suite)
     {
-        case cipher_suite::tls_aes_128_gcm_sha256:
-            return {crypto::hash_algorithm::sha256, crypto::aead_algorithm::aes_128_gcm, 16};
-        case cipher_suite::tls_aes_256_gcm_sha384:
-            return {crypto::hash_algorithm::sha384, crypto::aead_algorithm::aes_256_gcm, 32};
-        case cipher_suite::tls_chacha20_poly1305_sha256:
-            return {crypto::hash_algorithm::sha256, crypto::aead_algorithm::chacha20_poly1305, 32};
-        case cipher_suite::unknown:
+        case cipher_suite::kTlsAes128GcmSha256:
+            return {crypto::hash_algorithm::kSha256, crypto::aead_algorithm::kAes128Gcm, 16};
+        case cipher_suite::kTlsAes256GcmSha384:
+            return {crypto::hash_algorithm::kSha384, crypto::aead_algorithm::kAes256Gcm, 32};
+        case cipher_suite::kTlsChacha20Poly1305Sha256:
+            return {crypto::hash_algorithm::kSha256, crypto::aead_algorithm::kChacha20Poly1305, 32};
+        case cipher_suite::kUnknown:
             break;
     }
-    return {crypto::hash_algorithm::sha256, crypto::aead_algorithm::aes_128_gcm, 0};
+    return {crypto::hash_algorithm::kSha256, crypto::aead_algorithm::kAes128Gcm, 0};
 }
 
 std::vector<std::uint8_t> hkdf_expand_label(crypto::hash_algorithm hash,
@@ -81,8 +81,8 @@ std::vector<std::uint8_t> hkdf_expand_label(crypto::hash_algorithm hash,
     info.reserve(2 + 1 + 6 + label.size() + 1 + context.size());
     put_u16(static_cast<std::uint16_t>(output_length), info);
     info.push_back(static_cast<std::uint8_t>(6 + label.size()));
-    constexpr std::array<std::uint8_t, 6> prefix{'t', 'l', 's', '1', '3', ' '};
-    info.insert(info.end(), prefix.begin(), prefix.end());
+    constexpr std::array<std::uint8_t, 6> kPrefix{'t', 'l', 's', '1', '3', ' '};
+    info.insert(info.end(), kPrefix.begin(), kPrefix.end());
     info.insert(info.end(), label.begin(), label.end());
     info.push_back(static_cast<std::uint8_t>(context.size()));
     info.insert(info.end(), context.begin(), context.end());
@@ -99,8 +99,8 @@ record_key::record_key(cipher_suite suite, std::span<const std::uint8_t> traffic
         return;
     }
 
-    constexpr std::array<std::uint8_t, 3> key_label{'k', 'e', 'y'};
-    auto key = hkdf_expand_label(properties.hash, traffic_secret, key_label, {}, properties.key_length, ec);
+    constexpr std::array<std::uint8_t, 3> kKeyLabel{'k', 'e', 'y'};
+    auto key = hkdf_expand_label(properties.hash, traffic_secret, kKeyLabel, {}, properties.key_length, ec);
     if (ec)
     {
         return;
@@ -112,8 +112,8 @@ record_key::record_key(cipher_suite suite, std::span<const std::uint8_t> traffic
         return;
     }
 
-    constexpr std::array<std::uint8_t, 2> iv_label{'i', 'v'};
-    auto iv = hkdf_expand_label(properties.hash, traffic_secret, iv_label, {}, iv_.size(), ec);
+    constexpr std::array<std::uint8_t, 2> kIvLabel{'i', 'v'};
+    auto iv = hkdf_expand_label(properties.hash, traffic_secret, kIvLabel, {}, iv_.size(), ec);
     if (ec)
     {
         return;
@@ -149,7 +149,7 @@ std::array<std::uint8_t, 12> record_key::next_nonce(boost::system::error_code& e
 std::vector<std::uint8_t> record_key::seal(std::uint8_t inner_type, std::span<const std::uint8_t> plaintext, boost::system::error_code& ec)
 {
     ec.clear();
-    if (plaintext.size() > max_tls_plaintext)
+    if (plaintext.size() > kMaxTlsPlaintext)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::message_size);
         return {};
@@ -159,7 +159,7 @@ std::vector<std::uint8_t> record_key::seal(std::uint8_t inner_type, std::span<co
     inner.push_back(inner_type);
     const auto ciphertext_length = inner.size() + 16;
     std::array<std::uint8_t, 5> header{
-        tls_record_application_data,
+        kTlsRecordApplicationData,
         0x03,
         0x03,
         static_cast<std::uint8_t>(ciphertext_length >> 8U),
@@ -184,7 +184,7 @@ std::vector<std::uint8_t> record_key::seal(std::uint8_t inner_type, std::span<co
 opened_record record_key::open(std::span<const std::uint8_t, 5> header, std::span<const std::uint8_t> ciphertext, boost::system::error_code& ec)
 {
     ec.clear();
-    if (ciphertext.size() < 17 || ciphertext.size() > max_tls_ciphertext)
+    if (ciphertext.size() < 17 || ciphertext.size() > kMaxTlsCiphertext)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
         return {};
@@ -345,8 +345,8 @@ std::vector<std::uint8_t> finished_verify_data(cipher_suite suite,
         ec = boost::system::errc::make_error_code(boost::system::errc::protocol_not_supported);
         return {};
     }
-    constexpr std::array<std::uint8_t, 8> label{'f', 'i', 'n', 'i', 's', 'h', 'e', 'd'};
-    auto finished_key = hkdf_expand_label(properties.hash, traffic_secret, label, {}, crypto::hash_size(properties.hash), ec);
+    constexpr std::array<std::uint8_t, 8> kLabel{'f', 'i', 'n', 'i', 's', 'h', 'e', 'd'};
+    auto finished_key = hkdf_expand_label(properties.hash, traffic_secret, kLabel, {}, crypto::hash_size(properties.hash), ec);
     if (ec)
     {
         return {};

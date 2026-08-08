@@ -15,20 +15,20 @@
 namespace rv::reality
 {
 
-inline constexpr std::uint8_t tls_record_change_cipher_spec = 20;
-inline constexpr std::uint8_t tls_record_alert = 21;
-inline constexpr std::uint8_t tls_record_handshake = 22;
-inline constexpr std::uint8_t tls_record_application_data = 23;
+inline constexpr std::uint8_t kTlsRecordChangeCipherSpec = 20;
+inline constexpr std::uint8_t kTlsRecordAlert = 21;
+inline constexpr std::uint8_t kTlsRecordHandshake = 22;
+inline constexpr std::uint8_t kTlsRecordApplicationData = 23;
 
-inline constexpr std::size_t max_tls_plaintext = 16U * 1024U;
-inline constexpr std::size_t max_tls_ciphertext = max_tls_plaintext + 256U;
+inline constexpr std::size_t kMaxTlsPlaintext = 16U * 1024U;
+inline constexpr std::size_t kMaxTlsCiphertext = kMaxTlsPlaintext + 256U;
 
 enum class cipher_suite : std::uint16_t
 {
-    unknown,
-    tls_aes_128_gcm_sha256 = 0x1301,
-    tls_aes_256_gcm_sha384 = 0x1302,
-    tls_chacha20_poly1305_sha256 = 0x1303,
+    kUnknown,
+    kTlsAes128GcmSha256 = 0x1301,
+    kTlsAes256GcmSha384 = 0x1302,
+    kTlsChacha20Poly1305Sha256 = 0x1303,
 };
 
 struct cipher_suite_properties

@@ -45,8 +45,8 @@ using tcp = boost::asio::ip::tcp;
 
 enum class transparent_mode : std::uint8_t
 {
-    redirect,
-    tproxy,
+    kRedirect,
+    kTproxy,
 };
 
 struct proxy_target
@@ -256,28 +256,28 @@ boost::asio::awaitable<std::optional<std::size_t>> read_some_until(tcp::socket& 
 
 boost::asio::awaitable<initial_client_data> sniff_initial_client_data(tcp::socket& client_socket, boost::system::error_code& ec)
 {
-    constexpr std::size_t sniff_limit = 16UL * 1024U;
-    constexpr auto sniff_timeout = std::chrono::milliseconds(200);
+    constexpr std::size_t kSniffLimit = 16UL * 1024U;
+    constexpr auto kSniffTimeout = std::chrono::milliseconds(200);
 
     initial_client_data output;
-    output.bytes.reserve(sniff_limit);
+    output.bytes.reserve(kSniffLimit);
     std::array<std::uint8_t, 4096> buffer{};
-    const auto deadline = std::chrono::steady_clock::now() + sniff_timeout;
+    const auto deadline = std::chrono::steady_clock::now() + kSniffTimeout;
 
     for (;;)
     {
         const auto sniff_result = rv::sniff::inspect_destination(output.bytes);
-        if (sniff_result.state == rv::sniff::status::found)
+        if (sniff_result.state == rv::sniff::status::kFound)
         {
             output.domain = sniff_result.domain;
             co_return output;
         }
-        if (sniff_result.state == rv::sniff::status::no_match || output.bytes.size() == sniff_limit)
+        if (sniff_result.state == rv::sniff::status::kNoMatch || output.bytes.size() == kSniffLimit)
         {
             co_return output;
         }
 
-        const auto requested = std::min(buffer.size(), sniff_limit - output.bytes.size());
+        const auto requested = std::min(buffer.size(), kSniffLimit - output.bytes.size());
         const auto count = co_await read_some_until(client_socket, std::span(buffer.data(), requested), deadline, ec);
         if (ec || !count)
         {
@@ -312,17 +312,17 @@ rv::socks5::reply map_error_to_socks_reply(const boost::system::error_code& ec)
 {
     if (ec == boost::asio::error::connection_refused)
     {
-        return rv::socks5::reply::connection_refused;
+        return rv::socks5::reply::kConnectionRefused;
     }
     if (ec == boost::asio::error::network_unreachable)
     {
-        return rv::socks5::reply::network_unreachable;
+        return rv::socks5::reply::kNetworkUnreachable;
     }
     if (ec == boost::asio::error::host_unreachable || ec == boost::asio::error::host_not_found || ec == boost::asio::error::host_not_found_try_again)
     {
-        return rv::socks5::reply::host_unreachable;
+        return rv::socks5::reply::kHostUnreachable;
     }
-    return rv::socks5::reply::general_failure;
+    return rv::socks5::reply::kGeneralFailure;
 }
 
 boost::asio::awaitable<void> send_upstream_failure_reply(tcp::socket& client_socket, const boost::system::error_code& upstream_ec)
@@ -341,7 +341,7 @@ boost::asio::awaitable<void> run_socks_session(tcp::socket client_socket, rv::ap
         co_return;
     }
 
-    if (request->requested_command == rv::socks5::command::udp_associate)
+    if (request->requested_command == rv::socks5::command::kUdpAssociate)
     {
         spdlog::info("{} socks5 udp associate {}", session_id, rv::socks5::format_destination(*request));
         co_await rv::udp_proxy::run_socks_association(std::move(client_socket), std::move(configuration), *request, std::move(session_id));
@@ -364,7 +364,7 @@ boost::asio::awaitable<void> run_socks_session(tcp::socket client_socket, rv::ap
 
     if (should_sniff_destination(*request))
     {
-        co_await rv::socks5::send_reply(client_socket, rv::socks5::reply::succeeded, ec);
+        co_await rv::socks5::send_reply(client_socket, rv::socks5::reply::kSucceeded, ec);
         if (ec)
         {
             co_return;
@@ -401,7 +401,7 @@ boost::asio::awaitable<void> run_socks_session(tcp::socket client_socket, rv::ap
             co_return;
         }
 
-        co_await rv::socks5::send_reply(client_socket, rv::socks5::reply::succeeded, ec);
+        co_await rv::socks5::send_reply(client_socket, rv::socks5::reply::kSucceeded, ec);
         if (ec)
         {
             co_return;
@@ -433,7 +433,7 @@ void get_transparent_destination(tcp::socket& client_socket,
                                  tcp::endpoint& destination,
                                  boost::system::error_code& ec)
 {
-    if (mode == transparent_mode::redirect)
+    if (mode == transparent_mode::kRedirect)
     {
         ec = rv::transparent::get_redirect_original_destination(client_socket, destination);
         return;
@@ -528,7 +528,7 @@ void log_session_exception(const std::string& session_id, const std::exception_p
 
 [[nodiscard]] std::string_view transparent_mode_name(const transparent_mode mode) noexcept
 {
-    return mode == transparent_mode::redirect ? "redirect" : "tproxy";
+    return mode == transparent_mode::kRedirect ? "redirect" : "tproxy";
 }
 
 boost::asio::awaitable<void> run_transparent_server(tcp::acceptor acceptor,
@@ -585,14 +585,14 @@ boost::asio::awaitable<void> run_redirect_server(tcp::acceptor acceptor,
                                                   rv::app::config configuration,
                                                   boost::system::error_code& ec)
 {
-    co_await run_transparent_server(std::move(acceptor), std::move(configuration), transparent_mode::redirect, ec);
+    co_await run_transparent_server(std::move(acceptor), std::move(configuration), transparent_mode::kRedirect, ec);
 }
 
 boost::asio::awaitable<void> run_tproxy_server(tcp::acceptor acceptor,
                                                 rv::app::config configuration,
                                                 boost::system::error_code& ec)
 {
-    co_await run_transparent_server(std::move(acceptor), std::move(configuration), transparent_mode::tproxy, ec);
+    co_await run_transparent_server(std::move(acceptor), std::move(configuration), transparent_mode::kTproxy, ec);
 }
 
 }    // namespace rv::tcp_proxy

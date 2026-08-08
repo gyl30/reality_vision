@@ -63,11 +63,11 @@ const EVP_MD* evp_md(hash_algorithm algorithm) noexcept
 {
     switch (algorithm)
     {
-        case hash_algorithm::sha256:
+        case hash_algorithm::kSha256:
             return EVP_sha256();
-        case hash_algorithm::sha384:
+        case hash_algorithm::kSha384:
             return EVP_sha384();
-        case hash_algorithm::sha512:
+        case hash_algorithm::kSha512:
             return EVP_sha512();
     }
     return nullptr;
@@ -77,11 +77,11 @@ const EVP_AEAD* evp_aead(aead_algorithm algorithm) noexcept
 {
     switch (algorithm)
     {
-        case aead_algorithm::aes_128_gcm:
+        case aead_algorithm::kAes128Gcm:
             return EVP_aead_aes_128_gcm();
-        case aead_algorithm::aes_256_gcm:
+        case aead_algorithm::kAes256Gcm:
             return EVP_aead_aes_256_gcm();
-        case aead_algorithm::chacha20_poly1305:
+        case aead_algorithm::kChacha20Poly1305:
             return EVP_aead_chacha20_poly1305();
     }
     return nullptr;
@@ -161,11 +161,11 @@ std::size_t hash_size(hash_algorithm algorithm) noexcept
 {
     switch (algorithm)
     {
-        case hash_algorithm::sha256:
+        case hash_algorithm::kSha256:
             return 32;
-        case hash_algorithm::sha384:
+        case hash_algorithm::kSha384:
             return 48;
-        case hash_algorithm::sha512:
+        case hash_algorithm::kSha512:
             return 64;
     }
     return 0;

@@ -22,17 +22,17 @@ namespace rv::reality
 
 enum class receive_mode : std::uint8_t
 {
-    tls,
-    raw,
-    closed
+    kTls,
+    kRaw,
+    kClosed
 };
 
 enum class send_mode : std::uint8_t
 {
-    tls,
-    switching_to_raw,
-    raw,
-    closed
+    kTls,
+    kSwitchingToRaw,
+    kRaw,
+    kClosed
 };
 
 class reality_stream
@@ -74,10 +74,10 @@ class reality_stream
     net::tcp_byte_stream tcp_;
     record_key receive_key_;
     record_key send_key_;
-    core::byte_queue plaintext_buffer_{max_tls_plaintext + 1};
+    core::byte_queue plaintext_buffer_{kMaxTlsPlaintext + 1};
     core::byte_queue post_handshake_buffer_{1U << 20};
-    receive_mode receive_mode_{receive_mode::tls};
-    send_mode send_mode_{send_mode::tls};
+    receive_mode receive_mode_{receive_mode::kTls};
+    send_mode send_mode_{send_mode::kTls};
     std::size_t ignored_tls_record_count_{0};
     std::string session_id_;
 };

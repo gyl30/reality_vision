@@ -28,15 +28,15 @@ namespace asio = boost::asio;
 namespace
 {
 
-constexpr std::uint8_t version = 0x05;
-constexpr std::uint8_t no_authentication = 0x00;
-constexpr std::uint8_t username_password_authentication = 0x02;
-constexpr std::uint8_t no_acceptable_method = 0xff;
-constexpr std::uint8_t authentication_version = 0x01;
-constexpr std::uint8_t bind_command = 0x02;
-constexpr std::uint8_t ipv4_type = 0x01;
-constexpr std::uint8_t domain_type = 0x03;
-constexpr std::uint8_t ipv6_type = 0x04;
+constexpr std::uint8_t kVersion = 0x05;
+constexpr std::uint8_t kNoAuthentication = 0x00;
+constexpr std::uint8_t kUsernamePasswordAuthentication = 0x02;
+constexpr std::uint8_t kNoAcceptableMethod = 0xff;
+constexpr std::uint8_t kAuthenticationVersion = 0x01;
+constexpr std::uint8_t kBindCommand = 0x02;
+constexpr std::uint8_t kIpv4Type = 0x01;
+constexpr std::uint8_t kDomainType = 0x03;
+constexpr std::uint8_t kIpv6Type = 0x04;
 
 asio::awaitable<void> read_exact(asio::ip::tcp::socket& socket, std::span<std::uint8_t> output, boost::system::error_code& ec)
 {
@@ -68,21 +68,21 @@ boost::system::error_code decode_address(const std::span<const std::uint8_t> inp
 
     switch (input[type_offset])
     {
-        case ipv4_type:
+        case kIpv4Type:
         {
-            constexpr std::size_t address_size = 4;
+            constexpr std::size_t kAddressSize = 4;
             const auto begin = type_offset + 1;
-            if (input.size() < begin + address_size)
+            if (input.size() < begin + kAddressSize)
             {
                 return make_error_code(boost::system::errc::bad_message);
             }
             ipv4_address ipv4;
             std::copy_n(input.begin() + static_cast<std::ptrdiff_t>(begin), ipv4.bytes.size(), ipv4.bytes.begin());
             destination = ipv4;
-            next_offset = begin + address_size;
+            next_offset = begin + kAddressSize;
             return {};
         }
-        case domain_type:
+        case kDomainType:
         {
             const auto length_offset = type_offset + 1;
             if (length_offset >= input.size())
@@ -106,18 +106,18 @@ boost::system::error_code decode_address(const std::span<const std::uint8_t> inp
             next_offset = begin + domain_length;
             return {};
         }
-        case ipv6_type:
+        case kIpv6Type:
         {
-            constexpr std::size_t address_size = 16;
+            constexpr std::size_t kAddressSize = 16;
             const auto begin = type_offset + 1;
-            if (input.size() < begin + address_size)
+            if (input.size() < begin + kAddressSize)
             {
                 return make_error_code(boost::system::errc::bad_message);
             }
             ipv6_address ipv6;
             std::copy_n(input.begin() + static_cast<std::ptrdiff_t>(begin), ipv6.bytes.size(), ipv6.bytes.begin());
             destination = ipv6;
-            next_offset = begin + address_size;
+            next_offset = begin + kAddressSize;
             return {};
         }
         default:
@@ -133,12 +133,12 @@ void encode_address(const address& source, std::vector<std::uint8_t>& output, bo
             using address_type = std::decay_t<decltype(value)>;
             if constexpr (std::is_same_v<address_type, ipv4_address>)
             {
-                output.push_back(ipv4_type);
+                output.push_back(kIpv4Type);
                 output.insert(output.end(), value.bytes.begin(), value.bytes.end());
             }
             else if constexpr (std::is_same_v<address_type, ipv6_address>)
             {
-                output.push_back(ipv6_type);
+                output.push_back(kIpv6Type);
                 output.insert(output.end(), value.bytes.begin(), value.bytes.end());
             }
             else
@@ -148,7 +148,7 @@ void encode_address(const address& source, std::vector<std::uint8_t>& output, bo
                     ec = boost::system::errc::make_error_code(boost::system::errc::invalid_argument);
                     return;
                 }
-                output.push_back(domain_type);
+                output.push_back(kDomainType);
                 output.push_back(static_cast<std::uint8_t>(value.name.size()));
                 output.insert(output.end(), value.name.begin(), value.name.end());
             }
@@ -164,7 +164,7 @@ asio::awaitable<void> authenticate_username_password(asio::ip::tcp::socket& sock
     {
         co_return;
     }
-    if (header[0] != authentication_version || header[1] == 0)
+    if (header[0] != kAuthenticationVersion || header[1] == 0)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
         co_return;
@@ -198,7 +198,7 @@ asio::awaitable<void> authenticate_username_password(asio::ip::tcp::socket& sock
 
     const bool authenticated = username == expected.username && password == expected.password;
     const std::array<std::uint8_t, 2> response{
-        authentication_version,
+        kAuthenticationVersion,
         static_cast<std::uint8_t>(authenticated ? 0x00 : 0x01),
     };
     co_await write_all(socket, response, ec);
@@ -222,7 +222,7 @@ asio::awaitable<void> negotiate_authentication(asio::ip::tcp::socket& socket,
     {
         co_return;
     }
-    if (greeting[0] != version)
+    if (greeting[0] != kVersion)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::protocol_error);
         co_return;
@@ -235,11 +235,11 @@ asio::awaitable<void> negotiate_authentication(asio::ip::tcp::socket& socket,
         co_return;
     }
 
-    const auto selected_method = expected_credentials ? username_password_authentication : no_authentication;
+    const auto selected_method = expected_credentials ? kUsernamePasswordAuthentication : kNoAuthentication;
     const bool supported = std::ranges::find(methods, selected_method) != methods.end();
     const std::array<std::uint8_t, 2> selection{
-        version,
-        supported ? selected_method : no_acceptable_method,
+        kVersion,
+        supported ? selected_method : kNoAcceptableMethod,
     };
     co_await write_all(socket, selection, ec);
     if (ec)
@@ -271,16 +271,16 @@ asio::awaitable<void> read_request_header(asio::ip::tcp::socket& socket, std::ar
     {
         co_return;
     }
-    if (header[0] != version || header[2] != 0)
+    if (header[0] != kVersion || header[2] != 0)
     {
-        co_await send_reply_ignoring_error(socket, reply::general_failure);
+        co_await send_reply_ignoring_error(socket, reply::kGeneralFailure);
         ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
         co_return;
     }
-    if (header[1] == bind_command || (header[1] != static_cast<std::uint8_t>(command::connect) &&
-                                      header[1] != static_cast<std::uint8_t>(command::udp_associate)))
+    if (header[1] == kBindCommand || (header[1] != static_cast<std::uint8_t>(command::kConnect) &&
+                                      header[1] != static_cast<std::uint8_t>(command::kUdpAssociate)))
     {
-        co_await send_reply_ignoring_error(socket, reply::command_not_supported);
+        co_await send_reply_ignoring_error(socket, reply::kCommandNotSupported);
         ec = boost::system::errc::make_error_code(boost::system::errc::operation_not_supported);
     }
 }
@@ -292,14 +292,14 @@ asio::awaitable<void> read_request_body(asio::ip::tcp::socket& socket,
 {
     switch (header[3])
     {
-        case ipv4_type:
+        case kIpv4Type:
         {
             const auto offset = request_bytes.size();
             request_bytes.resize(offset + 6);
             co_await read_exact(socket, std::span(request_bytes).subspan(offset), ec);
             break;
         }
-        case domain_type:
+        case kDomainType:
         {
             std::array<std::uint8_t, 1> domain_length{};
             co_await read_exact(socket, domain_length, ec);
@@ -319,7 +319,7 @@ asio::awaitable<void> read_request_body(asio::ip::tcp::socket& socket,
             co_await read_exact(socket, std::span(request_bytes).subspan(offset), ec);
             break;
         }
-        case ipv6_type:
+        case kIpv6Type:
         {
             const auto offset = request_bytes.size();
             request_bytes.resize(offset + 18);
@@ -327,7 +327,7 @@ asio::awaitable<void> read_request_body(asio::ip::tcp::socket& socket,
             break;
         }
         default:
-            co_await send_reply_ignoring_error(socket, reply::address_type_not_supported);
+            co_await send_reply_ignoring_error(socket, reply::kAddressTypeNotSupported);
             ec = boost::system::errc::make_error_code(boost::system::errc::address_family_not_supported);
             co_return;
     }
@@ -363,10 +363,10 @@ std::vector<std::uint8_t> encode_bound_reply(const reply value, const asio::ip::
 
     const auto bytes = endpoint.address().to_v4().to_bytes();
     std::vector<std::uint8_t> output{
-        version,
+        kVersion,
         static_cast<std::uint8_t>(value),
         0x00,
-        ipv4_type,
+        kIpv4Type,
     };
     output.insert(output.end(), bytes.begin(), bytes.end());
     put_u16(endpoint.port(), output);
@@ -379,7 +379,7 @@ boost::system::error_code decode_request(const std::span<const std::uint8_t> req
 {
     using boost::system::errc::make_error_code;
 
-    if (request_bytes.size() < 7 || request_bytes[0] != version || request_bytes[2] != 0)
+    if (request_bytes.size() < 7 || request_bytes[0] != kVersion || request_bytes[2] != 0)
     {
         return make_error_code(boost::system::errc::bad_message);
     }
@@ -387,11 +387,11 @@ boost::system::error_code decode_request(const std::span<const std::uint8_t> req
     command requested_command;
     switch (request_bytes[1])
     {
-        case static_cast<std::uint8_t>(command::connect):
-            requested_command = command::connect;
+        case static_cast<std::uint8_t>(command::kConnect):
+            requested_command = command::kConnect;
             break;
-        case static_cast<std::uint8_t>(command::udp_associate):
-            requested_command = command::udp_associate;
+        case static_cast<std::uint8_t>(command::kUdpAssociate):
+            requested_command = command::kUdpAssociate;
             break;
         default:
             return make_error_code(boost::system::errc::operation_not_supported);
@@ -410,7 +410,7 @@ boost::system::error_code decode_request(const std::span<const std::uint8_t> req
     }
 
     const auto port = core::read_be16(request_bytes.data() + port_offset);
-    if (requested_command == command::connect && port == 0)
+    if (requested_command == command::kConnect && port == 0)
     {
         return make_error_code(boost::system::errc::invalid_argument);
     }
@@ -465,10 +465,10 @@ boost::system::error_code decode_udp_datagram(const std::span<const std::uint8_t
 std::array<std::uint8_t, 10> encode_reply(const reply value) noexcept
 {
     return {
-        version,
+        kVersion,
         static_cast<std::uint8_t>(value),
         0x00,
-        ipv4_type,
+        kIpv4Type,
         0x00,
         0x00,
         0x00,
@@ -569,7 +569,7 @@ asio::awaitable<std::optional<request>> negotiate(asio::ip::tcp::socket& socket,
     ec = decode_request(*request_bytes, parsed);
     if (ec)
     {
-        co_await send_reply_ignoring_error(socket, reply::general_failure);
+        co_await send_reply_ignoring_error(socket, reply::kGeneralFailure);
         co_return std::nullopt;
     }
 

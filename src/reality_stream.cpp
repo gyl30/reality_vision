@@ -75,11 +75,11 @@ boost::asio::awaitable<std::size_t> reality_stream::read(std::span<std::uint8_t>
     {
         co_return plaintext_buffer_.copy_to(output);
     }
-    if (receive_mode_ == receive_mode::closed)
+    if (receive_mode_ == receive_mode::kClosed)
     {
         co_return 0;
     }
-    if (receive_mode_ == receive_mode::raw)
+    if (receive_mode_ == receive_mode::kRaw)
     {
         co_return co_await read_raw(output, ec);
     }
@@ -92,7 +92,7 @@ boost::asio::awaitable<std::size_t> reality_stream::read_raw(std::span<std::uint
     const auto count = co_await tcp_.read(output, ec);
     if (ec == boost::asio::error::eof)
     {
-        receive_mode_ = receive_mode::closed;
+        receive_mode_ = receive_mode::kClosed;
         ec.clear();
         co_return 0;
     }
@@ -109,7 +109,7 @@ boost::asio::awaitable<std::optional<reality_stream::encrypted_record>> reality_
     }
 
     const auto payload_size = static_cast<std::size_t>(core::read_be16(record.header.data() + 3));
-    if (payload_size > max_tls_ciphertext)
+    if (payload_size > kMaxTlsCiphertext)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::message_size);
         co_return std::nullopt;
@@ -129,7 +129,7 @@ std::optional<std::size_t> reality_stream::process_decrypted_record(const opened
                                                                     std::span<std::uint8_t> output,
                                                                     boost::system::error_code& ec)
 {
-    if (plaintext.inner_type == tls_record_application_data)
+    if (plaintext.inner_type == kTlsRecordApplicationData)
     {
         ignored_tls_record_count_ = 0;
         plaintext_buffer_.append(plaintext.content, ec);
@@ -144,7 +144,7 @@ std::optional<std::size_t> reality_stream::process_decrypted_record(const opened
         return std::nullopt;
     }
 
-    if (plaintext.inner_type == tls_record_handshake)
+    if (plaintext.inner_type == kTlsRecordHandshake)
     {
         post_handshake_buffer_.append(plaintext.content, ec);
         if (ec)
@@ -159,12 +159,12 @@ std::optional<std::size_t> reality_stream::process_decrypted_record(const opened
         return std::nullopt;
     }
 
-    if (plaintext.inner_type == tls_record_alert)
+    if (plaintext.inner_type == kTlsRecordAlert)
     {
         const bool close_notify = plaintext.content.size() == 2 && plaintext.content[0] == 1 && plaintext.content[1] == 0;
         if (close_notify)
         {
-            receive_mode_ = receive_mode::closed;
+            receive_mode_ = receive_mode::kClosed;
             return 0;
         }
         ec = boost::system::errc::make_error_code(boost::system::errc::connection_aborted);
@@ -184,12 +184,12 @@ boost::asio::awaitable<std::size_t> reality_stream::read_tls(std::span<std::uint
         {
             if (ec == boost::asio::error::eof)
             {
-                receive_mode_ = receive_mode::closed;
+                receive_mode_ = receive_mode::kClosed;
             }
             co_return 0;
         }
 
-        if (record->header[0] == tls_record_change_cipher_spec)
+        if (record->header[0] == kTlsRecordChangeCipherSpec)
         {
             if (++ignored_tls_record_count_ > 3)
             {
@@ -198,7 +198,7 @@ boost::asio::awaitable<std::size_t> reality_stream::read_tls(std::span<std::uint
             }
             continue;
         }
-        if (record->header[0] != tls_record_application_data || record->header[1] != 0x03 || record->header[2] != 0x03)
+        if (record->header[0] != kTlsRecordApplicationData || record->header[1] != 0x03 || record->header[2] != 0x03)
         {
             ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
             co_return 0;
@@ -223,8 +223,8 @@ boost::asio::awaitable<void> reality_stream::write_tls_records(std::span<const s
     std::size_t offset = 0;
     while (offset != input.size())
     {
-        const auto chunk_size = std::min(max_tls_plaintext, input.size() - offset);
-        const auto record = send_key_.seal(tls_record_application_data, input.subspan(offset, chunk_size), ec);
+        const auto chunk_size = std::min(kMaxTlsPlaintext, input.size() - offset);
+        const auto record = send_key_.seal(kTlsRecordApplicationData, input.subspan(offset, chunk_size), ec);
         if (ec)
         {
             co_return;
@@ -241,12 +241,12 @@ boost::asio::awaitable<void> reality_stream::write_tls_records(std::span<const s
 
 boost::asio::awaitable<void> reality_stream::write(std::span<const std::uint8_t> input, boost::system::error_code& ec)
 {
-    if (send_mode_ == send_mode::raw)
+    if (send_mode_ == send_mode::kRaw)
     {
         co_await tcp_.write(input, ec);
         co_return;
     }
-    if (send_mode_ != send_mode::tls)
+    if (send_mode_ != send_mode::kTls)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::state_not_recoverable);
         co_return;
@@ -257,27 +257,27 @@ boost::asio::awaitable<void> reality_stream::write(std::span<const std::uint8_t>
 
 boost::asio::awaitable<void> reality_stream::shutdown_send(boost::system::error_code& ec)
 {
-    if (send_mode_ == send_mode::closed)
+    if (send_mode_ == send_mode::kClosed)
     {
         co_return;
     }
-    if (send_mode_ == send_mode::switching_to_raw)
+    if (send_mode_ == send_mode::kSwitchingToRaw)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::operation_in_progress);
         co_return;
     }
 
-    if (send_mode_ == send_mode::tls)
+    if (send_mode_ == send_mode::kTls)
     {
-        constexpr std::array<std::uint8_t, 2> close_notify{1, 0};
-        const auto record = send_key_.seal(tls_record_alert, close_notify, ec);
+        constexpr std::array<std::uint8_t, 2> kCloseNotify{1, 0};
+        const auto record = send_key_.seal(kTlsRecordAlert, kCloseNotify, ec);
         if (!ec)
         {
             co_await tcp_.write(record, ec);
         }
     }
 
-    send_mode_ = send_mode::closed;
+    send_mode_ = send_mode::kClosed;
     boost::system::error_code shutdown_ec;
     tcp_.shutdown_send(shutdown_ec);
     if (!ec)
@@ -288,34 +288,34 @@ boost::asio::awaitable<void> reality_stream::shutdown_send(boost::system::error_
 
 void reality_stream::switch_receive_to_raw(boost::system::error_code& ec)
 {
-    if (receive_mode_ != receive_mode::tls || !plaintext_buffer_.empty() || !post_handshake_buffer_.empty())
+    if (receive_mode_ != receive_mode::kTls || !plaintext_buffer_.empty() || !post_handshake_buffer_.empty())
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::operation_not_permitted);
         return;
     }
 
-    receive_mode_ = receive_mode::raw;
+    receive_mode_ = receive_mode::kRaw;
     spdlog::info("{} reality receive direction switched to raw", session_id_);
 }
 
 boost::asio::awaitable<void> reality_stream::write_final_tls_and_switch_to_raw(std::span<const std::uint8_t> final_plaintext,
                                                                                boost::system::error_code& ec)
 {
-    if (send_mode_ != send_mode::tls)
+    if (send_mode_ != send_mode::kTls)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::operation_not_permitted);
         co_return;
     }
 
-    send_mode_ = send_mode::switching_to_raw;
+    send_mode_ = send_mode::kSwitchingToRaw;
     co_await write_tls_records(final_plaintext, ec);
     if (ec)
     {
-        send_mode_ = send_mode::closed;
+        send_mode_ = send_mode::kClosed;
         co_return;
     }
 
-    send_mode_ = send_mode::raw;
+    send_mode_ = send_mode::kRaw;
     spdlog::info("{} reality send direction switched to raw", session_id_);
 }
 
@@ -353,8 +353,8 @@ void reality_stream::process_post_handshake_messages(boost::system::error_code& 
 
 void reality_stream::shutdown() noexcept
 {
-    receive_mode_ = receive_mode::closed;
-    send_mode_ = send_mode::closed;
+    receive_mode_ = receive_mode::kClosed;
+    send_mode_ = send_mode::kClosed;
     tcp_.shutdown();
 }
 

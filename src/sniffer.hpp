@@ -10,14 +10,14 @@ namespace rv::sniff
 
 enum class status : std::uint8_t
 {
-    need_more,
-    no_match,
-    found
+    kNeedMore,
+    kNoMatch,
+    kFound
 };
 
 struct result
 {
-    status state{status::need_more};
+    status state{status::kNeedMore};
     std::string domain;
 };
 

@@ -41,9 +41,9 @@ namespace asio = boost::asio;
 using tcp = asio::ip::tcp;
 using udp = asio::ip::udp;
 
-constexpr std::size_t max_udp_packet_size = 65535;
-constexpr auto udp_flow_idle_timeout = std::chrono::seconds(120);
-constexpr auto udp_flow_cleanup_interval = std::chrono::seconds(30);
+constexpr std::size_t kMaxUdpPacketSize = 65535;
+constexpr auto kUdpFlowIdleTimeout = std::chrono::seconds(120);
+constexpr auto kUdpFlowCleanupInterval = std::chrono::seconds(30);
 
 struct proxy_target
 {
@@ -194,7 +194,7 @@ void cleanup_socks_flows(const std::shared_ptr<socks_udp_state>& state)
     for (auto iterator = state->flows.begin(); iterator != state->flows.end();)
     {
         auto& flow = *iterator->second;
-        if (flow.closed || now - flow.last_activity >= udp_flow_idle_timeout)
+        if (flow.closed || now - flow.last_activity >= kUdpFlowIdleTimeout)
         {
             close_socks_flow(flow);
             iterator = state->flows.erase(iterator);
@@ -210,7 +210,7 @@ asio::awaitable<void> run_socks_cleanup(std::shared_ptr<socks_udp_state> state)
 {
     while (!state->closed)
     {
-        state->cleanup_timer.expires_after(udp_flow_cleanup_interval);
+        state->cleanup_timer.expires_after(kUdpFlowCleanupInterval);
         boost::system::error_code ec;
         co_await state->cleanup_timer.async_wait(asio::redirect_error(asio::use_awaitable, ec));
         if (ec || state->closed)
@@ -375,7 +375,7 @@ asio::awaitable<void> run_socks_udp_relay(const std::shared_ptr<socks_udp_state>
                                            const std::string& session_id,
                                            boost::system::error_code& ec)
 {
-    std::array<std::uint8_t, max_udp_packet_size> buffer{};
+    std::array<std::uint8_t, kMaxUdpPacketSize> buffer{};
 
     for (;;)
     {
@@ -597,7 +597,7 @@ void cleanup_tproxy_flows(const std::shared_ptr<tproxy_udp_state>& state)
     for (auto iterator = state->flows.begin(); iterator != state->flows.end();)
     {
         auto& flow = *iterator->second;
-        if (flow.closed || now - flow.last_activity >= udp_flow_idle_timeout)
+        if (flow.closed || now - flow.last_activity >= kUdpFlowIdleTimeout)
         {
             close_tproxy_flow(flow);
             iterator = state->flows.erase(iterator);
@@ -613,7 +613,7 @@ asio::awaitable<void> run_tproxy_cleanup(std::shared_ptr<tproxy_udp_state> state
 {
     while (!state->closed)
     {
-        state->cleanup_timer.expires_after(udp_flow_cleanup_interval);
+        state->cleanup_timer.expires_after(kUdpFlowCleanupInterval);
         boost::system::error_code ec;
         co_await state->cleanup_timer.async_wait(asio::redirect_error(asio::use_awaitable, ec));
         if (ec || state->closed)
@@ -656,14 +656,14 @@ asio::awaitable<void> run_socks_association(tcp::socket control_socket,
     if (ec)
     {
         boost::system::error_code ignored;
-        co_await socks5::send_reply(control_socket, socks5::reply::general_failure, ignored);
+        co_await socks5::send_reply(control_socket, socks5::reply::kGeneralFailure, ignored);
         co_return;
     }
     relay_socket.bind(udp::endpoint(asio::ip::address_v4::loopback(), 0), ec);
     if (ec)
     {
         boost::system::error_code ignored;
-        co_await socks5::send_reply(control_socket, socks5::reply::general_failure, ignored);
+        co_await socks5::send_reply(control_socket, socks5::reply::kGeneralFailure, ignored);
         co_return;
     }
 
@@ -672,7 +672,7 @@ asio::awaitable<void> run_socks_association(tcp::socket control_socket,
     {
         co_return;
     }
-    co_await socks5::send_reply(control_socket, socks5::reply::succeeded, relay_endpoint, ec);
+    co_await socks5::send_reply(control_socket, socks5::reply::kSucceeded, relay_endpoint, ec);
     if (ec)
     {
         co_return;
@@ -770,7 +770,7 @@ asio::awaitable<void> run_tproxy_server(udp::socket socket, app::config configur
                    run_tproxy_cleanup(state),
                    [](const std::exception_ptr& exception) { log_session_exception("tproxy_udp_cleanup", exception); });
 
-    std::array<std::uint8_t, max_udp_packet_size> buffer{};
+    std::array<std::uint8_t, kMaxUdpPacketSize> buffer{};
     for (;;)
     {
         co_await state->socket.async_wait(udp::socket::wait_read, asio::redirect_error(asio::use_awaitable, ec));

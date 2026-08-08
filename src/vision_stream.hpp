@@ -21,7 +21,7 @@ class vision_stream
 {
    public:
     [[nodiscard]] static boost::asio::awaitable<std::optional<vision_stream>> connect(vless::vless_stream vless,
-                                                                                      std::array<std::uint8_t, user_id_size> user_id,
+                                                                                      std::array<std::uint8_t, kUserIdSize> user_id,
                                                                                       std::string session_id,
                                                                                       boost::system::error_code& ec);
 
@@ -34,20 +34,20 @@ class vision_stream
    private:
     enum class receive_phase : std::uint8_t
     {
-        header,
-        content,
-        padding,
-        passthrough
+        kHeader,
+        kContent,
+        kPadding,
+        kPassthrough
     };
 
     struct send_plan
     {
-        command final_command{command::continue_padding};
+        command final_command{command::kContinuePadding};
         std::size_t vision_framed_size{};
         bool use_long_padding{};
     };
 
-    vision_stream(vless::vless_stream vless, std::array<std::uint8_t, user_id_size> user_id, std::string session_id);
+    vision_stream(vless::vless_stream vless, std::array<std::uint8_t, kUserIdSize> user_id, std::string session_id);
 
     [[nodiscard]] boost::asio::awaitable<bool> read_next_frame_header(boost::system::error_code& ec);
     [[nodiscard]] boost::asio::awaitable<std::size_t> read_frame_content(std::span<std::uint8_t> output, boost::system::error_code& ec);
@@ -62,11 +62,11 @@ class vision_stream
     [[nodiscard]] boost::asio::awaitable<void> end_padding_before_shutdown(boost::system::error_code& ec);
 
     vless::vless_stream vless_;
-    std::array<std::uint8_t, user_id_size> user_id_{};
+    std::array<std::uint8_t, kUserIdSize> user_id_{};
 
-    receive_phase receive_phase_{receive_phase::header};
+    receive_phase receive_phase_{receive_phase::kHeader};
     bool expect_user_id_{true};
-    command received_command_{command::continue_padding};
+    command received_command_{command::kContinuePadding};
     std::size_t content_remaining_{0};
     std::size_t padding_remaining_{0};
 

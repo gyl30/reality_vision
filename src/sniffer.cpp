@@ -18,9 +18,9 @@ namespace rv::sniff
 namespace
 {
 
-constexpr std::size_t tls_record_header_size = 5;
-constexpr std::size_t tls_handshake_header_size = 4;
-constexpr std::size_t maximum_tls_record_payload = 1U << 14U;
+constexpr std::size_t kTlsRecordHeaderSize = 5;
+constexpr std::size_t kTlsHandshakeHeaderSize = 4;
+constexpr std::size_t kMaximumTlsRecordPayload = 1U << 14U;
 
 [[nodiscard]] result make_result(const status state, std::string domain = {})
 {
@@ -99,18 +99,18 @@ constexpr std::size_t maximum_tls_record_payload = 1U << 14U;
 
 [[nodiscard]] std::optional<std::string> parse_client_hello(const std::span<const std::uint8_t> handshake)
 {
-    if (handshake.size() < tls_handshake_header_size || handshake[0] != 0x01)
+    if (handshake.size() < kTlsHandshakeHeaderSize || handshake[0] != 0x01)
     {
         return std::nullopt;
     }
 
     const auto body_size = static_cast<std::size_t>(core::read_be24(handshake.data() + 1));
-    if (handshake.size() < tls_handshake_header_size + body_size)
+    if (handshake.size() < kTlsHandshakeHeaderSize + body_size)
     {
         return std::nullopt;
     }
 
-    core::byte_reader reader(handshake.subspan(tls_handshake_header_size, body_size));
+    core::byte_reader reader(handshake.subspan(kTlsHandshakeHeaderSize, body_size));
     if (!reader.skip(2 + 32))
     {
         return std::nullopt;
@@ -149,39 +149,39 @@ constexpr std::size_t maximum_tls_record_payload = 1U << 14U;
 
 [[nodiscard]] result sniff_tls(const std::span<const std::uint8_t> input)
 {
-    if (input.size() < tls_record_header_size)
+    if (input.size() < kTlsRecordHeaderSize)
     {
-        return make_result(status::need_more);
+        return make_result(status::kNeedMore);
     }
     if (input[0] != 0x16 || input[1] != 0x03 || input[2] > 0x03)
     {
-        return make_result(status::no_match);
+        return make_result(status::kNoMatch);
     }
 
     const auto payload_size = static_cast<std::size_t>(core::read_be16(input.data() + 3));
-    if (payload_size == 0 || payload_size > maximum_tls_record_payload)
+    if (payload_size == 0 || payload_size > kMaximumTlsRecordPayload)
     {
-        return make_result(status::no_match);
+        return make_result(status::kNoMatch);
     }
-    if (input.size() < tls_record_header_size + payload_size)
+    if (input.size() < kTlsRecordHeaderSize + payload_size)
     {
-        return make_result(status::need_more);
+        return make_result(status::kNeedMore);
     }
 
-    const auto domain = parse_client_hello(input.subspan(tls_record_header_size, payload_size));
+    const auto domain = parse_client_hello(input.subspan(kTlsRecordHeaderSize, payload_size));
     if (!domain)
     {
-        return make_result(status::no_match);
+        return make_result(status::kNoMatch);
     }
-    return make_result(status::found, *domain);
+    return make_result(status::kFound, *domain);
 }
 
 [[nodiscard]] bool is_http_method_prefix(const std::string_view input, bool& complete) noexcept
 {
-    constexpr std::array<std::string_view, 9> methods{"GET ", "HEAD ", "POST ", "PUT ", "DELETE ", "OPTIONS ", "PATCH ", "CONNECT ", "TRACE "};
+    constexpr std::array<std::string_view, 9> kMethods{"GET ", "HEAD ", "POST ", "PUT ", "DELETE ", "OPTIONS ", "PATCH ", "CONNECT ", "TRACE "};
 
     complete = false;
-    for (const auto method : methods)
+    for (const auto method : kMethods)
     {
         const auto compared_size = std::min(input.size(), method.size());
         if (input.substr(0, compared_size) != method.substr(0, compared_size))
@@ -272,17 +272,17 @@ constexpr std::size_t maximum_tls_record_payload = 1U << 14U;
     bool method_complete = false;
     if (!is_http_method_prefix(text, method_complete))
     {
-        return make_result(status::no_match);
+        return make_result(status::kNoMatch);
     }
     if (!method_complete)
     {
-        return make_result(status::need_more);
+        return make_result(status::kNeedMore);
     }
 
     const auto request_line_end = text.find("\r\n");
     if (request_line_end == std::string_view::npos)
     {
-        return make_result(status::need_more);
+        return make_result(status::kNeedMore);
     }
 
     std::size_t offset = request_line_end + 2;
@@ -291,19 +291,19 @@ constexpr std::size_t maximum_tls_record_payload = 1U << 14U;
         const auto line_end = text.find("\r\n", offset);
         if (line_end == std::string_view::npos)
         {
-            return make_result(status::need_more);
+            return make_result(status::kNeedMore);
         }
         const auto line = text.substr(offset, line_end - offset);
         if (line.empty())
         {
-            return make_result(status::no_match);
+            return make_result(status::kNoMatch);
         }
 
         const auto colon = line.find(':');
         if (colon != std::string_view::npos && equals_ascii_case_insensitive(trim_http_whitespace(line.substr(0, colon)), "host"sv))
         {
             const auto domain = parse_http_host(line.substr(colon + 1));
-            return domain ? make_result(status::found, *domain) : make_result(status::no_match);
+            return domain ? make_result(status::kFound, *domain) : make_result(status::kNoMatch);
         }
         offset = line_end + 2;
     }
@@ -315,7 +315,7 @@ result inspect_destination(const std::span<const std::uint8_t> input)
 {
     if (input.empty())
     {
-        return make_result(status::need_more);
+        return make_result(status::kNeedMore);
     }
     if (input[0] == 0x16)
     {

@@ -30,8 +30,8 @@ struct config
 
 enum class config_exit_code : int
 {
-    success = 0,
-    failure = 1,
+    kSuccess = 0,
+    kFailure = 1,
 };
 
 [[nodiscard]] std::expected<config, config_exit_code> parse_config(int argc, char* argv[]);

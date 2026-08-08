@@ -84,9 +84,9 @@ std::vector<std::uint8_t> server_name_extension(const std::string& server_name, 
 
 std::vector<std::uint8_t> alpn_extension()
 {
-    constexpr std::array<std::string_view, 2> protocols{"h2", "http/1.1"};
+    constexpr std::array<std::string_view, 2> kProtocols{"h2", "http/1.1"};
     std::vector<std::uint8_t> list;
-    for (const auto protocol : protocols)
+    for (const auto protocol : kProtocols)
     {
         list.push_back(static_cast<std::uint8_t>(protocol.size()));
         list.insert(list.end(), protocol.begin(), protocol.end());
@@ -217,39 +217,39 @@ std::vector<std::uint8_t> firefox_120_extensions(const client_config& configurat
     push_server_name_extension(extensions, configuration.server_name, ec);
     push_extension(extensions, 0x0017, {}, ec);
 
-    constexpr std::array<std::uint8_t, 1> renegotiation{0};
-    push_extension(extensions, 0xff01, renegotiation, ec);
+    constexpr std::array<std::uint8_t, 1> kRenegotiation{0};
+    push_extension(extensions, 0xff01, kRenegotiation, ec);
 
-    constexpr std::array<std::uint16_t, 6> groups{0x001d, 0x0017, 0x0018, 0x0019, 0x0100, 0x0101};
-    push_u16_list_extension(extensions, 0x000a, groups, ec);
+    constexpr std::array<std::uint16_t, 6> kGroups{0x001d, 0x0017, 0x0018, 0x0019, 0x0100, 0x0101};
+    push_u16_list_extension(extensions, 0x000a, kGroups, ec);
 
-    constexpr std::array<std::uint8_t, 2> point_formats{1, 0};
-    push_extension(extensions, 0x000b, point_formats, ec);
+    constexpr std::array<std::uint8_t, 2> kPointFormats{1, 0};
+    push_extension(extensions, 0x000b, kPointFormats, ec);
     push_extension(extensions, 0x0023, {}, ec);
 
     const auto alpn = alpn_extension();
     push_extension(extensions, 0x0010, alpn, ec);
 
-    constexpr std::array<std::uint8_t, 5> status_request{1, 0, 0, 0, 0};
-    push_extension(extensions, 0x0005, status_request, ec);
+    constexpr std::array<std::uint8_t, 5> kStatusRequest{1, 0, 0, 0, 0};
+    push_extension(extensions, 0x0005, kStatusRequest, ec);
 
-    constexpr std::array<std::uint16_t, 4> delegated_algorithms{0x0403, 0x0503, 0x0603, 0x0203};
-    push_u16_list_extension(extensions, 0x0022, delegated_algorithms, ec);
+    constexpr std::array<std::uint16_t, 4> kDelegatedAlgorithms{0x0403, 0x0503, 0x0603, 0x0203};
+    push_u16_list_extension(extensions, 0x0022, kDelegatedAlgorithms, ec);
 
     push_key_share_extension(extensions, x25519_public, ec);
 
-    constexpr std::array<std::uint8_t, 5> versions{4, 0x03, 0x04, 0x03, 0x03};
-    push_extension(extensions, 0x002b, versions, ec);
+    constexpr std::array<std::uint8_t, 5> kVersions{4, 0x03, 0x04, 0x03, 0x03};
+    push_extension(extensions, 0x002b, kVersions, ec);
 
-    constexpr std::array<std::uint16_t, 11> signature_algorithms{
+    constexpr std::array<std::uint16_t, 11> kSignatureAlgorithms{
         0x0403, 0x0503, 0x0603, 0x0804, 0x0805, 0x0806, 0x0401, 0x0501, 0x0601, 0x0203, 0x0201};
-    push_u16_list_extension(extensions, 0x000d, signature_algorithms, ec);
+    push_u16_list_extension(extensions, 0x000d, kSignatureAlgorithms, ec);
 
-    constexpr std::array<std::uint8_t, 2> psk_modes{1, 1};
-    push_extension(extensions, 0x002d, psk_modes, ec);
+    constexpr std::array<std::uint8_t, 2> kPskModes{1, 1};
+    push_extension(extensions, 0x002d, kPskModes, ec);
 
-    constexpr std::array<std::uint8_t, 2> record_size_limit{0x40, 0x01};
-    push_extension(extensions, 0x001c, record_size_limit, ec);
+    constexpr std::array<std::uint8_t, 2> kRecordSizeLimit{0x40, 0x01};
+    push_extension(extensions, 0x001c, kRecordSizeLimit, ec);
 
     push_grease_ech_extension(extensions, ec);
     if (ec)
@@ -265,7 +265,7 @@ std::vector<std::uint8_t> build_firefox_120_handshake(const client_config& confi
                                                       const std::array<std::uint8_t, 32>& x25519_public_key,
                                                       boost::system::error_code& ec)
 {
-    constexpr std::array<std::uint16_t, 17> cipher_suites{
+    constexpr std::array<std::uint16_t, 17> kCipherSuites{
         0x1301, 0x1303, 0x1302, 0xc02b, 0xc02f, 0xcca9, 0xcca8, 0xc02c, 0xc030, 0xc00a, 0xc009, 0xc013, 0xc014, 0x009c, 0x009d, 0x002f, 0x0035};
 
     std::vector<std::uint8_t> body;
@@ -275,7 +275,7 @@ std::vector<std::uint8_t> build_firefox_120_handshake(const client_config& confi
     body.insert(body.end(), random.begin(), random.end());
     body.push_back(static_cast<std::uint8_t>(session_id.size()));
     body.insert(body.end(), session_id.begin(), session_id.end());
-    append_u16_vector(cipher_suites, body, ec);
+    append_u16_vector(kCipherSuites, body, ec);
     if (ec)
     {
         return {};
@@ -317,15 +317,15 @@ void derive_reality_auth_key(client_hello_material& material, const client_confi
     }
 
     const auto salt = std::span<const std::uint8_t>(material.client_random.data(), 20);
-    auto pseudorandom_key = crypto::hkdf_extract(crypto::hash_algorithm::sha256, salt, shared_secret, ec);
+    auto pseudorandom_key = crypto::hkdf_extract(crypto::hash_algorithm::kSha256, salt, shared_secret, ec);
     crypto::cleanse(shared_secret);
     if (ec)
     {
         return;
     }
 
-    constexpr std::array<std::uint8_t, 7> reality_label{'R', 'E', 'A', 'L', 'I', 'T', 'Y'};
-    auto auth_key = crypto::hkdf_expand(crypto::hash_algorithm::sha256, pseudorandom_key, reality_label, material.reality_auth_key.size(), ec);
+    constexpr std::array<std::uint8_t, 7> kRealityLabel{'R', 'E', 'A', 'L', 'I', 'T', 'Y'};
+    auto auth_key = crypto::hkdf_expand(crypto::hash_algorithm::kSha256, pseudorandom_key, kRealityLabel, material.reality_auth_key.size(), ec);
     crypto::cleanse(pseudorandom_key);
     if (ec)
     {
@@ -378,7 +378,7 @@ void authenticate_client_hello(client_hello_material& material,
         return;
     }
 
-    crypto::aead reality_aead(crypto::aead_algorithm::aes_256_gcm, material.reality_auth_key, ec);
+    crypto::aead reality_aead(crypto::aead_algorithm::kAes256Gcm, material.reality_auth_key, ec);
     if (ec)
     {
         return;
@@ -393,9 +393,9 @@ void authenticate_client_hello(client_hello_material& material,
 
     std::copy(sealed_session_id.begin(), sealed_session_id.end(), material.session_id.begin());
 
-    constexpr std::size_t session_id_offset = 39;
+    constexpr std::size_t kSessionIdOffset = 39;
     std::copy(
-        material.session_id.begin(), material.session_id.end(), material.handshake_bytes.begin() + static_cast<std::ptrdiff_t>(session_id_offset));
+        material.session_id.begin(), material.session_id.end(), material.handshake_bytes.begin() + static_cast<std::ptrdiff_t>(kSessionIdOffset));
 }
 
 }    // namespace
@@ -405,7 +405,7 @@ std::optional<client_hello_material> build_client_hello(const client_config& con
                                                         const std::chrono::system_clock::time_point now)
 {
     ec.clear();
-    if (configuration.profile != client_hello_profile::firefox_120)
+    if (configuration.profile != client_hello_profile::kFirefox120)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::operation_not_supported);
         return std::nullopt;

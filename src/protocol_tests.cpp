@@ -116,12 +116,12 @@ rv::app::config parse_short_id_test_config(const std::string& short_id)
 void test_short_id_config()
 {
     const auto short_id = parse_short_id_test_config("01234567");
-    constexpr std::array<std::uint8_t, 8> expected_short_id{0x01, 0x23, 0x45, 0x67, 0x00, 0x00, 0x00, 0x00};
-    expect(short_id.reality_short_id == expected_short_id, "short id zero padding mismatch");
+    constexpr std::array<std::uint8_t, 8> kExpectedShortId{0x01, 0x23, 0x45, 0x67, 0x00, 0x00, 0x00, 0x00};
+    expect(short_id.reality_short_id == kExpectedShortId, "short id zero padding mismatch");
 
     const auto full_short_id = parse_short_id_test_config("0123456789abcdef");
-    constexpr std::array<std::uint8_t, 8> expected_full_short_id{0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef};
-    expect(full_short_id.reality_short_id == expected_full_short_id, "full short id mismatch");
+    constexpr std::array<std::uint8_t, 8> kExpectedFullShortId{0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef};
+    expect(full_short_id.reality_short_id == kExpectedFullShortId, "full short id mismatch");
 
     const auto empty_short_id = parse_short_id_test_config("");
     expect(empty_short_id.reality_short_id == std::array<std::uint8_t, 8>{}, "empty short id mismatch");
@@ -129,23 +129,23 @@ void test_short_id_config()
 
 void test_text_codecs()
 {
-    constexpr std::array<std::uint8_t, 3> man{'M', 'a', 'n'};
-    expect(rv::core::base64::encode_to_string(man.data(), man.size()) == "TWFu", "Base64 encode mismatch");
-    expect(rv::core::base64::encode_url_to_string(man.data(), man.size()) == "TWFu", "Base64URL encode mismatch");
+    constexpr std::array<std::uint8_t, 3> kMan{'M', 'a', 'n'};
+    expect(rv::core::base64::encode_to_string(kMan.data(), kMan.size()) == "TWFu", "Base64 encode mismatch");
+    expect(rv::core::base64::encode_url_to_string(kMan.data(), kMan.size()) == "TWFu", "Base64URL encode mismatch");
 
-    constexpr std::string_view encoded_binary = "AAEC/w==";
-    const auto decoded_binary = rv::core::base64::decode_to_bytes(reinterpret_cast<const std::uint8_t*>(encoded_binary.data()),
-                                                                  static_cast<std::uint32_t>(encoded_binary.size()));
+    constexpr std::string_view kEncodedBinary = "AAEC/w==";
+    const auto decoded_binary = rv::core::base64::decode_to_bytes(reinterpret_cast<const std::uint8_t*>(kEncodedBinary.data()),
+                                                                  static_cast<std::uint32_t>(kEncodedBinary.size()));
     expect(decoded_binary == std::vector<std::uint8_t>({0x00, 0x01, 0x02, 0xff}), "Base64 decode mismatch");
 
-    constexpr std::string_view encoded_url = "AAEC_w";
-    const auto decoded_url = rv::core::base64::decode_url_to_bytes(reinterpret_cast<const std::uint8_t*>(encoded_url.data()),
-                                                                   static_cast<std::uint32_t>(encoded_url.size()));
+    constexpr std::string_view kEncodedUrl = "AAEC_w";
+    const auto decoded_url = rv::core::base64::decode_url_to_bytes(reinterpret_cast<const std::uint8_t*>(kEncodedUrl.data()),
+                                                                   static_cast<std::uint32_t>(kEncodedUrl.size()));
     expect(decoded_url == std::vector<std::uint8_t>({0x00, 0x01, 0x02, 0xff}), "Base64URL decode mismatch");
 
-    constexpr std::array<std::uint8_t, 3> raw_hex{0x00, 0xab, 0xff};
-    expect(rv::core::hex::encode_to_string(raw_hex.data(), raw_hex.size()) == "00abff", "Hex encode mismatch");
-    expect(rv::core::hex::decode_to_bytes("00abff", 6) == std::vector<std::uint8_t>(raw_hex.begin(), raw_hex.end()), "Hex decode mismatch");
+    constexpr std::array<std::uint8_t, 3> kRawHex{0x00, 0xab, 0xff};
+    expect(rv::core::hex::encode_to_string(kRawHex.data(), kRawHex.size()) == "00abff", "Hex encode mismatch");
+    expect(rv::core::hex::decode_to_bytes("00abff", 6) == std::vector<std::uint8_t>(kRawHex.begin(), kRawHex.end()), "Hex decode mismatch");
     expect(rv::core::hex::decode_to_bytes("abc", 3).empty(), "Hex accepted odd input");
 }
 
@@ -153,21 +153,21 @@ void test_byte_queue()
 {
     rv::core::byte_queue queue(8);
     boost::system::error_code ec;
-    constexpr std::array<std::uint8_t, 5> first{1, 2, 3, 4, 5};
-    queue.append(first, ec);
+    constexpr std::array<std::uint8_t, 5> kFirst{1, 2, 3, 4, 5};
+    queue.append(kFirst, ec);
     expect(!ec, "byte_queue append failed");
     std::array<std::uint8_t, 2> prefix{};
     expect(queue.copy_to(prefix) == 2 && prefix == std::array<std::uint8_t, 2>{1, 2}, "byte_queue prefix mismatch");
-    constexpr std::array<std::uint8_t, 6> oversized{6, 7, 8, 9, 10, 11};
-    queue.append(oversized, ec);
+    constexpr std::array<std::uint8_t, 6> kOversized{6, 7, 8, 9, 10, 11};
+    queue.append(kOversized, ec);
     expect(ec == boost::system::errc::make_error_code(boost::system::errc::message_size), "byte_queue accepted oversized append");
     expect_error(ec, boost::system::errc::message_size, "byte_queue returned wrong error");
 }
 
 void test_byte_reader()
 {
-    constexpr std::array<std::uint8_t, 11> input{0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 1, 2, 3, 4};
-    rv::core::byte_reader reader(input);
+    constexpr std::array<std::uint8_t, 11> kInput{0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 1, 2, 3, 4};
+    rv::core::byte_reader reader(kInput);
 
     std::uint8_t value8 = 0;
     std::uint16_t value16 = 0;
@@ -184,54 +184,54 @@ void test_byte_reader()
     expect(reader.read_u8(value8) && value8 == 4 && reader.empty(), "byte_reader final byte mismatch");
     expect(!reader.read_u8(value8), "byte_reader accepted read past end");
 
-    expect(rv::core::read_be32(input.data()) == 0x12345678U, "byte_order u32 mismatch");
+    expect(rv::core::read_be32(kInput.data()) == 0x12345678U, "byte_order u32 mismatch");
 }
 
 void test_hkdf_rfc5869()
 {
     boost::system::error_code ec;
     std::vector<std::uint8_t> ikm(22, 0x0b);
-    constexpr std::array<std::uint8_t, 13> salt{0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c};
-    constexpr std::array<std::uint8_t, 10> info{0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9};
-    constexpr std::array<std::uint8_t, 32> expected_prk{0x07, 0x77, 0x09, 0x36, 0x2c, 0x2e, 0x32, 0xdf, 0x0d, 0xdc, 0x3f,
+    constexpr std::array<std::uint8_t, 13> kSalt{0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c};
+    constexpr std::array<std::uint8_t, 10> kInfo{0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9};
+    constexpr std::array<std::uint8_t, 32> kExpectedPrk{0x07, 0x77, 0x09, 0x36, 0x2c, 0x2e, 0x32, 0xdf, 0x0d, 0xdc, 0x3f,
                                                         0x0d, 0xc4, 0x7b, 0xba, 0x63, 0x90, 0xb6, 0xc7, 0x3b, 0xb5, 0x0f,
                                                         0x9c, 0x31, 0x22, 0xec, 0x84, 0x4a, 0xd7, 0xc2, 0xb3, 0xe5};
-    constexpr std::array<std::uint8_t, 42> expected_okm{0x3c, 0xb2, 0x5f, 0x25, 0xfa, 0xac, 0xd5, 0x7a, 0x90, 0x43, 0x4f, 0x64, 0xd0, 0x36,
+    constexpr std::array<std::uint8_t, 42> kExpectedOkm{0x3c, 0xb2, 0x5f, 0x25, 0xfa, 0xac, 0xd5, 0x7a, 0x90, 0x43, 0x4f, 0x64, 0xd0, 0x36,
                                                         0x2f, 0x2a, 0x2d, 0x2d, 0x0a, 0x90, 0xcf, 0x1a, 0x5a, 0x4c, 0x5d, 0xb0, 0x2d, 0x56,
                                                         0xec, 0xc4, 0xc5, 0xbf, 0x34, 0x00, 0x72, 0x08, 0xd5, 0xb8, 0x87, 0x18, 0x58, 0x65};
 
-    const auto prk = rv::crypto::hkdf_extract(rv::crypto::hash_algorithm::sha256, salt, ikm, ec);
-    expect(!ec && std::equal(prk.begin(), prk.end(), expected_prk.begin()), "HKDF-Extract vector mismatch");
-    const auto okm = rv::crypto::hkdf_expand(rv::crypto::hash_algorithm::sha256, prk, info, expected_okm.size(), ec);
-    expect(!ec && std::equal(okm.begin(), okm.end(), expected_okm.begin()), "HKDF-Expand vector mismatch");
+    const auto prk = rv::crypto::hkdf_extract(rv::crypto::hash_algorithm::kSha256, kSalt, ikm, ec);
+    expect(!ec && std::equal(prk.begin(), prk.end(), kExpectedPrk.begin()), "HKDF-Extract vector mismatch");
+    const auto okm = rv::crypto::hkdf_expand(rv::crypto::hash_algorithm::kSha256, prk, kInfo, kExpectedOkm.size(), ec);
+    expect(!ec && std::equal(okm.begin(), okm.end(), kExpectedOkm.begin()), "HKDF-Expand vector mismatch");
 }
 
 void test_record_roundtrip()
 {
     boost::system::error_code ec;
-    constexpr std::array suites{rv::reality::cipher_suite::tls_aes_128_gcm_sha256,
-                                rv::reality::cipher_suite::tls_aes_256_gcm_sha384,
-                                rv::reality::cipher_suite::tls_chacha20_poly1305_sha256};
-    constexpr std::array<std::uint8_t, 7> message{'p', 'a', 'y', 'l', 'o', 'a', 'd'};
+    constexpr std::array kSuites{rv::reality::cipher_suite::kTlsAes128GcmSha256,
+                                rv::reality::cipher_suite::kTlsAes256GcmSha384,
+                                rv::reality::cipher_suite::kTlsChacha20Poly1305Sha256};
+    constexpr std::array<std::uint8_t, 7> kMessage{'p', 'a', 'y', 'l', 'o', 'a', 'd'};
 
-    for (const auto suite : suites)
+    for (const auto suite : kSuites)
     {
         std::vector<std::uint8_t> secret(rv::crypto::hash_size(rv::reality::cipher_properties(suite).hash), 1);
         rv::reality::record_key writer(suite, secret, ec);
         expect(!ec, "record writer construction failed");
         rv::reality::record_key reader(suite, secret, ec);
         expect(!ec, "record reader construction failed");
-        const auto wire = writer.seal(rv::reality::tls_record_application_data, message, ec);
+        const auto wire = writer.seal(rv::reality::kTlsRecordApplicationData, kMessage, ec);
         expect(!ec && wire.size() > 5, "TLS record seal failed");
         const auto header = std::span<const std::uint8_t, 5>(wire.data(), 5);
         const auto opened = reader.open(header, std::span(wire).subspan(5), ec);
         expect(!ec, "TLS record open failed");
-        expect(opened.inner_type == rv::reality::tls_record_application_data, "TLS inner type mismatch");
-        expect(opened.content == std::vector<std::uint8_t>(message.begin(), message.end()), "TLS plaintext mismatch");
+        expect(opened.inner_type == rv::reality::kTlsRecordApplicationData, "TLS inner type mismatch");
+        expect(opened.content == std::vector<std::uint8_t>(kMessage.begin(), kMessage.end()), "TLS plaintext mismatch");
 
         rv::reality::record_key tamper_writer(suite, secret, ec);
         rv::reality::record_key tamper_reader(suite, secret, ec);
-        auto tampered = tamper_writer.seal(rv::reality::tls_record_application_data, message, ec);
+        auto tampered = tamper_writer.seal(rv::reality::kTlsRecordApplicationData, kMessage, ec);
         tampered.back() ^= 0x80;
         const auto tamper_header = std::span<const std::uint8_t, 5>(tampered.data(), 5);
         static_cast<void>(tamper_reader.open(tamper_header, std::span(tampered).subspan(5), ec));
@@ -257,19 +257,19 @@ void test_client_hello()
     expect(wire[38] == hello->session_id.size(), "ClientHello session ID length mismatch");
     expect(std::equal(hello->session_id.begin(), hello->session_id.end(), wire.begin() + 39), "ClientHello session ID mismatch");
 
-    constexpr std::array<std::uint16_t, 17> expected_ciphers{
+    constexpr std::array<std::uint16_t, 17> kExpectedCiphers{
         0x1301, 0x1303, 0x1302, 0xc02b, 0xc02f, 0xcca9, 0xcca8, 0xc02c, 0xc030, 0xc00a, 0xc009, 0xc013, 0xc014, 0x009c, 0x009d, 0x002f, 0x0035};
     std::size_t position = 71;
-    expect(read_test_u16(wire, position, "ClientHello cipher length missing") == expected_ciphers.size() * 2, "ClientHello cipher length mismatch");
+    expect(read_test_u16(wire, position, "ClientHello cipher length missing") == kExpectedCiphers.size() * 2, "ClientHello cipher length mismatch");
     position += 2;
-    for (const auto expected : expected_ciphers)
+    for (const auto expected : kExpectedCiphers)
     {
         expect(read_test_u16(wire, position, "ClientHello cipher missing") == expected, "ClientHello cipher order mismatch");
         position += 2;
     }
 
-    constexpr std::array<std::uint8_t, 2> expected_compression{1, 0};
-    expect_bytes(test_subspan(wire, position, expected_compression.size(), "ClientHello compression missing"), expected_compression,
+    constexpr std::array<std::uint8_t, 2> kExpectedCompression{1, 0};
+    expect_bytes(test_subspan(wire, position, kExpectedCompression.size(), "ClientHello compression missing"), kExpectedCompression,
                  "ClientHello compression mismatch");
     position += 2;
 
@@ -277,12 +277,12 @@ void test_client_hello()
     position += 2;
     expect(extensions_length == wire.size() - position, "ClientHello extensions length mismatch");
 
-    constexpr std::array<std::uint16_t, 15> expected_extension_types{
+    constexpr std::array<std::uint16_t, 15> kExpectedExtensionTypes{
         0x0000, 0x0017, 0xff01, 0x000a, 0x000b, 0x0023, 0x0010, 0x0005, 0x0022, 0x0033, 0x002b, 0x000d, 0x002d, 0x001c, 0xfe0d};
-    std::array<std::span<const std::uint8_t>, expected_extension_types.size()> extension_data{};
-    for (std::size_t index = 0; index != expected_extension_types.size(); ++index)
+    std::array<std::span<const std::uint8_t>, kExpectedExtensionTypes.size()> extension_data{};
+    for (std::size_t index = 0; index != kExpectedExtensionTypes.size(); ++index)
     {
-        expect(read_test_u16(wire, position, "ClientHello extension type missing") == expected_extension_types[index],
+        expect(read_test_u16(wire, position, "ClientHello extension type missing") == kExpectedExtensionTypes[index],
                "ClientHello extension order mismatch");
         position += 2;
         const auto extension_length = read_test_u16(wire, position, "ClientHello extension length missing");
@@ -299,24 +299,24 @@ void test_client_hello()
                std::equal(config.server_name.begin(), config.server_name.end(), sni.begin() + 5),
            "ClientHello SNI mismatch");
 
-    constexpr std::array<std::uint8_t, 14> expected_groups{
+    constexpr std::array<std::uint8_t, 14> kExpectedGroups{
         0x00, 0x0c, 0x00, 0x1d, 0x00, 0x17, 0x00, 0x18, 0x00, 0x19, 0x01, 0x00, 0x01, 0x01};
-    expect_bytes(extension_data[3], expected_groups, "ClientHello supported groups mismatch");
+    expect_bytes(extension_data[3], kExpectedGroups, "ClientHello supported groups mismatch");
 
-    constexpr std::array<std::uint8_t, 14> expected_alpn{
+    constexpr std::array<std::uint8_t, 14> kExpectedAlpn{
         0x00, 0x0c, 0x02, 'h', '2', 0x08, 'h', 't', 't', 'p', '/', '1', '.', '1'};
-    expect_bytes(extension_data[6], expected_alpn, "ClientHello ALPN mismatch");
+    expect_bytes(extension_data[6], kExpectedAlpn, "ClientHello ALPN mismatch");
 
     expect(extension_data[1].empty() && extension_data[5].empty(), "ClientHello empty extension mismatch");
-    constexpr std::array<std::uint8_t, 1> expected_renegotiation{0x00};
-    expect_bytes(extension_data[2], expected_renegotiation, "ClientHello renegotiation extension mismatch");
-    constexpr std::array<std::uint8_t, 2> expected_point_formats{0x01, 0x00};
-    expect_bytes(extension_data[4], expected_point_formats, "ClientHello point formats mismatch");
-    constexpr std::array<std::uint8_t, 5> expected_status_request{0x01, 0x00, 0x00, 0x00, 0x00};
-    expect_bytes(extension_data[7], expected_status_request, "ClientHello status request mismatch");
-    constexpr std::array<std::uint8_t, 10> expected_delegated_credentials{
+    constexpr std::array<std::uint8_t, 1> kExpectedRenegotiation{0x00};
+    expect_bytes(extension_data[2], kExpectedRenegotiation, "ClientHello renegotiation extension mismatch");
+    constexpr std::array<std::uint8_t, 2> kExpectedPointFormats{0x01, 0x00};
+    expect_bytes(extension_data[4], kExpectedPointFormats, "ClientHello point formats mismatch");
+    constexpr std::array<std::uint8_t, 5> kExpectedStatusRequest{0x01, 0x00, 0x00, 0x00, 0x00};
+    expect_bytes(extension_data[7], kExpectedStatusRequest, "ClientHello status request mismatch");
+    constexpr std::array<std::uint8_t, 10> kExpectedDelegatedCredentials{
         0x00, 0x08, 0x04, 0x03, 0x05, 0x03, 0x06, 0x03, 0x02, 0x03};
-    expect_bytes(extension_data[8], expected_delegated_credentials, "ClientHello delegated credentials mismatch");
+    expect_bytes(extension_data[8], kExpectedDelegatedCredentials, "ClientHello delegated credentials mismatch");
 
     const auto key_share = extension_data[9];
     expect(key_share.size() == 107 && read_test_u16(key_share, 0, "ClientHello key share list missing") == 105,
@@ -328,19 +328,19 @@ void test_client_hello()
                read_test_u16(key_share, 40, "ClientHello P-256 length missing") == 65 && key_share[42] == 0x04,
            "ClientHello P-256 key share mismatch");
 
-    constexpr std::array<std::uint8_t, 5> expected_versions{0x04, 0x03, 0x04, 0x03, 0x03};
-    expect_bytes(extension_data[10], expected_versions, "ClientHello supported versions mismatch");
+    constexpr std::array<std::uint8_t, 5> kExpectedVersions{0x04, 0x03, 0x04, 0x03, 0x03};
+    expect_bytes(extension_data[10], kExpectedVersions, "ClientHello supported versions mismatch");
 
-    constexpr std::array<std::uint8_t, 24> expected_signatures{
+    constexpr std::array<std::uint8_t, 24> kExpectedSignatures{
         0x00, 0x16, 0x04, 0x03, 0x05, 0x03, 0x06, 0x03, 0x08, 0x04, 0x08, 0x05,
         0x08, 0x06, 0x04, 0x01, 0x05, 0x01, 0x06, 0x01, 0x02, 0x03, 0x02, 0x01};
-    expect_bytes(extension_data[11], expected_signatures, "ClientHello signature algorithms mismatch");
+    expect_bytes(extension_data[11], kExpectedSignatures, "ClientHello signature algorithms mismatch");
 
-    constexpr std::array<std::uint8_t, 2> expected_psk_modes{0x01, 0x01};
-    expect_bytes(extension_data[12], expected_psk_modes, "ClientHello PSK mode mismatch");
+    constexpr std::array<std::uint8_t, 2> kExpectedPskModes{0x01, 0x01};
+    expect_bytes(extension_data[12], kExpectedPskModes, "ClientHello PSK mode mismatch");
 
-    constexpr std::array<std::uint8_t, 2> expected_record_size_limit{0x40, 0x01};
-    expect_bytes(extension_data[13], expected_record_size_limit, "ClientHello record size limit mismatch");
+    constexpr std::array<std::uint8_t, 2> kExpectedRecordSizeLimit{0x40, 0x01};
+    expect_bytes(extension_data[13], kExpectedRecordSizeLimit, "ClientHello record size limit mismatch");
 
     const auto ech = extension_data[14];
     expect(ech.size() == 281 && ech[0] == 0x00, "ClientHello ECH size mismatch");
@@ -363,41 +363,41 @@ void test_vless_header()
     const auto request = rv::vless::encode_tcp_request(config, ec);
     std::vector<std::uint8_t> expected_tcp{0x00};
     expected_tcp.insert(expected_tcp.end(), config.user_id.begin(), config.user_id.end());
-    constexpr std::array<std::uint8_t, 3> vision_prefix{0x12, 0x0a, 0x10};
-    expected_tcp.insert(expected_tcp.end(), vision_prefix.begin(), vision_prefix.end());
-    constexpr std::string_view vision_flow = "xtls-rprx-vision";
-    expected_tcp.insert(expected_tcp.end(), vision_flow.begin(), vision_flow.end());
-    constexpr std::array<std::uint8_t, 5> tcp_destination_prefix{0x01, 0x01, 0xbb, 0x02, 0x0b};
-    expected_tcp.insert(expected_tcp.end(), tcp_destination_prefix.begin(), tcp_destination_prefix.end());
-    constexpr std::string_view domain = "example.com";
-    expected_tcp.insert(expected_tcp.end(), domain.begin(), domain.end());
+    constexpr std::array<std::uint8_t, 3> kVisionPrefix{0x12, 0x0a, 0x10};
+    expected_tcp.insert(expected_tcp.end(), kVisionPrefix.begin(), kVisionPrefix.end());
+    constexpr std::string_view kVisionFlow = "xtls-rprx-vision";
+    expected_tcp.insert(expected_tcp.end(), kVisionFlow.begin(), kVisionFlow.end());
+    constexpr std::array<std::uint8_t, 5> kTcpDestinationPrefix{0x01, 0x01, 0xbb, 0x02, 0x0b};
+    expected_tcp.insert(expected_tcp.end(), kTcpDestinationPrefix.begin(), kTcpDestinationPrefix.end());
+    constexpr std::string_view kDomain = "example.com";
+    expected_tcp.insert(expected_tcp.end(), kDomain.begin(), kDomain.end());
     expect(!ec && request == expected_tcp, "VLESS TCP Vision header mismatch");
 
     config.destination_port = 53;
     const auto udp_request = rv::vless::encode_udp_request(config, ec);
     std::vector<std::uint8_t> expected_udp{0x00};
     expected_udp.insert(expected_udp.end(), config.user_id.begin(), config.user_id.end());
-    constexpr std::array<std::uint8_t, 6> udp_destination_prefix{0x00, 0x02, 0x00, 0x35, 0x02, 0x0b};
-    expected_udp.insert(expected_udp.end(), udp_destination_prefix.begin(), udp_destination_prefix.end());
-    expected_udp.insert(expected_udp.end(), domain.begin(), domain.end());
+    constexpr std::array<std::uint8_t, 6> kUdpDestinationPrefix{0x00, 0x02, 0x00, 0x35, 0x02, 0x0b};
+    expected_udp.insert(expected_udp.end(), kUdpDestinationPrefix.begin(), kUdpDestinationPrefix.end());
+    expected_udp.insert(expected_udp.end(), kDomain.begin(), kDomain.end());
     expect(!ec && udp_request == expected_udp, "VLESS UDP header mismatch");
 
     config.destination = rv::vless::ipv4_address{{192, 0, 2, 1}};
     const auto ipv4_request = rv::vless::encode_udp_request(config, ec);
     expect(!ec, "VLESS IPv4 encoding failed");
-    constexpr std::array<std::uint8_t, 7> expected_ipv4_suffix{0x00, 0x35, 0x01, 192, 0, 2, 1};
-    expect(ipv4_request.size() >= expected_ipv4_suffix.size() &&
-               std::equal(expected_ipv4_suffix.begin(), expected_ipv4_suffix.end(), ipv4_request.end() - expected_ipv4_suffix.size()),
+    constexpr std::array<std::uint8_t, 7> kExpectedIpv4Suffix{0x00, 0x35, 0x01, 192, 0, 2, 1};
+    expect(ipv4_request.size() >= kExpectedIpv4Suffix.size() &&
+               std::equal(kExpectedIpv4Suffix.begin(), kExpectedIpv4Suffix.end(), ipv4_request.end() - kExpectedIpv4Suffix.size()),
            "VLESS IPv4 address mismatch");
 
     config.destination = rv::vless::ipv6_address{{0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}};
     config.destination_port = 443;
     const auto ipv6_request = rv::vless::encode_udp_request(config, ec);
     expect(!ec, "VLESS IPv6 encoding failed");
-    constexpr std::array<std::uint8_t, 19> expected_ipv6_suffix{
+    constexpr std::array<std::uint8_t, 19> kExpectedIpv6Suffix{
         0x01, 0xbb, 0x03, 0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
-    expect(ipv6_request.size() >= expected_ipv6_suffix.size() &&
-               std::equal(expected_ipv6_suffix.begin(), expected_ipv6_suffix.end(), ipv6_request.end() - expected_ipv6_suffix.size()),
+    expect(ipv6_request.size() >= kExpectedIpv6Suffix.size() &&
+               std::equal(kExpectedIpv6Suffix.begin(), kExpectedIpv6Suffix.end(), ipv6_request.end() - kExpectedIpv6Suffix.size()),
            "VLESS IPv6 address mismatch");
 
     config.destination = rv::vless::domain_address{};
@@ -511,138 +511,138 @@ std::vector<std::uint8_t> make_test_tls_server_hello(const std::uint16_t cipher,
 
 void test_destination_sniffer()
 {
-    constexpr std::string_view http_request = "GET / HTTP/1.1\r\nHoSt: example.com:443\r\nUser-Agent: test\r\n\r\n";
-    auto result = rv::sniff::inspect_destination(std::span(reinterpret_cast<const std::uint8_t*>(http_request.data()), 2));
-    expect(result.state == rv::sniff::status::need_more, "destination sniffer rejected a fragmented HTTP method");
+    constexpr std::string_view kHttpRequest = "GET / HTTP/1.1\r\nHoSt: example.com:443\r\nUser-Agent: test\r\n\r\n";
+    auto result = rv::sniff::inspect_destination(std::span(reinterpret_cast<const std::uint8_t*>(kHttpRequest.data()), 2));
+    expect(result.state == rv::sniff::status::kNeedMore, "destination sniffer rejected a fragmented HTTP method");
 
     result = rv::sniff::inspect_destination(
-        std::span(reinterpret_cast<const std::uint8_t*>(http_request.data()), http_request.size()));
-    expect(result.state == rv::sniff::status::found && result.domain == "example.com", "destination sniffer missed HTTP Host");
+        std::span(reinterpret_cast<const std::uint8_t*>(kHttpRequest.data()), kHttpRequest.size()));
+    expect(result.state == rv::sniff::status::kFound && result.domain == "example.com", "destination sniffer missed HTTP Host");
 
     const auto tls_client_hello = make_test_tls_client_hello("example.com");
     for (std::size_t size = 1; size != tls_client_hello.size(); ++size)
     {
         result = rv::sniff::inspect_destination(std::span(tls_client_hello).first(size));
-        expect(result.state == rv::sniff::status::need_more, "destination sniffer rejected fragmented TLS ClientHello");
+        expect(result.state == rv::sniff::status::kNeedMore, "destination sniffer rejected fragmented TLS ClientHello");
     }
     result = rv::sniff::inspect_destination(tls_client_hello);
-    expect(result.state == rv::sniff::status::found && result.domain == "example.com", "destination sniffer missed TLS SNI");
+    expect(result.state == rv::sniff::status::kFound && result.domain == "example.com", "destination sniffer missed TLS SNI");
 
-    constexpr std::string_view ssh_banner = "SSH-2.0-test\r\n";
+    constexpr std::string_view kSshBanner = "SSH-2.0-test\r\n";
     result = rv::sniff::inspect_destination(
-        std::span(reinterpret_cast<const std::uint8_t*>(ssh_banner.data()), ssh_banner.size()));
-    expect(result.state == rv::sniff::status::no_match, "destination sniffer accepted an unrelated protocol");
+        std::span(reinterpret_cast<const std::uint8_t*>(kSshBanner.data()), kSshBanner.size()));
+    expect(result.state == rv::sniff::status::kNoMatch, "destination sniffer accepted an unrelated protocol");
 }
 
 void test_vision_frame_codec()
 {
     boost::system::error_code ec;
-    std::array<std::uint8_t, rv::vision::user_id_size> user_id{};
+    std::array<std::uint8_t, rv::vision::kUserIdSize> user_id{};
     user_id.fill(0x42);
-    constexpr std::array<std::uint8_t, 4> content{1, 2, 3, 4};
+    constexpr std::array<std::uint8_t, 4> kContent{1, 2, 3, 4};
 
     const auto frame = rv::vision::encode_frame(
-        rv::vision::command::end_padding, std::span<const std::uint8_t, rv::vision::user_id_size>(user_id), content, false, ec);
-    expect(!ec && frame.size() >= rv::vision::full_header_size + content.size() && frame.size() <= rv::vision::xray_buffer_size,
+        rv::vision::command::kEndPadding, std::span<const std::uint8_t, rv::vision::kUserIdSize>(user_id), kContent, false, ec);
+    expect(!ec && frame.size() >= rv::vision::kFullHeaderSize + kContent.size() && frame.size() <= rv::vision::kXrayBufferSize,
            "Vision full frame encode failed");
 
     rv::vision::frame_header header;
-    ec = rv::vision::decode_header(std::span<const std::uint8_t>(frame.data(), rv::vision::full_header_size), true, user_id, header);
+    ec = rv::vision::decode_header(std::span<const std::uint8_t>(frame.data(), rv::vision::kFullHeaderSize), true, user_id, header);
     expect(!ec, "Vision full header decode failed");
-    expect(header.frame_command == rv::vision::command::end_padding, "Vision full header command mismatch");
-    expect(header.content_length == content.size(), "Vision full header content length mismatch");
-    expect(frame.size() == rv::vision::full_header_size + header.content_length + header.padding_length,
+    expect(header.frame_command == rv::vision::command::kEndPadding, "Vision full header command mismatch");
+    expect(header.content_length == kContent.size(), "Vision full header content length mismatch");
+    expect(frame.size() == rv::vision::kFullHeaderSize + header.content_length + header.padding_length,
            "Vision full frame length mismatch");
     expect(header.padding_length <= 255, "Vision short padding length mismatch");
-    const auto padding = std::span(frame).subspan(rv::vision::full_header_size + header.content_length);
+    const auto padding = std::span(frame).subspan(rv::vision::kFullHeaderSize + header.content_length);
     expect(std::all_of(padding.begin(), padding.end(), [](const std::uint8_t byte) { return byte == 0; }),
            "Vision padding contains non-zero data");
 
     auto wrong_user = user_id;
     wrong_user[0] ^= 1;
-    ec = rv::vision::decode_header(std::span<const std::uint8_t>(frame.data(), rv::vision::full_header_size), true, wrong_user, header);
+    ec = rv::vision::decode_header(std::span<const std::uint8_t>(frame.data(), rv::vision::kFullHeaderSize), true, wrong_user, header);
     expect_error(ec, boost::system::errc::permission_denied, "Vision wrong user returned wrong error");
 
     for (const auto frame_command :
-         std::array{rv::vision::command::continue_padding, rv::vision::command::end_padding, rv::vision::command::direct})
+         std::array{rv::vision::command::kContinuePadding, rv::vision::command::kEndPadding, rv::vision::command::kDirect})
     {
-        auto header_bytes = std::array<std::uint8_t, rv::vision::short_header_size>{};
+        auto header_bytes = std::array<std::uint8_t, rv::vision::kShortHeaderSize>{};
         header_bytes[0] = static_cast<std::uint8_t>(frame_command);
         ec = rv::vision::decode_header(header_bytes, false, user_id, header);
         expect(!ec && header.frame_command == frame_command, "Vision command decode mismatch");
     }
 
     ec.clear();
-    const auto short_frame = rv::vision::encode_frame(rv::vision::command::direct, std::nullopt, content, false, ec);
-    expect(!ec && short_frame.size() >= rv::vision::short_header_size + content.size(), "Vision short frame encode failed");
-    ec = rv::vision::decode_header(std::span<const std::uint8_t>(short_frame.data(), rv::vision::short_header_size), false, user_id, header);
-    expect(!ec && header.frame_command == rv::vision::command::direct && header.content_length == content.size(),
+    const auto short_frame = rv::vision::encode_frame(rv::vision::command::kDirect, std::nullopt, kContent, false, ec);
+    expect(!ec && short_frame.size() >= rv::vision::kShortHeaderSize + kContent.size(), "Vision short frame encode failed");
+    ec = rv::vision::decode_header(std::span<const std::uint8_t>(short_frame.data(), rv::vision::kShortHeaderSize), false, user_id, header);
+    expect(!ec && header.frame_command == rv::vision::command::kDirect && header.content_length == kContent.size(),
            "Vision short header decode mismatch");
 
-    constexpr std::array<std::uint8_t, rv::vision::short_header_size> invalid_command{0x03, 0x00, 0x00, 0x00, 0x00};
-    ec = rv::vision::decode_header(invalid_command, false, user_id, header);
+    constexpr std::array<std::uint8_t, rv::vision::kShortHeaderSize> kInvalidCommand{0x03, 0x00, 0x00, 0x00, 0x00};
+    ec = rv::vision::decode_header(kInvalidCommand, false, user_id, header);
     expect_error(ec, boost::system::errc::bad_message, "Vision invalid command returned wrong error");
 
-    constexpr std::array<std::uint8_t, rv::vision::short_header_size> oversized_header{0x00, 0x1f, 0xfe, 0x00, 0x00};
-    ec = rv::vision::decode_header(oversized_header, false, user_id, header);
+    constexpr std::array<std::uint8_t, rv::vision::kShortHeaderSize> kOversizedHeader{0x00, 0x1f, 0xfe, 0x00, 0x00};
+    ec = rv::vision::decode_header(kOversizedHeader, false, user_id, header);
     expect_error(ec, boost::system::errc::message_size, "Vision oversized frame header returned wrong error");
 
-    const std::vector<std::uint8_t> oversized_content(rv::vision::xray_buffer_size - rv::vision::short_header_size + 1, 0x55);
+    const std::vector<std::uint8_t> oversized_content(rv::vision::kXrayBufferSize - rv::vision::kShortHeaderSize + 1, 0x55);
     ec.clear();
-    static_cast<void>(rv::vision::encode_frame(rv::vision::command::continue_padding, std::nullopt, oversized_content, false, ec));
+    static_cast<void>(rv::vision::encode_frame(rv::vision::command::kContinuePadding, std::nullopt, oversized_content, false, ec));
     expect_error(ec, boost::system::errc::message_size, "Vision encoder accepted oversized content");
 
     ec.clear();
     const auto long_padding_frame = rv::vision::encode_frame(
-        rv::vision::command::continue_padding, std::span<const std::uint8_t, rv::vision::user_id_size>(user_id), content, true, ec);
+        rv::vision::command::kContinuePadding, std::span<const std::uint8_t, rv::vision::kUserIdSize>(user_id), kContent, true, ec);
     expect(!ec, "Vision long padding encode failed");
     ec = rv::vision::decode_header(
-        std::span<const std::uint8_t>(long_padding_frame.data(), rv::vision::full_header_size), true, user_id, header);
-    expect(!ec && header.padding_length >= 900 - content.size() && header.padding_length < 1400 - content.size(),
+        std::span<const std::uint8_t>(long_padding_frame.data(), rv::vision::kFullHeaderSize), true, user_id, header);
+    expect(!ec && header.padding_length >= 900 - kContent.size() && header.padding_length < 1400 - kContent.size(),
            "Vision long padding length mismatch");
 }
 
 void test_vision_tls_trackers()
 {
     rv::vision::client_tls_record_tracker tracker;
-    constexpr std::array<std::uint8_t, 9> client_hello{0x16, 0x03, 0x01, 0x00, 0x04, 0x01, 0x00, 0x00, 0x00};
+    constexpr std::array<std::uint8_t, 9> kClientHello{0x16, 0x03, 0x01, 0x00, 0x04, 0x01, 0x00, 0x00, 0x00};
 
-    auto observation = tracker.observe(std::span(client_hello).first(2));
-    expect(observation.kind == rv::vision::client_stream_kind::undecided, "TLS tracker decided too early");
+    auto observation = tracker.observe(std::span(kClientHello).first(2));
+    expect(observation.kind == rv::vision::client_stream_kind::kUndecided, "TLS tracker decided too early");
 
-    observation = tracker.observe(std::span(client_hello).subspan(2, 3));
-    expect(observation.kind == rv::vision::client_stream_kind::undecided, "TLS tracker decided without payload");
+    observation = tracker.observe(std::span(kClientHello).subspan(2, 3));
+    expect(observation.kind == rv::vision::client_stream_kind::kUndecided, "TLS tracker decided without payload");
 
-    observation = tracker.observe(std::span(client_hello).subspan(5, 1));
-    expect(observation.kind == rv::vision::client_stream_kind::tls, "TLS tracker missed fragmented ClientHello");
+    observation = tracker.observe(std::span(kClientHello).subspan(5, 1));
+    expect(observation.kind == rv::vision::client_stream_kind::kTls, "TLS tracker missed fragmented ClientHello");
 
-    observation = tracker.observe(std::span(client_hello).subspan(6));
+    observation = tracker.observe(std::span(kClientHello).subspan(6));
     expect(!observation.encrypted_record_end_offset, "TLS tracker reported a handshake record as encrypted");
 
-    constexpr std::array<std::uint8_t, 13> ccs_and_partial_encrypted{0x14, 0x03, 0x03, 0x00, 0x01, 0x01, 0x17, 0x03, 0x03, 0x00, 0x04, 0xaa, 0xbb};
-    observation = tracker.observe(ccs_and_partial_encrypted);
+    constexpr std::array<std::uint8_t, 13> kCcsAndPartialEncrypted{0x14, 0x03, 0x03, 0x00, 0x01, 0x01, 0x17, 0x03, 0x03, 0x00, 0x04, 0xaa, 0xbb};
+    observation = tracker.observe(kCcsAndPartialEncrypted);
     expect(!observation.encrypted_record_end_offset, "TLS tracker accepted a partial encrypted record");
 
-    constexpr std::array<std::uint8_t, 6> encrypted_tail_and_next_header{0xcc, 0xdd, 0x17, 0x03, 0x03, 0x00};
-    observation = tracker.observe(encrypted_tail_and_next_header);
+    constexpr std::array<std::uint8_t, 6> kEncryptedTailAndNextHeader{0xcc, 0xdd, 0x17, 0x03, 0x03, 0x00};
+    observation = tracker.observe(kEncryptedTailAndNextHeader);
     expect(observation.encrypted_record_end_offset && *observation.encrypted_record_end_offset == 2,
            "TLS tracker returned the wrong cross-call record boundary");
 
     rv::vision::client_tls_record_tracker non_tls_tracker;
-    constexpr std::array<std::uint8_t, 2> http_prefix{'G', 'E'};
-    observation = non_tls_tracker.observe(http_prefix);
-    expect(observation.kind == rv::vision::client_stream_kind::undecided, "TLS tracker rejected a short prefix too early");
+    constexpr std::array<std::uint8_t, 2> kHttpPrefix{'G', 'E'};
+    observation = non_tls_tracker.observe(kHttpPrefix);
+    expect(observation.kind == rv::vision::client_stream_kind::kUndecided, "TLS tracker rejected a short prefix too early");
 
-    constexpr std::array<std::uint8_t, 3> http_suffix{'T', ' ', '/'};
-    observation = non_tls_tracker.observe(http_suffix);
-    expect(observation.kind == rv::vision::client_stream_kind::non_tls, "TLS tracker failed to classify HTTP");
+    constexpr std::array<std::uint8_t, 3> kHttpSuffix{'T', ' ', '/'};
+    observation = non_tls_tracker.observe(kHttpSuffix);
+    expect(observation.kind == rv::vision::client_stream_kind::kNonTls, "TLS tracker failed to classify HTTP");
 
     rv::vision::client_tls_record_tracker malformed_tracker;
-    observation = malformed_tracker.observe(client_hello);
-    expect(observation.kind == rv::vision::client_stream_kind::tls, "TLS tracker failed a complete ClientHello");
+    observation = malformed_tracker.observe(kClientHello);
+    expect(observation.kind == rv::vision::client_stream_kind::kTls, "TLS tracker failed a complete ClientHello");
 
-    constexpr std::array<std::uint8_t, 5> invalid_record_header{0x99, 0x03, 0x03, 0x00, 0x01};
-    observation = malformed_tracker.observe(invalid_record_header);
+    constexpr std::array<std::uint8_t, 5> kInvalidRecordHeader{0x99, 0x03, 0x03, 0x00, 0x01};
+    observation = malformed_tracker.observe(kInvalidRecordHeader);
     expect(observation.tracking_failed, "TLS tracker did not report loss of record framing");
 
     for (const auto cipher : std::array<std::uint16_t, 4>{0x1301, 0x1302, 0x1303, 0x1304})
@@ -663,8 +663,8 @@ void test_vision_tls_trackers()
 
     const auto fragmented_server_hello = make_test_tls_server_hello(0x1303, true);
     rv::vision::server_hello_tracker fragmented_tracker;
-    constexpr std::array<std::uint8_t, 3> prefix{0xaa, 0xbb, 0xcc};
-    fragmented_tracker.observe(prefix);
+    constexpr std::array<std::uint8_t, 3> kPrefix{0xaa, 0xbb, 0xcc};
+    fragmented_tracker.observe(kPrefix);
     fragmented_tracker.observe(std::span(fragmented_server_hello).first(2));
     expect(!fragmented_tracker.direct_supported(), "Vision server tracker decided before a complete record header");
     fragmented_tracker.observe(std::span(fragmented_server_hello).subspan(2, 3));
@@ -680,77 +680,77 @@ void test_socks5_request_decode()
     boost::system::error_code ec;
     rv::socks5::request request;
 
-    constexpr std::array<std::uint8_t, 10> ipv4_request{5, 1, 0, 1, 127, 0, 0, 1, 0x01, 0xbb};
-    ec = rv::socks5::decode_request(ipv4_request, request);
+    constexpr std::array<std::uint8_t, 10> kIpv4Request{5, 1, 0, 1, 127, 0, 0, 1, 0x01, 0xbb};
+    ec = rv::socks5::decode_request(kIpv4Request, request);
     expect(!ec, "SOCKS5 IPv4 CONNECT decode failed");
-    expect(request.requested_command == rv::socks5::command::connect, "SOCKS5 CONNECT command mismatch");
+    expect(request.requested_command == rv::socks5::command::kConnect, "SOCKS5 CONNECT command mismatch");
     expect(request.port == 443, "SOCKS5 IPv4 CONNECT port mismatch");
     const auto* ipv4 = std::get_if<rv::socks5::ipv4_address>(&request.destination);
     expect(ipv4 != nullptr && ipv4->bytes == std::array<std::uint8_t, 4>{127, 0, 0, 1}, "SOCKS5 IPv4 CONNECT address mismatch");
 
-    constexpr std::array<std::uint8_t, 18> domain_request{
+    constexpr std::array<std::uint8_t, 18> kDomainRequest{
         5, 1, 0, 3, 11, 'e', 'x', 'a', 'm', 'p', 'l', 'e', '.', 'c', 'o', 'm', 0x01, 0xbb,
     };
-    ec = rv::socks5::decode_request(domain_request, request);
+    ec = rv::socks5::decode_request(kDomainRequest, request);
     expect(!ec, "SOCKS5 domain CONNECT decode failed");
     const auto* domain = std::get_if<rv::socks5::domain_address>(&request.destination);
     expect(domain != nullptr && domain->name == "example.com" && request.port == 443, "SOCKS5 domain CONNECT mismatch");
 
-    constexpr std::array<std::uint8_t, 22> ipv6_request{
+    constexpr std::array<std::uint8_t, 22> kIpv6Request{
         5, 1, 0, 4,
         0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
         0x01, 0xbb,
     };
-    ec = rv::socks5::decode_request(ipv6_request, request);
+    ec = rv::socks5::decode_request(kIpv6Request, request);
     expect(!ec, "SOCKS5 IPv6 CONNECT decode failed");
     const auto* ipv6 = std::get_if<rv::socks5::ipv6_address>(&request.destination);
-    constexpr std::array<std::uint8_t, 16> expected_ipv6{0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
-    expect(ipv6 != nullptr && ipv6->bytes == expected_ipv6 && request.port == 443, "SOCKS5 IPv6 CONNECT mismatch");
+    constexpr std::array<std::uint8_t, 16> kExpectedIpv6{0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
+    expect(ipv6 != nullptr && ipv6->bytes == kExpectedIpv6 && request.port == 443, "SOCKS5 IPv6 CONNECT mismatch");
 
-    constexpr std::array<std::uint8_t, 10> associate{5, 3, 0, 1, 0, 0, 0, 0, 0, 0};
-    ec = rv::socks5::decode_request(associate, request);
+    constexpr std::array<std::uint8_t, 10> kAssociate{5, 3, 0, 1, 0, 0, 0, 0, 0, 0};
+    ec = rv::socks5::decode_request(kAssociate, request);
     expect(!ec, "SOCKS5 UDP ASSOCIATE decode failed");
-    expect(request.requested_command == rv::socks5::command::udp_associate && request.port == 0,
+    expect(request.requested_command == rv::socks5::command::kUdpAssociate && request.port == 0,
            "SOCKS5 UDP ASSOCIATE command mismatch");
 
-    auto malformed = ipv4_request;
+    auto malformed = kIpv4Request;
     malformed[0] = 4;
     ec = rv::socks5::decode_request(malformed, request);
     expect_error(ec, boost::system::errc::bad_message, "SOCKS5 accepted wrong version");
 
-    malformed = ipv4_request;
+    malformed = kIpv4Request;
     malformed[2] = 1;
     ec = rv::socks5::decode_request(malformed, request);
     expect_error(ec, boost::system::errc::bad_message, "SOCKS5 accepted nonzero reserved byte");
 
-    malformed = ipv4_request;
+    malformed = kIpv4Request;
     malformed[1] = 2;
     ec = rv::socks5::decode_request(malformed, request);
     expect_error(ec, boost::system::errc::operation_not_supported, "SOCKS5 unsupported command returned wrong error");
 
-    malformed = ipv4_request;
+    malformed = kIpv4Request;
     malformed[3] = 2;
     ec = rv::socks5::decode_request(malformed, request);
     expect_error(ec, boost::system::errc::address_family_not_supported, "SOCKS5 unsupported address type returned wrong error");
 
-    constexpr std::array<std::uint8_t, 9> truncated_ipv4{5, 1, 0, 1, 127, 0, 0, 1, 0x01};
-    ec = rv::socks5::decode_request(truncated_ipv4, request);
+    constexpr std::array<std::uint8_t, 9> kTruncatedIpv4{5, 1, 0, 1, 127, 0, 0, 1, 0x01};
+    ec = rv::socks5::decode_request(kTruncatedIpv4, request);
     expect_error(ec, boost::system::errc::bad_message, "SOCKS5 accepted truncated IPv4 request");
 
-    constexpr std::array<std::uint8_t, 7> empty_domain{5, 1, 0, 3, 0, 0, 80};
-    ec = rv::socks5::decode_request(empty_domain, request);
+    constexpr std::array<std::uint8_t, 7> kEmptyDomain{5, 1, 0, 3, 0, 0, 80};
+    ec = rv::socks5::decode_request(kEmptyDomain, request);
     expect_error(ec, boost::system::errc::bad_message, "SOCKS5 accepted empty domain");
 
-    constexpr std::array<std::uint8_t, 10> nul_domain{5, 1, 0, 3, 3, 'a', 0, 'b', 0, 80};
-    ec = rv::socks5::decode_request(nul_domain, request);
+    constexpr std::array<std::uint8_t, 10> kNulDomain{5, 1, 0, 3, 3, 'a', 0, 'b', 0, 80};
+    ec = rv::socks5::decode_request(kNulDomain, request);
     expect_error(ec, boost::system::errc::bad_message, "SOCKS5 accepted domain containing NUL");
 
-    constexpr std::array<std::uint8_t, 11> trailing_bytes{5, 1, 0, 1, 127, 0, 0, 1, 0, 80, 0};
-    ec = rv::socks5::decode_request(trailing_bytes, request);
+    constexpr std::array<std::uint8_t, 11> kTrailingBytes{5, 1, 0, 1, 127, 0, 0, 1, 0, 80, 0};
+    ec = rv::socks5::decode_request(kTrailingBytes, request);
     expect_error(ec, boost::system::errc::bad_message, "SOCKS5 accepted trailing request bytes");
 
-    constexpr std::array<std::uint8_t, 10> zero_connect_port{5, 1, 0, 1, 127, 0, 0, 1, 0, 0};
-    ec = rv::socks5::decode_request(zero_connect_port, request);
+    constexpr std::array<std::uint8_t, 10> kZeroConnectPort{5, 1, 0, 1, 127, 0, 0, 1, 0, 0};
+    ec = rv::socks5::decode_request(kZeroConnectPort, request);
     expect_error(ec, boost::system::errc::invalid_argument, "SOCKS5 CONNECT accepted port zero");
 }
 
@@ -759,53 +759,53 @@ void test_socks5_udp_codec()
     boost::system::error_code ec;
     rv::socks5::udp_datagram datagram;
 
-    constexpr std::array<std::uint8_t, 13> ipv4_packet{0, 0, 0, 1, 8, 8, 8, 8, 0, 53, 'd', 'n', 's'};
-    ec = rv::socks5::decode_udp_datagram(ipv4_packet, datagram);
+    constexpr std::array<std::uint8_t, 13> kIpv4Packet{0, 0, 0, 1, 8, 8, 8, 8, 0, 53, 'd', 'n', 's'};
+    ec = rv::socks5::decode_udp_datagram(kIpv4Packet, datagram);
     expect(!ec && datagram.port == 53 && datagram.payload.size() == 3, "SOCKS5 IPv4 UDP datagram decode failed");
     const auto encoded_ipv4 = rv::socks5::encode_udp_datagram(datagram.destination, datagram.port, datagram.payload, ec);
-    expect(!ec && encoded_ipv4 == std::vector<std::uint8_t>(ipv4_packet.begin(), ipv4_packet.end()), "SOCKS5 IPv4 UDP roundtrip mismatch");
+    expect(!ec && encoded_ipv4 == std::vector<std::uint8_t>(kIpv4Packet.begin(), kIpv4Packet.end()), "SOCKS5 IPv4 UDP roundtrip mismatch");
 
-    constexpr std::array<std::uint8_t, 12> domain_packet{0, 0, 0, 3, 3, 'd', 'n', 's', 0, 53, 0xaa, 0xbb};
-    ec = rv::socks5::decode_udp_datagram(domain_packet, datagram);
+    constexpr std::array<std::uint8_t, 12> kDomainPacket{0, 0, 0, 3, 3, 'd', 'n', 's', 0, 53, 0xaa, 0xbb};
+    ec = rv::socks5::decode_udp_datagram(kDomainPacket, datagram);
     expect(!ec && datagram.port == 53 && datagram.payload.size() == 2, "SOCKS5 domain UDP datagram decode failed");
     const auto* domain = std::get_if<rv::socks5::domain_address>(&datagram.destination);
     expect(domain != nullptr && domain->name == "dns", "SOCKS5 domain UDP destination mismatch");
 
-    constexpr std::array<std::uint8_t, 25> ipv6_packet{
+    constexpr std::array<std::uint8_t, 25> kIpv6Packet{
         0, 0, 0, 4,
         0x20, 0x01, 0x48, 0x60, 0x48, 0x60, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x88,
         0, 53, 1, 2, 3,
     };
-    ec = rv::socks5::decode_udp_datagram(ipv6_packet, datagram);
+    ec = rv::socks5::decode_udp_datagram(kIpv6Packet, datagram);
     expect(!ec && datagram.port == 53 && datagram.payload.size() == 3, "SOCKS5 IPv6 UDP datagram decode failed");
     const auto encoded_ipv6 = rv::socks5::encode_udp_datagram(datagram.destination, datagram.port, datagram.payload, ec);
-    expect(!ec && encoded_ipv6 == std::vector<std::uint8_t>(ipv6_packet.begin(), ipv6_packet.end()), "SOCKS5 IPv6 UDP roundtrip mismatch");
+    expect(!ec && encoded_ipv6 == std::vector<std::uint8_t>(kIpv6Packet.begin(), kIpv6Packet.end()), "SOCKS5 IPv6 UDP roundtrip mismatch");
 
-    auto malformed = ipv4_packet;
+    auto malformed = kIpv4Packet;
     malformed[0] = 1;
     ec = rv::socks5::decode_udp_datagram(malformed, datagram);
     expect_error(ec, boost::system::errc::bad_message, "SOCKS5 UDP accepted nonzero reserved field");
 
-    malformed = ipv4_packet;
+    malformed = kIpv4Packet;
     malformed[2] = 1;
     ec = rv::socks5::decode_udp_datagram(malformed, datagram);
     expect_error(ec, boost::system::errc::operation_not_supported, "SOCKS5 UDP fragmentation returned wrong error");
 
-    malformed = ipv4_packet;
+    malformed = kIpv4Packet;
     malformed[3] = 2;
     ec = rv::socks5::decode_udp_datagram(malformed, datagram);
     expect_error(ec, boost::system::errc::address_family_not_supported, "SOCKS5 UDP unsupported address type returned wrong error");
 
-    constexpr std::array<std::uint8_t, 9> truncated_ipv4{0, 0, 0, 1, 8, 8, 8, 8, 0};
-    ec = rv::socks5::decode_udp_datagram(truncated_ipv4, datagram);
+    constexpr std::array<std::uint8_t, 9> kTruncatedIpv4{0, 0, 0, 1, 8, 8, 8, 8, 0};
+    ec = rv::socks5::decode_udp_datagram(kTruncatedIpv4, datagram);
     expect_error(ec, boost::system::errc::bad_message, "SOCKS5 UDP accepted truncated datagram");
 
-    constexpr std::array<std::uint8_t, 10> zero_port{0, 0, 0, 1, 8, 8, 8, 8, 0, 0};
-    ec = rv::socks5::decode_udp_datagram(zero_port, datagram);
+    constexpr std::array<std::uint8_t, 10> kZeroPort{0, 0, 0, 1, 8, 8, 8, 8, 0, 0};
+    ec = rv::socks5::decode_udp_datagram(kZeroPort, datagram);
     expect_error(ec, boost::system::errc::invalid_argument, "SOCKS5 UDP accepted port zero");
 
-    constexpr std::array<std::uint8_t, 10> nul_domain{0, 0, 0, 3, 3, 'a', 0, 'b', 0, 53};
-    ec = rv::socks5::decode_udp_datagram(nul_domain, datagram);
+    constexpr std::array<std::uint8_t, 10> kNulDomain{0, 0, 0, 3, 3, 'a', 0, 'b', 0, 53};
+    ec = rv::socks5::decode_udp_datagram(kNulDomain, datagram);
     expect_error(ec, boost::system::errc::bad_message, "SOCKS5 UDP accepted domain containing NUL");
 
     const rv::socks5::domain_address invalid_domain{std::string("a\0b", 3)};
