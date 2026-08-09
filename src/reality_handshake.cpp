@@ -177,7 +177,8 @@ boost::asio::awaitable<handshake_message> read_encrypted_handshake_message(net::
         }
         if (record.type == tls::kRecordChangeCipherSpec)
         {
-            if (!is_compatibility_change_cipher_spec(record.header, record.payload))
+            if (!is_valid_handshake_fragment(record.type, record.payload, !queue.empty()) ||
+                !is_compatibility_change_cipher_spec(record.header, record.payload))
             {
                 ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
                 co_return handshake_message{};

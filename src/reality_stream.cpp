@@ -177,21 +177,6 @@ boost::asio::awaitable<std::size_t> reality_stream::read_tls(std::span<std::uint
             co_return 0;
         }
 
-        if (record->header[0] == tls::kRecordChangeCipherSpec)
-        {
-            if (!is_valid_handshake_fragment(record->header[0], record->payload, !post_handshake_buffer_.empty()) ||
-                !is_compatibility_change_cipher_spec(record->header, record->payload))
-            {
-                ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
-                co_return 0;
-            }
-            if (++ignored_tls_record_count_ > 3)
-            {
-                ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
-                co_return 0;
-            }
-            continue;
-        }
         if (record->header[0] != tls::kRecordApplicationData ||
             core::read_be16(record->header.data() + tls::kRecordVersionOffset) != tls::kLegacyVersion)
         {
@@ -204,7 +189,6 @@ boost::asio::awaitable<std::size_t> reality_stream::read_tls(std::span<std::uint
         {
             co_return 0;
         }
-        ignored_tls_record_count_ = 0;
 
         const auto result = process_decrypted_record(plaintext, output, ec);
         if (result)

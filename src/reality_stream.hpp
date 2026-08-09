@@ -78,7 +78,6 @@ class reality_stream
     core::byte_queue post_handshake_buffer_{tls::kMaximumHandshakeBufferSize};
     receive_mode receive_mode_{receive_mode::kTls};
     send_mode send_mode_{send_mode::kTls};
-    std::size_t ignored_tls_record_count_{0};
     std::string session_id_;
 };
 
