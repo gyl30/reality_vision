@@ -303,6 +303,53 @@ void test_record_roundtrip()
     expect_error(ec, boost::system::errc::message_size, "TLS record accepted oversized inner plaintext");
 }
 
+void test_record_rfc8448()
+{
+    constexpr std::array<std::uint8_t, 32> kTrafficSecret{
+        0x9e, 0x40, 0x64, 0x6c, 0xe7, 0x9a, 0x7f, 0x9d, 0xc0, 0x5a, 0xf8, 0x88, 0x9b, 0xce, 0x65, 0x52,
+        0x87, 0x5a, 0xfa, 0x0b, 0x06, 0xdf, 0x00, 0x87, 0xf7, 0x92, 0xeb, 0xb7, 0xc1, 0x75, 0x04, 0xa5,
+    };
+    constexpr std::array<std::uint8_t, 72> kExpectedApplicationRecord{
+        0x17, 0x03, 0x03, 0x00, 0x43, 0xa2, 0x3f, 0x70, 0x54, 0xb6, 0x2c, 0x94, 0xd0, 0xaf, 0xfa, 0xfe, 0x82, 0x28,
+        0xba, 0x55, 0xcb, 0xef, 0xac, 0xea, 0x42, 0xf9, 0x14, 0xaa, 0x66, 0xbc, 0xab, 0x3f, 0x2b, 0x98, 0x19, 0xa8,
+        0xa5, 0xb4, 0x6b, 0x39, 0x5b, 0xd5, 0x4a, 0x9a, 0x20, 0x44, 0x1e, 0x2b, 0x62, 0x97, 0x4e, 0x1f, 0x5a, 0x62,
+        0x92, 0xa2, 0x97, 0x70, 0x14, 0xbd, 0x1e, 0x3d, 0xea, 0xe6, 0x3a, 0xee, 0xbb, 0x21, 0x69, 0x49, 0x15, 0xe4,
+    };
+    constexpr std::array<std::uint8_t, 24> kExpectedAlertRecord{
+        0x17, 0x03, 0x03, 0x00, 0x13, 0xc9, 0x87, 0x27, 0x60, 0x65, 0x56, 0x66,
+        0xb7, 0x4d, 0x7f, 0xf1, 0x15, 0x3e, 0xfd, 0x6d, 0xb6, 0xd0, 0xb0, 0xe3,
+    };
+
+    std::array<std::uint8_t, 50> application_payload{};
+    for (std::size_t index = 0; index < application_payload.size(); ++index)
+    {
+        application_payload[index] = static_cast<std::uint8_t>(index);
+    }
+
+    boost::system::error_code ec;
+    rv::reality::record_key writer(rv::reality::cipher_suite::kTlsAes128GcmSha256, kTrafficSecret, ec);
+    expect(!ec, "rfc 8448 tls record writer construction failed");
+    const auto application_record = writer.seal(0x17, application_payload, ec);
+    expect(!ec, "rfc 8448 application record seal failed");
+    expect_bytes(application_record, kExpectedApplicationRecord, "rfc 8448 application record mismatch");
+
+    constexpr std::array<std::uint8_t, 2> kCloseNotify{0x01, 0x00};
+    const auto alert_record = writer.seal(0x15, kCloseNotify, ec);
+    expect(!ec, "rfc 8448 alert record seal failed");
+    expect_bytes(alert_record, kExpectedAlertRecord, "rfc 8448 alert record mismatch");
+
+    rv::reality::record_key reader(rv::reality::cipher_suite::kTlsAes128GcmSha256, kTrafficSecret, ec);
+    expect(!ec, "rfc 8448 tls record reader construction failed");
+    const auto opened_application =
+        reader.open(std::span(kExpectedApplicationRecord).first<5>(), std::span(kExpectedApplicationRecord).subspan(5), ec);
+    expect(!ec && opened_application.inner_type == 0x17 &&
+               opened_application.content == std::vector<std::uint8_t>(application_payload.begin(), application_payload.end()),
+           "rfc 8448 application record open failed");
+    const auto opened_alert = reader.open(std::span(kExpectedAlertRecord).first<5>(), std::span(kExpectedAlertRecord).subspan(5), ec);
+    expect(!ec && opened_alert.inner_type == 0x15 && opened_alert.content == std::vector<std::uint8_t>(kCloseNotify.begin(), kCloseNotify.end()),
+           "rfc 8448 alert record open failed");
+}
+
 void test_tls_control_records()
 {
     constexpr std::array<std::uint8_t, 5> kCompatibilityCcsHeader{0x14, 0x03, 0x03, 0x00, 0x01};
@@ -1009,6 +1056,7 @@ int run_protocol_tests()
         std::pair{"network address", &test_network_address},
         std::pair{"HKDF", &test_hkdf_rfc5869},
         std::pair{"TLS records", &test_record_roundtrip},
+        std::pair{"tls rfc 8448 records", &test_record_rfc8448},
         std::pair{"TLS control records", &test_tls_control_records},
         std::pair{"TLS Finished verification", &test_finished_verification},
         std::pair{"ClientHello", &test_client_hello},
