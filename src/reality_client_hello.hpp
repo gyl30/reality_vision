@@ -28,6 +28,8 @@ struct client_hello_material
     std::array<std::uint8_t, crypto::kAes256GcmKeySize> reality_auth_key{};
 };
 
+void cleanse_client_hello_secrets(client_hello_material& material) noexcept;
+
 [[nodiscard]] std::optional<client_hello_material> build_client_hello(const client_config& configuration,
                                                                       boost::system::error_code& ec,
                                                                       std::chrono::system_clock::time_point now = std::chrono::system_clock::now());

@@ -664,12 +664,14 @@ boost::asio::awaitable<std::optional<client_hello_material>> send_client_hello(n
     const auto client_hello_record = wrap_client_hello_record(client_hello->handshake_bytes, ec);
     if (ec)
     {
+        cleanse_client_hello_secrets(*client_hello);
         co_return std::nullopt;
     }
 
     co_await tcp.write(client_hello_record, ec);
     if (ec)
     {
+        cleanse_client_hello_secrets(*client_hello);
         co_return std::nullopt;
     }
 
@@ -770,16 +772,19 @@ boost::asio::awaitable<std::optional<handshake_result>> perform_client_handshake
     auto server_hello = co_await receive_server_hello(tcp, *client_hello, transcript, session_id, ec);
     if (ec)
     {
+        cleanse_client_hello_secrets(*client_hello);
         co_return std::nullopt;
     }
 
     auto handshake_secrets = derive_client_handshake_secrets(*client_hello, *server_hello, transcript, ec);
     if (ec)
     {
+        cleanse_client_hello_secrets(*client_hello);
         co_return std::nullopt;
     }
 
     co_await read_server_handshake_flight(tcp, *client_hello, *server_hello, *handshake_secrets, transcript, ec);
+    cleanse_client_hello_secrets(*client_hello);
     if (ec)
     {
         co_return std::nullopt;
@@ -800,8 +805,6 @@ boost::asio::awaitable<std::optional<handshake_result>> perform_client_handshake
     crypto::cleanse(handshake_secrets->client_secret);
     crypto::cleanse(handshake_secrets->server_secret);
     crypto::cleanse(handshake_secrets->master_secret);
-    crypto::cleanse(client_hello->reality_auth_key);
-
     spdlog::info("{} reality tls 1.3 handshake completed", session_id);
     co_return handshake_result{
         .receive_key = std::move(application_keys->server_key),

@@ -443,7 +443,7 @@ void test_client_hello()
     const auto server_key = rv::crypto::make_x25519_key_pair();
     config.server_public_key = server_key.public_key;
     config.short_id = {0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef};
-    const auto hello = rv::reality::build_client_hello(config, ec, std::chrono::system_clock::time_point(std::chrono::seconds(1'700'000'000)));
+    auto hello = rv::reality::build_client_hello(config, ec, std::chrono::system_clock::time_point(std::chrono::seconds(1'700'000'000)));
     expect(!ec && hello.has_value(), "ClientHello construction failed");
 
     const auto wire = std::span<const std::uint8_t>(hello->handshake_bytes);
@@ -543,6 +543,11 @@ void test_client_hello()
     expect(read_test_u16(ech, 6, "ClientHello ECH encapsulated length missing") == 32 &&
                read_test_u16(ech, 40, "ClientHello ECH payload length missing") == 239,
            "ClientHello ECH payload shape mismatch");
+
+    rv::reality::cleanse_client_hello_secrets(*hello);
+    expect(std::all_of(hello->x25519_private_key.begin(), hello->x25519_private_key.end(), [](const auto byte) { return byte == 0; }) &&
+               std::all_of(hello->reality_auth_key.begin(), hello->reality_auth_key.end(), [](const auto byte) { return byte == 0; }),
+           "ClientHello secret cleanup failed");
 }
 
 void test_vless_header()

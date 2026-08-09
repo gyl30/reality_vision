@@ -424,6 +424,12 @@ void authenticate_client_hello(client_hello_material& material,
 
 }    // namespace
 
+void cleanse_client_hello_secrets(client_hello_material& material) noexcept
+{
+    crypto::cleanse(material.x25519_private_key);
+    crypto::cleanse(material.reality_auth_key);
+}
+
 std::optional<client_hello_material> build_client_hello(const client_config& configuration,
                                                         boost::system::error_code& ec,
                                                         const std::chrono::system_clock::time_point now)
@@ -441,17 +447,20 @@ std::optional<client_hello_material> build_client_hello(const client_config& con
         return std::nullopt;
     }
 
-    const auto key_pair = crypto::make_x25519_key_pair();
+    auto key_pair = crypto::make_x25519_key_pair();
     material.x25519_private_key = key_pair.private_key;
+    crypto::cleanse(key_pair.private_key);
     material.handshake_bytes = build_firefox_120_handshake(configuration, material.client_random, material.session_id, key_pair.public_key, ec);
     if (ec)
     {
+        cleanse_client_hello_secrets(material);
         return std::nullopt;
     }
 
     authenticate_client_hello(material, configuration, now, ec);
     if (ec)
     {
+        cleanse_client_hello_secrets(material);
         return std::nullopt;
     }
 
