@@ -338,6 +338,7 @@ void derive_reality_auth_key(client_hello_material& material, const client_confi
     auto shared_secret = crypto::x25519(material.x25519_private_key, configuration.server_public_key, ec);
     if (ec)
     {
+        crypto::cleanse(shared_secret);
         return;
     }
 
@@ -346,6 +347,7 @@ void derive_reality_auth_key(client_hello_material& material, const client_confi
     crypto::cleanse(shared_secret);
     if (ec)
     {
+        crypto::cleanse(pseudorandom_key);
         return;
     }
 
@@ -354,6 +356,7 @@ void derive_reality_auth_key(client_hello_material& material, const client_confi
     crypto::cleanse(pseudorandom_key);
     if (ec)
     {
+        crypto::cleanse(auth_key);
         return;
     }
 

@@ -151,6 +151,7 @@ record_key::record_key(cipher_suite suite, std::span<const std::uint8_t> traffic
     auto key = hkdf_expand_label(properties.hash, traffic_secret, kKeyLabel, {}, properties.key_length, ec);
     if (ec)
     {
+        crypto::cleanse(key);
         return;
     }
     cipher_ = crypto::aead(properties.aead, key, ec);
@@ -164,6 +165,7 @@ record_key::record_key(cipher_suite suite, std::span<const std::uint8_t> traffic
     auto iv = hkdf_expand_label(properties.hash, traffic_secret, kIvLabel, {}, iv_.size(), ec);
     if (ec)
     {
+        crypto::cleanse(iv);
         return;
     }
     std::copy(iv.begin(), iv.end(), iv_.begin());
@@ -427,6 +429,7 @@ std::vector<std::uint8_t> finished_verify_data(cipher_suite suite,
     auto finished_key = hkdf_expand_label(properties.hash, traffic_secret, kLabel, {}, crypto::hash_size(properties.hash), ec);
     if (ec)
     {
+        crypto::cleanse(finished_key);
         return {};
     }
     const auto transcript_hash = crypto::digest(properties.hash, transcript, ec);
