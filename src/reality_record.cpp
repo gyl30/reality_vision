@@ -278,55 +278,80 @@ std::optional<handshake_secrets> derive_handshake_secrets(cipher_suite suite,
     {
         return std::nullopt;
     }
-    const auto early_secret = crypto::hkdf_extract(properties.hash, zero, zero, ec);
+    auto early_secret = crypto::hkdf_extract(properties.hash, zero, zero, ec);
     if (ec)
     {
+        crypto::cleanse(early_secret);
         return std::nullopt;
     }
-    const auto derived = derive_secret(properties.hash, early_secret, "derived", empty_hash, ec);
+    auto derived = derive_secret(properties.hash, early_secret, "derived", empty_hash, ec);
+    crypto::cleanse(early_secret);
     if (ec)
     {
+        crypto::cleanse(derived);
         return std::nullopt;
     }
-    const auto handshake_secret = crypto::hkdf_extract(properties.hash, derived, shared_secret, ec);
+    auto handshake_secret = crypto::hkdf_extract(properties.hash, derived, shared_secret, ec);
+    crypto::cleanse(derived);
     if (ec)
     {
+        crypto::cleanse(handshake_secret);
         return std::nullopt;
     }
     const auto transcript_hash = crypto::digest(properties.hash, transcript, ec);
     if (ec)
     {
+        crypto::cleanse(handshake_secret);
         return std::nullopt;
     }
     auto client_secret = derive_secret(properties.hash, handshake_secret, "c hs traffic", transcript_hash, ec);
     if (ec)
     {
+        crypto::cleanse(handshake_secret);
+        crypto::cleanse(client_secret);
         return std::nullopt;
     }
     auto server_secret = derive_secret(properties.hash, handshake_secret, "s hs traffic", transcript_hash, ec);
     if (ec)
     {
+        crypto::cleanse(handshake_secret);
+        crypto::cleanse(client_secret);
+        crypto::cleanse(server_secret);
         return std::nullopt;
     }
-    const auto master_derived = derive_secret(properties.hash, handshake_secret, "derived", empty_hash, ec);
+    auto master_derived = derive_secret(properties.hash, handshake_secret, "derived", empty_hash, ec);
+    crypto::cleanse(handshake_secret);
     if (ec)
     {
+        crypto::cleanse(master_derived);
+        crypto::cleanse(client_secret);
+        crypto::cleanse(server_secret);
         return std::nullopt;
     }
     auto master_secret = crypto::hkdf_extract(properties.hash, master_derived, zero, ec);
+    crypto::cleanse(master_derived);
     if (ec)
     {
+        crypto::cleanse(client_secret);
+        crypto::cleanse(server_secret);
+        crypto::cleanse(master_secret);
         return std::nullopt;
     }
 
     record_key client_key(suite, client_secret, ec);
     if (ec)
     {
+        crypto::cleanse(client_secret);
+        crypto::cleanse(server_secret);
+        crypto::cleanse(master_secret);
         return std::nullopt;
     }
     record_key server_key(suite, server_secret, ec);
     if (ec)
     {
+        crypto::cleanse(client_secret);
+        crypto::cleanse(server_secret);
+        crypto::cleanse(master_secret);
         return std::nullopt;
     }
 
@@ -358,21 +383,28 @@ std::optional<application_keys> derive_application_keys(cipher_suite suite,
     auto client_secret = derive_secret(properties.hash, master_secret, "c ap traffic", transcript_hash, ec);
     if (ec)
     {
+        crypto::cleanse(client_secret);
         return std::nullopt;
     }
     auto server_secret = derive_secret(properties.hash, master_secret, "s ap traffic", transcript_hash, ec);
     if (ec)
     {
+        crypto::cleanse(client_secret);
+        crypto::cleanse(server_secret);
         return std::nullopt;
     }
     record_key client(suite, client_secret, ec);
     if (ec)
     {
+        crypto::cleanse(client_secret);
+        crypto::cleanse(server_secret);
         return std::nullopt;
     }
     record_key server(suite, server_secret, ec);
     if (ec)
     {
+        crypto::cleanse(client_secret);
+        crypto::cleanse(server_secret);
         return std::nullopt;
     }
     crypto::cleanse(client_secret);

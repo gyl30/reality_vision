@@ -51,6 +51,13 @@ struct handshake_message
     std::vector<std::uint8_t> raw;
 };
 
+void cleanse_handshake_secrets(handshake_secrets& secrets) noexcept
+{
+    crypto::cleanse(secrets.client_secret);
+    crypto::cleanse(secrets.server_secret);
+    crypto::cleanse(secrets.master_secret);
+}
+
 std::span<const std::uint8_t> handshake_body(const handshake_message& message) noexcept
 {
     if (message.raw.size() < tls::kHandshakeHeaderSize)
@@ -787,24 +794,25 @@ boost::asio::awaitable<std::optional<handshake_result>> perform_client_handshake
     cleanse_client_hello_secrets(*client_hello);
     if (ec)
     {
+        cleanse_handshake_secrets(*handshake_secrets);
         co_return std::nullopt;
     }
 
     auto application_keys = derive_application_keys(server_hello->suite, handshake_secrets->master_secret, transcript, ec);
     if (ec)
     {
+        cleanse_handshake_secrets(*handshake_secrets);
         co_return std::nullopt;
     }
 
     co_await send_client_finished(tcp, server_hello->suite, *handshake_secrets, transcript, ec);
     if (ec)
     {
+        cleanse_handshake_secrets(*handshake_secrets);
         co_return std::nullopt;
     }
 
-    crypto::cleanse(handshake_secrets->client_secret);
-    crypto::cleanse(handshake_secrets->server_secret);
-    crypto::cleanse(handshake_secrets->master_secret);
+    cleanse_handshake_secrets(*handshake_secrets);
     spdlog::info("{} reality tls 1.3 handshake completed", session_id);
     co_return handshake_result{
         .receive_key = std::move(application_keys->server_key),
