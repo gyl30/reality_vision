@@ -810,14 +810,28 @@ void test_vision_tls_trackers()
     observation = tracker.observe(std::span(kClientHello).subspan(6));
     expect(!observation.encrypted_record_end_offset, "TLS tracker reported a handshake record as encrypted");
 
-    constexpr std::array<std::uint8_t, 13> kCcsAndPartialEncrypted{0x14, 0x03, 0x03, 0x00, 0x01, 0x01, 0x17, 0x03, 0x03, 0x00, 0x04, 0xaa, 0xbb};
+    constexpr std::array<std::uint8_t, 13> kCcsAndPartialEncrypted{0x14, 0x03, 0x03, 0x00, 0x01, 0x01, 0x17, 0x03, 0x03, 0x00, 0x11, 0xaa, 0xbb};
     observation = tracker.observe(kCcsAndPartialEncrypted);
     expect(!observation.encrypted_record_end_offset, "TLS tracker accepted a partial encrypted record");
 
-    constexpr std::array<std::uint8_t, 6> kEncryptedTailAndNextHeader{0xcc, 0xdd, 0x17, 0x03, 0x03, 0x00};
+    constexpr std::array<std::uint8_t, 19> kEncryptedTailAndNextHeader{
+        0xcc, 0xdd, 0xee, 0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0x17, 0x03, 0x03, 0x00,
+    };
     observation = tracker.observe(kEncryptedTailAndNextHeader);
-    expect(observation.encrypted_record_end_offset && *observation.encrypted_record_end_offset == 2,
+    expect(observation.encrypted_record_end_offset && *observation.encrypted_record_end_offset == 15,
            "TLS tracker returned the wrong cross-call record boundary");
+
+    rv::vision::client_tls_record_tracker short_encrypted_tracker;
+    observation = short_encrypted_tracker.observe(kClientHello);
+    constexpr std::array<std::uint8_t, 5> kShortEncryptedRecord{0x17, 0x03, 0x03, 0x00, 0x10};
+    observation = short_encrypted_tracker.observe(kShortEncryptedRecord);
+    expect(observation.tracking_failed && !observation.encrypted_record_end_offset, "tls tracker accepted a short encrypted record");
+
+    rv::vision::client_tls_record_tracker empty_handshake_tracker;
+    observation = empty_handshake_tracker.observe(kClientHello);
+    constexpr std::array<std::uint8_t, 5> kEmptyHandshakeRecord{0x16, 0x03, 0x03, 0x00, 0x00};
+    observation = empty_handshake_tracker.observe(kEmptyHandshakeRecord);
+    expect(observation.tracking_failed, "tls tracker accepted an empty handshake record");
 
     rv::vision::client_tls_record_tracker non_tls_tracker;
     constexpr std::array<std::uint8_t, 2> kHttpPrefix{'G', 'E'};
