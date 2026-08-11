@@ -44,6 +44,7 @@ namespace
 using tcp = boost::asio::ip::tcp;
 
 constexpr std::size_t kRelayBufferSize = 16UL * 1024U;
+constexpr auto kSocksHandshakeTimeout = std::chrono::seconds(60);
 
 enum class transparent_mode : std::uint8_t
 {
@@ -371,8 +372,22 @@ boost::asio::awaitable<void> run_socks_connect_session(tcp::socket& client_socke
 
 boost::asio::awaitable<void> run_socks_session(tcp::socket client_socket, rv::app::config configuration, std::string session_id)
 {
+    using namespace boost::asio::experimental::awaitable_operators;    // NOLINT
+
     boost::system::error_code ec;
-    const auto request = co_await rv::socks5::negotiate(client_socket, configuration.socks_credentials, ec);
+    boost::asio::steady_timer timer(client_socket.get_executor());
+    timer.expires_after(kSocksHandshakeTimeout);
+    boost::system::error_code timer_ec;
+    auto outcome = co_await (rv::socks5::negotiate(client_socket, configuration.socks_credentials, ec) ||
+                             timer.async_wait(boost::asio::redirect_error(boost::asio::use_awaitable, timer_ec)));
+    if (outcome.index() == 1)
+    {
+        ec = boost::system::errc::make_error_code(boost::system::errc::timed_out);
+        spdlog::warn("{} socks5 negotiation failed: {}", session_id, ec.message());
+        co_return;
+    }
+
+    auto request = std::get<0>(std::move(outcome));
     if (ec)
     {
         spdlog::warn("{} socks5 negotiation failed: {}", session_id, ec.message());

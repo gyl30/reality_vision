@@ -43,6 +43,7 @@ IP 目标为了让客户端先产生 ClientHello/HTTP request，会在第 2 步�
 `vision_stream`；探测失败、超时或达到上限时保持原 IP。透明入口没有 SOCKS handshake，因此 accept 后先恢复
 original destination 并建立 REALITY，再执行同样的首包探测和第 3、4 步。TLS sniffer 只解析首个完整
 ClientHello handshake record；跨 TLS record 的 ClientHello 直接按探测失败处理，不影响原始数据转发。
+SOCKS5 入站协商及上游 TCP 建连与 REALITY 握手均限制为 60 秒。
 
 ## 2. 核心数据结构
 
