@@ -697,7 +697,7 @@ asio::awaitable<void> run_tproxy_server(udp::socket socket, app::config configur
             shutdown_tproxy_state(state);
             co_return;
         }
-        if (!count)
+        if (!count || *count == 0)
         {
             continue;
         }
