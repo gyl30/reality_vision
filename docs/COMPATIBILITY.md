@@ -103,7 +103,9 @@ TCP REDIRECT/TPROXY 得到 IP 目标后复用 destination sniffer；SNI/HTTP Hos
 不会创建 Vision stream。零长度 UDP datagram 当前不转发。固定 Xray 基线（v26.7.28）的标准 VLESS UDP writer 使用 8192-byte
 buffer，并跳过 `length + 2 > 8192` 的 datagram，因此发送端拒绝超过 8190 bytes 的 payload，保证双向边界一致。
 真实 transparent UDP 测试需要 root/netfilter/capability，
-因此不放入默认 CTest；默认 interop 通过无特权 SOCKS5 UDP ASSOCIATE 覆盖相同的 VLESS UDP/REALITY 协议路径。
+因此不放入默认 CTest；启用 `RV_ENABLE_PRIVILEGED_TESTS` 后，独立 network namespace 测试会覆盖 TCP REDIRECT、TCP/UDP TPROXY、
+透明 UDP 源地址、53 端口、空 datagram、8190/8191 bytes 边界，以及新 flow 握手阻塞时已有 flow 继续收发。默认 interop 仍通过
+无特权 SOCKS5 UDP ASSOCIATE 覆盖相同的 VLESS UDP/REALITY 协议路径。
 
 Docker bridge 上的 TPROXY 还取决于宿主机 `br_netfilter` 路径；该环境问题与应用是否正确设置 `IP_TRANSPARENT` 是两件事，
 部署时应单独验证。UDP/443 使用与其他 UDP 相同的 VLESS UDP + REALITY 路径；默认测试额外验证 SOCKS5 UDP/443 请求能到达 Xray，但不要求测试环境绑定本地特权端口 443。真实 QUIC/HTTP3 应另做端到端验证。

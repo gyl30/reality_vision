@@ -8,6 +8,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(RV_BUILD_TESTS "Register tests with CTest" ON)
+option(RV_ENABLE_PRIVILEGED_TESTS "Register Linux network namespace tests that require root" OFF)
 set(RV_XRAY_EXECUTABLE "" CACHE FILEPATH "Path to the Xray executable for interop tests")
 
 find_package(Boost REQUIRED CONFIG COMPONENTS program_options system)
@@ -61,6 +62,9 @@ endif()
 
 if(RV_BUILD_TESTS)
   enable_testing()
+  if(RV_ENABLE_PRIVILEGED_TESTS AND NOT RV_XRAY_EXECUTABLE)
+    message(FATAL_ERROR "RV_ENABLE_PRIVILEGED_TESTS requires RV_XRAY_EXECUTABLE")
+  endif()
   add_test(NAME rv_protocol_tests COMMAND reality_vision --self_test)
   add_test(NAME rv_help COMMAND reality_vision --help)
   add_test(NAME rv_invalid_config COMMAND reality_vision --server localhost)
@@ -89,5 +93,18 @@ if(RV_BUILD_TESTS)
         --xray ${RV_XRAY_EXECUTABLE}
         --client $<TARGET_FILE:reality_vision>
         --work-dir ${CMAKE_CURRENT_BINARY_DIR}/xray-interop)
+
+    if(RV_ENABLE_PRIVILEGED_TESTS)
+      add_test(
+        NAME rv_transparent_interop
+        COMMAND
+          Python3::Interpreter
+          ${CMAKE_CURRENT_SOURCE_DIR}/tests/interop/run_transparent_interop.py
+          run
+          --xray ${RV_XRAY_EXECUTABLE}
+          --client $<TARGET_FILE:reality_vision>
+          --work-dir ${CMAKE_CURRENT_BINARY_DIR}/transparent-interop)
+      set_tests_properties(rv_transparent_interop PROPERTIES LABELS "interop;privileged" RUN_SERIAL TRUE TIMEOUT 90)
+    endif()
   endif()
 endif()
