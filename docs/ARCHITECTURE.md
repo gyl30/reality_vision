@@ -154,14 +154,16 @@ REALITY raw。接收方向只在对端 Direct frame 的 content 与 padding 都�
 可以同时运行并服务多个连接；TCP 一个方向遇到 EOF 时只 half-close 对端发送方向，等待另一方向排空后再释放会话。
 
 SOCKS5 UDP association 的生命周期由 SOCKS TCP control connection 决定。association 内按 SOCKS UDP 地址类型、目标地址和端口建立 flow；每条
-flow 复用一个 `vless_udp_stream`，主 relay 协程串行写 datagram，独立 downlink 协程串行读 datagram。地址类型属于 flow 身份的一部分，
+flow 复用一个 `vless_udp_stream`，listener 将 datagram 投递到容量 16 的 flow channel，独立 uplink worker 在建连后串行写入，
+downlink 协程串行读取。channel 满时仅丢弃该 flow 的新 datagram，不阻塞其他 flow。地址类型属于 flow 身份的一部分，
 因此文本相同的 domain 与 IPv4/IPv6 地址不会错误复用同一 flow。control connection 关闭时 association 的 UDP socket 和全部上游 flow 一起关闭；
 120 秒无活动 flow 也由 30 秒 cleanup timer 回收。
 
 TPROXY UDP 按 `(client endpoint, original destination)` 建立 flow。每条 flow 额外拥有一个 `IP_TRANSPARENT` reply socket，
 绑定 original destination，使下行 datagram 返回客户端时仍以原目标 IP:port 为源；原目标端口低于 1024 时运行进程还需要
 `CAP_NET_BIND_SERVICE`。单线程 `io_context(1)` 下 flow map、uplink、
-downlink 和 30 秒 cleanup timer 顺序执行；120 秒无活动 flow 被回收。UDP/443 与其他 UDP 使用相同 flow；当前不解析 QUIC，也不做 QUIC SNI sniff。
+downlink 和 30 秒 cleanup timer 顺序执行；TPROXY listener 同样只负责收包和投递，不等待 flow 建连或上游写入。120 秒无活动 flow 被回收。
+UDP/443 与其他 UDP 使用相同 flow；当前不解析 QUIC，也不做 QUIC SNI sniff。
 
 stream 不在内部排队或检测同方向并发。调用方必须保证同一时刻最多有一个读操作和一个
 写操作；这些对象也不是线程安全容器。当一个 `io_context` 由多个线程运行时，调用方必须
