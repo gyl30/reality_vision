@@ -8,13 +8,15 @@
 #include <boost/system/error_code.hpp>
 
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 
 namespace rv::app
 {
 struct config;
-}
+struct runtime_state;
+}    // namespace rv::app
 
 namespace rv::proxy
 {
@@ -26,6 +28,7 @@ struct target
 };
 
 [[nodiscard]] boost::asio::awaitable<std::optional<reality::reality_stream>> connect_reality(const app::config& configuration,
+                                                                                             std::shared_ptr<app::runtime_state> runtime,
                                                                                              const std::string& session_id,
                                                                                              boost::system::error_code& ec);
 

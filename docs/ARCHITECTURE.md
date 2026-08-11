@@ -165,6 +165,10 @@ TPROXY UDP 按 `(client endpoint, original destination)` 建立 flow。每条 fl
 downlink 和 30 秒 cleanup timer 顺序执行；TPROXY listener 同样只负责收包和投递，不等待 flow 建连或上游写入。120 秒无活动 flow 被回收。
 UDP/443 与其他 UDP 使用相同 flow；当前不解析 QUIC，也不做 QUIC SNI sniff。
 
+所有 listener 共享进程级运行计数：默认限制 1024 个 TCP session、1024 个 UDP flow 和 64 个 pending upstream handshake；单个
+SOCKS5 UDP association 另限制为 256 个 flow。资源满时不排队等待：新 TCP session 立即关闭，新 UDP flow 的首包直接丢弃。
+UDP flow 从创建占位状态起计数，直到其 worker 和 downlink 都释放资源后才归还名额。
+
 stream 不在内部排队或检测同方向并发。调用方必须保证同一时刻最多有一个读操作和一个
 写操作；这些对象也不是线程安全容器。当一个 `io_context` 由多个线程运行时，调用方必须
 使用同一个 strand 串行化该连接的 handler。

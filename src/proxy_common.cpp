@@ -2,6 +2,7 @@
 
 #include "config.hpp"
 #include "reality_config.hpp"
+#include "runtime_state.hpp"
 #include "tcp_byte_stream.hpp"
 
 #include <boost/asio/experimental/awaitable_operators.hpp>
@@ -9,6 +10,7 @@
 #include <boost/asio/steady_timer.hpp>
 #include <boost/asio/this_coro.hpp>
 #include <boost/asio/use_awaitable.hpp>
+#include <boost/scope/scope_exit.hpp>
 #include <boost/system/errc.hpp>
 
 #include <chrono>
@@ -26,10 +28,19 @@ constexpr auto kUpstreamHandshakeTimeout = std::chrono::seconds(60);
 }    // namespace
 
 boost::asio::awaitable<std::optional<reality::reality_stream>> connect_reality(const app::config& configuration,
+                                                                               std::shared_ptr<app::runtime_state> runtime,
                                                                                const std::string& session_id,
                                                                                boost::system::error_code& ec)
 {
     using namespace boost::asio::experimental::awaitable_operators;    // NOLINT
+
+    if (runtime->pending_handshakes >= configuration.maximum_pending_handshakes)
+    {
+        ec = boost::system::errc::make_error_code(boost::system::errc::resource_unavailable_try_again);
+        co_return std::nullopt;
+    }
+    ++runtime->pending_handshakes;
+    const boost::scope::scope_exit release_handshake([runtime] { --runtime->pending_handshakes; });
 
     const auto executor = co_await boost::asio::this_coro::executor;
     const auto deadline = std::chrono::steady_clock::now() + kUpstreamHandshakeTimeout;
@@ -37,10 +48,10 @@ boost::asio::awaitable<std::optional<reality::reality_stream>> connect_reality(c
     timer.expires_at(deadline);
     boost::system::error_code timer_ec;
 
-    auto tcp_outcome = co_await (
-        net::tcp_byte_stream::connect(
-            executor, configuration.reality_server_host, std::to_string(configuration.reality_server_port), session_id, ec) ||
-        timer.async_wait(boost::asio::redirect_error(boost::asio::use_awaitable, timer_ec)));
+    auto tcp_outcome =
+        co_await (net::tcp_byte_stream::connect(
+                      executor, configuration.reality_server_host, std::to_string(configuration.reality_server_port), session_id, ec) ||
+                  timer.async_wait(boost::asio::redirect_error(boost::asio::use_awaitable, timer_ec)));
     if (tcp_outcome.index() == 1)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::timed_out);
@@ -60,9 +71,8 @@ boost::asio::awaitable<std::optional<reality::reality_stream>> connect_reality(c
 
     timer.expires_at(deadline);
     timer_ec.clear();
-    auto reality_outcome = co_await (
-        reality::reality_stream::connect(std::move(*tcp_stream), std::move(reality_configuration), session_id, ec) ||
-        timer.async_wait(boost::asio::redirect_error(boost::asio::use_awaitable, timer_ec)));
+    auto reality_outcome = co_await (reality::reality_stream::connect(std::move(*tcp_stream), std::move(reality_configuration), session_id, ec) ||
+                                     timer.async_wait(boost::asio::redirect_error(boost::asio::use_awaitable, timer_ec)));
     if (reality_outcome.index() == 1)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::timed_out);

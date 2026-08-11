@@ -65,6 +65,19 @@ if(RV_BUILD_TESTS)
   add_test(NAME rv_help COMMAND reality_vision --help)
   add_test(NAME rv_invalid_config COMMAND reality_vision --server localhost)
   set_tests_properties(rv_invalid_config PROPERTIES WILL_FAIL TRUE)
+  add_test(
+    NAME rv_invalid_resource_limit
+    COMMAND
+      reality_vision
+      --server 127.0.0.1
+      --port 443
+      --server_name example.com
+      --server_public_key uL4rG3uX_6B359RLXYFNTmSWnrBSLVv1PIG6NUWjMVk
+      --short_id 01234567
+      --uuid b831381d-6324-4d53-ad4f-8cda48b30811
+      --socks_port 1080
+      --max_tcp_sessions 0)
+  set_tests_properties(rv_invalid_resource_limit PROPERTIES WILL_FAIL TRUE)
 
   if(RV_XRAY_EXECUTABLE)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)

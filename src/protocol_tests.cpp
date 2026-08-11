@@ -148,6 +148,10 @@ void test_short_id_config()
     const auto short_id = parse_short_id_test_config("01234567");
     constexpr std::array<std::uint8_t, 8> kExpectedShortId{0x01, 0x23, 0x45, 0x67, 0x00, 0x00, 0x00, 0x00};
     expect(short_id.reality_short_id == kExpectedShortId, "short id zero padding mismatch");
+    expect(short_id.maximum_tcp_sessions == rv::app::kDefaultMaximumTcpSessions &&
+               short_id.maximum_udp_flows == rv::app::kDefaultMaximumUdpFlows &&
+               short_id.maximum_pending_handshakes == rv::app::kDefaultMaximumPendingHandshakes,
+           "resource limit defaults mismatch");
 
     const auto full_short_id = parse_short_id_test_config("0123456789abcdef");
     constexpr std::array<std::uint8_t, 8> kExpectedFullShortId{0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef};

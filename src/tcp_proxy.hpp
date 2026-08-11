@@ -7,14 +7,30 @@
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/system/error_code.hpp>
 
+#include <memory>
+
+namespace rv::app
+{
+struct runtime_state;
+}
+
 namespace rv::tcp_proxy
 {
 
-boost::asio::awaitable<void> run_socks_server(boost::asio::ip::tcp::acceptor acceptor, app::config configuration, boost::system::error_code& ec);
+boost::asio::awaitable<void> run_socks_server(boost::asio::ip::tcp::acceptor acceptor,
+                                              app::config configuration,
+                                              std::shared_ptr<app::runtime_state> runtime,
+                                              boost::system::error_code& ec);
 
-boost::asio::awaitable<void> run_redirect_server(boost::asio::ip::tcp::acceptor acceptor, app::config configuration, boost::system::error_code& ec);
+boost::asio::awaitable<void> run_redirect_server(boost::asio::ip::tcp::acceptor acceptor,
+                                                 app::config configuration,
+                                                 std::shared_ptr<app::runtime_state> runtime,
+                                                 boost::system::error_code& ec);
 
-boost::asio::awaitable<void> run_tproxy_server(boost::asio::ip::tcp::acceptor acceptor, app::config configuration, boost::system::error_code& ec);
+boost::asio::awaitable<void> run_tproxy_server(boost::asio::ip::tcp::acceptor acceptor,
+                                               app::config configuration,
+                                               std::shared_ptr<app::runtime_state> runtime,
+                                               boost::system::error_code& ec);
 
 }    // namespace rv::tcp_proxy
 

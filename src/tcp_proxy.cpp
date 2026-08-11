@@ -4,6 +4,7 @@
 #include "proxy_common.hpp"
 
 #include "reality_stream.hpp"
+#include "runtime_state.hpp"
 #include "socks5_protocol.hpp"
 #include "sniffer.hpp"
 #include "transparent.hpp"
@@ -296,13 +297,14 @@ boost::asio::awaitable<void> send_upstream_failure_reply(tcp::socket& client_soc
 
 boost::asio::awaitable<void> run_socks_connect_session(tcp::socket& client_socket,
                                                        const rv::app::config& configuration,
+                                                       const std::shared_ptr<rv::app::runtime_state>& runtime,
                                                        const rv::socks5::request& request,
                                                        const std::string& session_id)
 {
     boost::system::error_code ec;
     spdlog::info("{} socks5 connect {}", session_id, rv::net::format_address_port(request.destination, request.port));
 
-    auto reality = co_await rv::proxy::connect_reality(configuration, session_id, ec);
+    auto reality = co_await rv::proxy::connect_reality(configuration, runtime, session_id, ec);
     if (ec)
     {
         const auto upstream_ec = ec;
@@ -370,7 +372,10 @@ boost::asio::awaitable<void> run_socks_connect_session(tcp::socket& client_socke
     spdlog::info("{} socks5 tcp session completed", session_id);
 }
 
-boost::asio::awaitable<void> run_socks_session(tcp::socket client_socket, rv::app::config configuration, std::string session_id)
+boost::asio::awaitable<void> run_socks_session(tcp::socket client_socket,
+                                               rv::app::config configuration,
+                                               std::shared_ptr<rv::app::runtime_state> runtime,
+                                               std::string session_id)
 {
     using namespace boost::asio::experimental::awaitable_operators;    // NOLINT
 
@@ -397,11 +402,11 @@ boost::asio::awaitable<void> run_socks_session(tcp::socket client_socket, rv::ap
     if (request->requested_command == rv::socks5::command::kUdpAssociate)
     {
         spdlog::info("{} socks5 udp associate {}", session_id, rv::net::format_address_port(request->destination, request->port));
-        co_await rv::udp_proxy::run_socks_association(std::move(client_socket), std::move(configuration), *request, std::move(session_id));
+        co_await rv::udp_proxy::run_socks_association(std::move(client_socket), std::move(configuration), runtime, *request, std::move(session_id));
         co_return;
     }
 
-    co_await run_socks_connect_session(client_socket, configuration, *request, session_id);
+    co_await run_socks_connect_session(client_socket, configuration, runtime, *request, session_id);
 }
 
 void get_transparent_destination(tcp::socket& client_socket, const transparent_mode mode, tcp::endpoint& destination, boost::system::error_code& ec)
@@ -417,6 +422,7 @@ void get_transparent_destination(tcp::socket& client_socket, const transparent_m
 
 boost::asio::awaitable<void> run_transparent_session(tcp::socket client_socket,
                                                      rv::app::config configuration,
+                                                     std::shared_ptr<rv::app::runtime_state> runtime,
                                                      std::string session_id,
                                                      const transparent_mode mode)
 {
@@ -430,7 +436,7 @@ boost::asio::awaitable<void> run_transparent_session(tcp::socket client_socket,
     }
 
     spdlog::info("{} transparent connect {}", session_id, format_endpoint(original_destination));
-    auto reality = co_await rv::proxy::connect_reality(configuration, session_id, ec);
+    auto reality = co_await rv::proxy::connect_reality(configuration, runtime, session_id, ec);
     if (ec)
     {
         spdlog::warn("{} upstream connection failed: {}", session_id, ec.message());
@@ -495,6 +501,7 @@ void log_session_exception(const std::string& session_id, const std::exception_p
 
 boost::asio::awaitable<void> run_transparent_server(tcp::acceptor acceptor,
                                                     rv::app::config configuration,
+                                                    std::shared_ptr<rv::app::runtime_state> runtime,
                                                     const transparent_mode mode,
                                                     boost::system::error_code& ec)
 {
@@ -510,17 +517,31 @@ boost::asio::awaitable<void> run_transparent_server(tcp::acceptor acceptor,
         {
             co_return;
         }
+        if (runtime->active_tcp_sessions >= configuration.maximum_tcp_sessions)
+        {
+            boost::system::error_code ignored;
+            client_socket.close(ignored);
+            continue;
+        }
+        ++runtime->active_tcp_sessions;
 
         std::string session_id{std::string(name) + "_" + std::to_string(next_session_number++)};
         boost::asio::co_spawn(executor,
-                              run_transparent_session(std::move(client_socket), configuration, session_id, mode),
-                              [session_id](const std::exception_ptr& exception) { log_session_exception(session_id, exception); });
+                              run_transparent_session(std::move(client_socket), configuration, runtime, session_id, mode),
+                              [runtime, session_id](const std::exception_ptr& exception)
+                              {
+                                  --runtime->active_tcp_sessions;
+                                  log_session_exception(session_id, exception);
+                              });
     }
 }
 
 }    // namespace
 
-boost::asio::awaitable<void> run_socks_server(tcp::acceptor acceptor, rv::app::config configuration, boost::system::error_code& ec)
+boost::asio::awaitable<void> run_socks_server(tcp::acceptor acceptor,
+                                              rv::app::config configuration,
+                                              std::shared_ptr<rv::app::runtime_state> runtime,
+                                              boost::system::error_code& ec)
 {
     const auto executor = co_await boost::asio::this_coro::executor;
     spdlog::info("socks5 tcp proxy listening on 127.0.0.1:{}", acceptor.local_endpoint().port());
@@ -533,22 +554,39 @@ boost::asio::awaitable<void> run_socks_server(tcp::acceptor acceptor, rv::app::c
         {
             co_return;
         }
+        if (runtime->active_tcp_sessions >= configuration.maximum_tcp_sessions)
+        {
+            boost::system::error_code ignored;
+            client_socket.close(ignored);
+            continue;
+        }
+        ++runtime->active_tcp_sessions;
 
         std::string session_id{"socks_" + std::to_string(next_session_number++)};
         boost::asio::co_spawn(executor,
-                              run_socks_session(std::move(client_socket), configuration, session_id),
-                              [session_id](const std::exception_ptr& exception) { log_session_exception(session_id, exception); });
+                              run_socks_session(std::move(client_socket), configuration, runtime, session_id),
+                              [runtime, session_id](const std::exception_ptr& exception)
+                              {
+                                  --runtime->active_tcp_sessions;
+                                  log_session_exception(session_id, exception);
+                              });
     }
 }
 
-boost::asio::awaitable<void> run_redirect_server(tcp::acceptor acceptor, rv::app::config configuration, boost::system::error_code& ec)
+boost::asio::awaitable<void> run_redirect_server(tcp::acceptor acceptor,
+                                                 rv::app::config configuration,
+                                                 std::shared_ptr<rv::app::runtime_state> runtime,
+                                                 boost::system::error_code& ec)
 {
-    co_await run_transparent_server(std::move(acceptor), std::move(configuration), transparent_mode::kRedirect, ec);
+    co_await run_transparent_server(std::move(acceptor), std::move(configuration), std::move(runtime), transparent_mode::kRedirect, ec);
 }
 
-boost::asio::awaitable<void> run_tproxy_server(tcp::acceptor acceptor, rv::app::config configuration, boost::system::error_code& ec)
+boost::asio::awaitable<void> run_tproxy_server(tcp::acceptor acceptor,
+                                               rv::app::config configuration,
+                                               std::shared_ptr<rv::app::runtime_state> runtime,
+                                               boost::system::error_code& ec)
 {
-    co_await run_transparent_server(std::move(acceptor), std::move(configuration), transparent_mode::kTproxy, ec);
+    co_await run_transparent_server(std::move(acceptor), std::move(configuration), std::move(runtime), transparent_mode::kTproxy, ec);
 }
 
 }    // namespace rv::tcp_proxy

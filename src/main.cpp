@@ -1,5 +1,6 @@
 #include "config.hpp"
 #include "protocol_tests.hpp"
+#include "runtime_state.hpp"
 #include "tcp_proxy.hpp"
 #include "transparent.hpp"
 #include "udp_proxy.hpp"
@@ -11,6 +12,7 @@
 #include <spdlog/spdlog.h>
 
 #include <exception>
+#include <memory>
 #include <optional>
 #include <string>
 #include <utility>
@@ -98,6 +100,7 @@ int main(int argc, char* argv[])
         }
 
         boost::asio::io_context context(1);
+        auto runtime = std::make_shared<rv::app::runtime_state>();
         boost::system::error_code ec;
         std::optional<tcp::acceptor> socks_acceptor;
         std::optional<tcp::acceptor> redirect_acceptor;
@@ -173,21 +176,23 @@ int main(int argc, char* argv[])
 
         if (socks_acceptor)
         {
-            spawn_server(rv::tcp_proxy::run_socks_server(std::move(*socks_acceptor), *configuration, socks_server_ec), "socks5", socks_server_ec);
+            spawn_server(
+                rv::tcp_proxy::run_socks_server(std::move(*socks_acceptor), *configuration, runtime, socks_server_ec), "socks5", socks_server_ec);
         }
         if (redirect_acceptor)
         {
-            spawn_server(rv::tcp_proxy::run_redirect_server(std::move(*redirect_acceptor), *configuration, redirect_server_ec),
+            spawn_server(rv::tcp_proxy::run_redirect_server(std::move(*redirect_acceptor), *configuration, runtime, redirect_server_ec),
                          "redirect",
                          redirect_server_ec);
         }
         if (tproxy_acceptor)
         {
-            spawn_server(rv::tcp_proxy::run_tproxy_server(std::move(*tproxy_acceptor), *configuration, tproxy_server_ec), "tproxy", tproxy_server_ec);
+            spawn_server(
+                rv::tcp_proxy::run_tproxy_server(std::move(*tproxy_acceptor), *configuration, runtime, tproxy_server_ec), "tproxy", tproxy_server_ec);
         }
         if (tproxy_udp_socket)
         {
-            spawn_server(rv::udp_proxy::run_tproxy_server(std::move(*tproxy_udp_socket), *configuration, tproxy_udp_server_ec),
+            spawn_server(rv::udp_proxy::run_tproxy_server(std::move(*tproxy_udp_socket), *configuration, runtime, tproxy_udp_server_ec),
                          "tproxy udp",
                          tproxy_udp_server_ec);
         }
