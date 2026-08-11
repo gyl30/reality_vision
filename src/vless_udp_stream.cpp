@@ -10,7 +10,6 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <limits>
 #include <span>
 #include <utility>
 #include <vector>
@@ -21,6 +20,7 @@ namespace
 {
 
 constexpr std::size_t kDatagramLengthSize = 2;
+constexpr std::size_t kMaximumDatagramPayloadSize = 8190;
 
 }    // namespace
 
@@ -56,7 +56,7 @@ boost::asio::awaitable<void> vless_udp_stream::write_datagram(std::span<const st
     {
         co_return;
     }
-    if (payload.size() > std::numeric_limits<std::uint16_t>::max())
+    if (payload.size() > kMaximumDatagramPayloadSize)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::message_size);
         co_return;

@@ -186,5 +186,5 @@ stream 不在内部排队或检测同方向并发。调用方必须保证同一�
 最外层任务边界记录。调用方必须在每次同步解析或 `co_await` 后立即检查 `ec`。
 
 所有可变长度输入都有显式上限：TLS plaintext 16 KiB、TLS ciphertext 上限、handshake 1 MiB、Vision/Xray frame
-8192 bytes、内部 byte_queue 上限；UDP datagram length 由 VLESS 2-byte framing 限制为 65535 bytes。身份校验、AEAD tag、
+8192 bytes、内部 byte_queue 上限；UDP datagram payload 按 Xray 的 8192-byte writer buffer 限制为 8190 bytes。身份校验、AEAD tag、
 Finished 或 CertificateVerify 失败均 fail closed。
