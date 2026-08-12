@@ -30,6 +30,7 @@ add_executable(
   src/reality_handshake.cpp
   src/reality_record.cpp
   src/reality_stream.cpp
+  src/service.cpp
   src/socks5_protocol.cpp
   src/sniffer.cpp
   src/tcp_byte_stream.cpp
