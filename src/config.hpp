@@ -19,6 +19,7 @@ namespace rv::app
 inline constexpr std::size_t kDefaultMaximumTcpSessions = 1024;
 inline constexpr std::size_t kDefaultMaximumUdpFlows = 1024;
 inline constexpr std::size_t kDefaultMaximumPendingHandshakes = 64;
+inline constexpr std::size_t kDefaultWorkerCount = 1;
 
 struct config
 {
@@ -34,6 +35,8 @@ struct config
     std::uint16_t redirect_listen_port = 0;
     std::uint16_t tproxy_listen_port = 0;
     std::optional<rv::socks5::credentials> socks_credentials;
+
+    std::size_t worker_count = kDefaultWorkerCount;
 
     std::size_t maximum_tcp_sessions = kDefaultMaximumTcpSessions;
     std::size_t maximum_udp_flows = kDefaultMaximumUdpFlows;

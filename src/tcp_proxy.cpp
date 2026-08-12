@@ -502,6 +502,7 @@ void log_session_exception(const std::string& session_id, const std::exception_p
 boost::asio::awaitable<void> run_transparent_server(tcp::acceptor acceptor,
                                                     rv::app::config configuration,
                                                     std::shared_ptr<rv::app::runtime_state> runtime,
+                                                    const std::size_t worker_index,
                                                     const transparent_mode mode,
                                                     boost::system::error_code& ec)
 {
@@ -523,7 +524,8 @@ boost::asio::awaitable<void> run_transparent_server(tcp::acceptor acceptor,
             client_socket.close(ignored);
             continue;
         }
-        std::string session_id{std::string(name) + "_" + std::to_string(next_session_number++)};
+        const auto worker_prefix = worker_index == 0 ? std::string{} : std::to_string(worker_index) + "_";
+        std::string session_id{std::string(name) + "_" + worker_prefix + std::to_string(next_session_number++)};
         boost::asio::co_spawn(executor,
                               run_transparent_session(std::move(client_socket), configuration, runtime, session_id, mode),
                               [runtime, session_id](const std::exception_ptr& exception)
@@ -539,6 +541,7 @@ boost::asio::awaitable<void> run_transparent_server(tcp::acceptor acceptor,
 boost::asio::awaitable<void> run_socks_server(tcp::acceptor acceptor,
                                               rv::app::config configuration,
                                               std::shared_ptr<rv::app::runtime_state> runtime,
+                                              const std::size_t worker_index,
                                               boost::system::error_code& ec)
 {
     const auto executor = co_await boost::asio::this_coro::executor;
@@ -558,7 +561,8 @@ boost::asio::awaitable<void> run_socks_server(tcp::acceptor acceptor,
             client_socket.close(ignored);
             continue;
         }
-        std::string session_id{"socks_" + std::to_string(next_session_number++)};
+        const auto worker_prefix = worker_index == 0 ? std::string{} : std::to_string(worker_index) + "_";
+        std::string session_id{"socks_" + worker_prefix + std::to_string(next_session_number++)};
         boost::asio::co_spawn(executor,
                               run_socks_session(std::move(client_socket), configuration, runtime, session_id),
                               [runtime, session_id](const std::exception_ptr& exception)
@@ -572,17 +576,21 @@ boost::asio::awaitable<void> run_socks_server(tcp::acceptor acceptor,
 boost::asio::awaitable<void> run_redirect_server(tcp::acceptor acceptor,
                                                  rv::app::config configuration,
                                                  std::shared_ptr<rv::app::runtime_state> runtime,
+                                                 const std::size_t worker_index,
                                                  boost::system::error_code& ec)
 {
-    co_await run_transparent_server(std::move(acceptor), std::move(configuration), std::move(runtime), transparent_mode::kRedirect, ec);
+    co_await run_transparent_server(
+        std::move(acceptor), std::move(configuration), std::move(runtime), worker_index, transparent_mode::kRedirect, ec);
 }
 
 boost::asio::awaitable<void> run_tproxy_server(tcp::acceptor acceptor,
                                                rv::app::config configuration,
                                                std::shared_ptr<rv::app::runtime_state> runtime,
+                                               const std::size_t worker_index,
                                                boost::system::error_code& ec)
 {
-    co_await run_transparent_server(std::move(acceptor), std::move(configuration), std::move(runtime), transparent_mode::kTproxy, ec);
+    co_await run_transparent_server(
+        std::move(acceptor), std::move(configuration), std::move(runtime), worker_index, transparent_mode::kTproxy, ec);
 }
 
 }    // namespace rv::tcp_proxy

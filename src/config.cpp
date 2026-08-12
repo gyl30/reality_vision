@@ -37,7 +37,8 @@ bool validate_listen_and_server_ports(const config& configuration)
 
 bool validate_resource_limits(const config& configuration)
 {
-    if (configuration.maximum_tcp_sessions == 0 || configuration.maximum_udp_flows == 0 || configuration.maximum_pending_handshakes == 0)
+    if (configuration.maximum_tcp_sessions == 0 || configuration.maximum_udp_flows == 0 || configuration.maximum_pending_handshakes == 0 ||
+        configuration.worker_count == 0)
     {
         std::cerr << "resource limits must be greater than zero\n";
         return false;
@@ -162,7 +163,9 @@ std::expected<config, config_exit_code> parse_config(const int argc, char* argv[
                                        "maximum active UDP flows")(
         "max_pending_handshakes",
         po::value<std::size_t>(&configuration.maximum_pending_handshakes)->default_value(kDefaultMaximumPendingHandshakes),
-        "maximum concurrent upstream handshakes");
+        "maximum concurrent upstream handshakes")("workers",
+                                                   po::value<std::size_t>(&configuration.worker_count)->default_value(kDefaultWorkerCount),
+                                                   "number of io_context workers");
 
     po::variables_map options;
     try

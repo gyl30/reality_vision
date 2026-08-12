@@ -161,7 +161,7 @@ downlink 协程串行读取。channel 满时仅丢弃该 flow 的新 datagram，
 
 TPROXY UDP 按 `(client endpoint, original destination)` 建立 flow。每条 flow 额外拥有一个 `IP_TRANSPARENT` reply socket，
 绑定 original destination，使下行 datagram 返回客户端时仍以原目标 IP:port 为源；原目标端口低于 1024 时运行进程还需要
-`CAP_NET_BIND_SERVICE`。单线程 `io_context(1)` 下 flow map、uplink、
+`CAP_NET_BIND_SERVICE`。每个 worker 的独立 `io_context(1)` 下 flow map、uplink、
 downlink 和 30 秒 cleanup timer 顺序执行；TPROXY listener 同样只负责收包和投递，不等待 flow 建连或上游写入。120 秒无活动 flow 被回收。
 UDP/443 与其他 UDP 使用相同 flow；当前不解析 QUIC，也不做 QUIC SNI sniff。
 
@@ -170,8 +170,7 @@ SOCKS5 UDP association 另限制为 256 个 flow。资源满时不排队等待�
 UDP flow 从创建占位状态起计数，直到其 worker 和 downlink 都释放资源后才归还名额。
 
 stream 不在内部排队或检测同方向并发。调用方必须保证同一时刻最多有一个读操作和一个
-写操作；这些对象也不是线程安全容器。当一个 `io_context` 由多个线程运行时，调用方必须
-使用同一个 strand 串行化该连接的 handler。
+写操作；这些对象也不是线程安全容器。每个 `io_context` 只由一个 worker 线程运行，连接内不需要 strand；跨 worker 的全局资源配额通过原子预留保持统一上限。
 
 传给 awaitable 写函数的 `std::span` 在 awaitable 完成前必须保持有效。所有需要跨
 `co_await` 保存的协议帧都会先复制到本地 `std::vector`。

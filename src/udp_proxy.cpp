@@ -34,6 +34,8 @@
 #include <variant>
 #include <vector>
 
+#include <sys/socket.h>
+
 namespace rv::udp_proxy
 {
 namespace
@@ -800,12 +802,22 @@ asio::awaitable<void> run_socks_association(tcp::socket control_socket,
     spdlog::info("{} socks5 udp association completed", session_id);
 }
 
-udp::socket create_tproxy_socket(asio::any_io_executor executor, const std::uint16_t port, boost::system::error_code& ec)
+udp::socket create_tproxy_socket(asio::any_io_executor executor,
+                                 const std::uint16_t port,
+                                 const bool enable_reuse_port,
+                                 boost::system::error_code& ec)
 {
     udp::socket socket(executor);
     socket.open(udp::v4(), ec);
     if (ec)
     {
+        return socket;
+    }
+
+    const int reuse_port = 1;
+    if (enable_reuse_port && ::setsockopt(socket.native_handle(), SOL_SOCKET, SO_REUSEPORT, &reuse_port, sizeof(reuse_port)) != 0)
+    {
+        ec = boost::system::error_code(errno, boost::system::generic_category());
         return socket;
     }
 
@@ -833,6 +845,7 @@ udp::socket create_tproxy_socket(asio::any_io_executor executor, const std::uint
 asio::awaitable<void> run_tproxy_server(udp::socket socket,
                                         app::config configuration,
                                         std::shared_ptr<app::runtime_state> runtime,
+                                        const std::size_t worker_index,
                                         boost::system::error_code& ec)
 {
     const auto executor = co_await asio::this_coro::executor;
@@ -842,7 +855,7 @@ asio::awaitable<void> run_tproxy_server(udp::socket socket,
         co_return;
     }
 
-    spdlog::info("tproxy udp proxy listening on 0.0.0.0:{}", listen_port);
+    spdlog::info("tproxy udp proxy listening on 0.0.0.0:{} (worker {})", listen_port, worker_index);
     auto state = std::make_shared<tproxy_udp_state>(tproxy_udp_state{
         .socket = std::move(socket),
         .cleanup_timer = asio::steady_timer(executor),
