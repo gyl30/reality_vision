@@ -4,7 +4,6 @@
 #include "proxy_common.hpp"
 
 #include "reality_stream.hpp"
-#include "runtime_state.hpp"
 #include "socks5_protocol.hpp"
 #include "sniffer.hpp"
 #include "transparent.hpp"
@@ -14,6 +13,8 @@
 #include "vless_stream.hpp"
 
 #include <boost/asio/co_spawn.hpp>
+#include <boost/asio/io_context.hpp>
+#include <boost/asio/post.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
 #include <boost/asio/redirect_error.hpp>
 #include <boost/asio/steady_timer.hpp>
@@ -297,14 +298,13 @@ boost::asio::awaitable<void> send_upstream_failure_reply(tcp::socket& client_soc
 
 boost::asio::awaitable<void> run_socks_connect_session(tcp::socket& client_socket,
                                                        const rv::app::config& configuration,
-                                                       const std::shared_ptr<rv::app::runtime_state>& runtime,
                                                        const rv::socks5::request& request,
                                                        const std::string& session_id)
 {
     boost::system::error_code ec;
     spdlog::info("{} socks5 connect {}", session_id, rv::net::format_address_port(request.destination, request.port));
 
-    auto reality = co_await rv::proxy::connect_reality(configuration, runtime, session_id, ec);
+    auto reality = co_await rv::proxy::connect_reality(configuration, session_id, ec);
     if (ec)
     {
         const auto upstream_ec = ec;
@@ -372,10 +372,7 @@ boost::asio::awaitable<void> run_socks_connect_session(tcp::socket& client_socke
     spdlog::info("{} socks5 tcp session completed", session_id);
 }
 
-boost::asio::awaitable<void> run_socks_session(tcp::socket client_socket,
-                                               rv::app::config configuration,
-                                               std::shared_ptr<rv::app::runtime_state> runtime,
-                                               std::string session_id)
+boost::asio::awaitable<void> run_socks_session(tcp::socket& client_socket, rv::app::config configuration, std::string session_id)
 {
     using namespace boost::asio::experimental::awaitable_operators;    // NOLINT
 
@@ -402,11 +399,11 @@ boost::asio::awaitable<void> run_socks_session(tcp::socket client_socket,
     if (request->requested_command == rv::socks5::command::kUdpAssociate)
     {
         spdlog::info("{} socks5 udp associate {}", session_id, rv::net::format_address_port(request->destination, request->port));
-        co_await rv::udp_proxy::run_socks_association(std::move(client_socket), std::move(configuration), runtime, *request, std::move(session_id));
+        co_await rv::udp_proxy::run_socks_association(client_socket, std::move(configuration), *request, std::move(session_id));
         co_return;
     }
 
-    co_await run_socks_connect_session(client_socket, configuration, runtime, *request, session_id);
+    co_await run_socks_connect_session(client_socket, configuration, *request, session_id);
 }
 
 void get_transparent_destination(tcp::socket& client_socket, const transparent_mode mode, tcp::endpoint& destination, boost::system::error_code& ec)
@@ -420,9 +417,8 @@ void get_transparent_destination(tcp::socket& client_socket, const transparent_m
     destination = client_socket.local_endpoint(ec);
 }
 
-boost::asio::awaitable<void> run_transparent_session(tcp::socket client_socket,
+boost::asio::awaitable<void> run_transparent_session(tcp::socket& client_socket,
                                                      rv::app::config configuration,
-                                                     std::shared_ptr<rv::app::runtime_state> runtime,
                                                      std::string session_id,
                                                      const transparent_mode mode)
 {
@@ -436,7 +432,7 @@ boost::asio::awaitable<void> run_transparent_session(tcp::socket client_socket,
     }
 
     spdlog::info("{} transparent connect {}", session_id, format_endpoint(original_destination));
-    auto reality = co_await rv::proxy::connect_reality(configuration, runtime, session_id, ec);
+    auto reality = co_await rv::proxy::connect_reality(configuration, session_id, ec);
     if (ec)
     {
         spdlog::warn("{} upstream connection failed: {}", session_id, ec.message());
@@ -494,99 +490,262 @@ void log_session_exception(const std::string& session_id, const std::exception_p
     }
 }
 
-[[nodiscard]] std::string_view transparent_mode_name(const transparent_mode mode) noexcept
+void log_service_exception(const std::string& service_id, const std::exception_ptr& exception)
 {
-    return mode == transparent_mode::kRedirect ? "redirect" : "tproxy";
-}
-
-boost::asio::awaitable<void> run_transparent_server(tcp::acceptor acceptor,
-                                                    rv::app::config configuration,
-                                                    std::shared_ptr<rv::app::runtime_state> runtime,
-                                                    std::size_t worker_index,
-                                                    transparent_mode mode)
-{
-    boost::system::error_code ec;
-    const auto executor = co_await boost::asio::this_coro::executor;
-    const auto name = transparent_mode_name(mode);
-    spdlog::info("{} tcp proxy listening on 0.0.0.0:{}", name, acceptor.local_endpoint().port());
-
-    std::uint64_t next_session_number = 1;
-    for (;;)
+    if (!exception)
     {
-        auto client_socket = co_await acceptor.async_accept(boost::asio::redirect_error(boost::asio::use_awaitable, ec));
-        if (ec)
-        {
-            co_return;
-        }
-        if (!runtime->try_acquire_tcp(configuration.maximum_tcp_sessions))
-        {
-            boost::system::error_code ignored;
-            client_socket.close(ignored);
-            continue;
-        }
-        const auto worker_prefix = worker_index == 0 ? std::string{} : std::to_string(worker_index) + "_";
-        std::string session_id{std::string(name) + "_" + worker_prefix + std::to_string(next_session_number++)};
-        boost::asio::co_spawn(executor,
-                              run_transparent_session(std::move(client_socket), configuration, runtime, session_id, mode),
-                              [runtime, session_id](const std::exception_ptr& exception)
-                              {
-                                  runtime->release_tcp();
-                                  log_session_exception(session_id, exception);
-                              });
+        spdlog::error("{} stopped", service_id);
+        return;
+    }
+
+    try
+    {
+        std::rethrow_exception(exception);
+    }
+    catch (const std::exception& error)
+    {
+        spdlog::error("{} stopped with exception: {}", service_id, error.what());
+    }
+    catch (...)
+    {
+        spdlog::error("{} stopped with non-standard exception", service_id);
     }
 }
 
 }    // namespace
 
-boost::asio::awaitable<void> run_socks_server(tcp::acceptor acceptor,
-                                              rv::app::config configuration,
-                                              std::shared_ptr<rv::app::runtime_state> runtime,
-                                              std::size_t worker_index)
+socks_session::socks_session(tcp::socket socket, rv::app::config configuration, std::string session_id)
+    : socket_(std::move(socket)), configuration_(std::move(configuration)), session_id_(std::move(session_id))
 {
-    const auto executor = co_await boost::asio::this_coro::executor;
-    spdlog::info("socks5 tcp proxy listening on 127.0.0.1:{}", acceptor.local_endpoint().port());
+}
 
-    boost::system::error_code ec;
-    std::uint64_t next_session_number = 1;
+void socks_session::startup()
+{
+    const auto self = shared_from_this();
+    boost::asio::co_spawn(socket_.get_executor(),
+                          run(),
+                          [self](const std::exception_ptr& exception)
+                          {
+                              log_session_exception(self->session_id_, exception);
+                              self->shutdown();
+                          });
+}
+
+void socks_session::shutdown()
+{
+    const auto self = shared_from_this();
+    boost::asio::post(socket_.get_executor(),
+                      [self]
+                      {
+                          boost::system::error_code ignored;
+                          self->socket_.close(ignored);
+                      });
+}
+
+boost::asio::awaitable<void> socks_session::run() { co_await run_socks_session(socket_, configuration_, session_id_); }
+
+redirect_session::redirect_session(tcp::socket socket, rv::app::config configuration, std::string session_id)
+    : socket_(std::move(socket)), configuration_(std::move(configuration)), session_id_(std::move(session_id))
+{
+}
+
+void redirect_session::startup()
+{
+    const auto self = shared_from_this();
+    boost::asio::co_spawn(socket_.get_executor(),
+                          run(),
+                          [self](const std::exception_ptr& exception)
+                          {
+                              log_session_exception(self->session_id_, exception);
+                              self->shutdown();
+                          });
+}
+
+void redirect_session::shutdown()
+{
+    const auto self = shared_from_this();
+    boost::asio::post(socket_.get_executor(),
+                      [self]
+                      {
+                          boost::system::error_code ignored;
+                          self->socket_.close(ignored);
+                      });
+}
+
+boost::asio::awaitable<void> redirect_session::run()
+{
+    co_await run_transparent_session(socket_, configuration_, session_id_, transparent_mode::kRedirect);
+}
+
+tcp_tproxy_session::tcp_tproxy_session(tcp::socket socket, rv::app::config configuration, std::string session_id)
+    : socket_(std::move(socket)), configuration_(std::move(configuration)), session_id_(std::move(session_id))
+{
+}
+
+void tcp_tproxy_session::startup()
+{
+    const auto self = shared_from_this();
+    boost::asio::co_spawn(socket_.get_executor(),
+                          run(),
+                          [self](const std::exception_ptr& exception)
+                          {
+                              log_session_exception(self->session_id_, exception);
+                              self->shutdown();
+                          });
+}
+
+void tcp_tproxy_session::shutdown()
+{
+    const auto self = shared_from_this();
+    boost::asio::post(socket_.get_executor(),
+                      [self]
+                      {
+                          boost::system::error_code ignored;
+                          self->socket_.close(ignored);
+                      });
+}
+
+boost::asio::awaitable<void> tcp_tproxy_session::run()
+{
+    co_await run_transparent_session(socket_, configuration_, session_id_, transparent_mode::kTproxy);
+}
+
+socks_service::socks_service(tcp::acceptor acceptor, rv::app::config configuration, std::string service_id)
+    : acceptor_(std::move(acceptor)), configuration_(std::move(configuration)), service_id_(std::move(service_id))
+{
+}
+
+void socks_service::startup()
+{
+    const auto self = shared_from_this();
+    boost::asio::co_spawn(acceptor_.get_executor(),
+                          accept_connections(),
+                          [self](const std::exception_ptr& exception)
+                          {
+                              log_service_exception(self->service_id_, exception);
+                              self->shutdown();
+                              static_cast<boost::asio::io_context&>(self->acceptor_.get_executor().context()).stop();
+                          });
+}
+
+void socks_service::shutdown()
+{
+    const auto self = shared_from_this();
+    boost::asio::post(acceptor_.get_executor(),
+                      [self]
+                      {
+                          if (self->stopping_)
+                          {
+                              return;
+                          }
+                          self->stopping_ = true;
+                          boost::system::error_code ignored;
+                          self->acceptor_.close(ignored);
+                      });
+}
+
+boost::asio::awaitable<void> socks_service::accept_connections()
+{
+    spdlog::info("socks5 tcp proxy listening on 127.0.0.1:{} ({})", acceptor_.local_endpoint().port(), service_id_);
     for (;;)
     {
-        auto client_socket = co_await acceptor.async_accept(boost::asio::redirect_error(boost::asio::use_awaitable, ec));
-        if (ec)
-        {
-            co_return;
-        }
-        if (!runtime->try_acquire_tcp(configuration.maximum_tcp_sessions))
-        {
-            boost::system::error_code ignored;
-            client_socket.close(ignored);
-            continue;
-        }
-        const auto worker_prefix = std::to_string(worker_index) + "_";
-        std::string session_id{"socks_" + worker_prefix + std::to_string(next_session_number++)};
-        boost::asio::co_spawn(executor,
-                              run_socks_session(std::move(client_socket), configuration, runtime, session_id),
-                              [runtime, session_id](const std::exception_ptr& exception)
-                              {
-                                  runtime->release_tcp();
-                                  log_session_exception(session_id, exception);
-                              });
+        auto socket = co_await acceptor_.async_accept(boost::asio::use_awaitable);
+        auto session_id = service_id_ + "_" + std::to_string(next_session_number_++);
+        auto session = std::make_shared<socks_session>(std::move(socket), configuration_, std::move(session_id));
+        session->startup();
     }
 }
 
-boost::asio::awaitable<void> run_redirect_server(tcp::acceptor acceptor,
-                                                 rv::app::config configuration,
-                                                 std::shared_ptr<rv::app::runtime_state> runtime,
-                                                 std::size_t worker_index)
+redirect_service::redirect_service(tcp::acceptor acceptor, rv::app::config configuration, std::string service_id)
+    : acceptor_(std::move(acceptor)), configuration_(std::move(configuration)), service_id_(std::move(service_id))
 {
-    co_await run_transparent_server(std::move(acceptor), std::move(configuration), std::move(runtime), worker_index, transparent_mode::kRedirect);
 }
 
-boost::asio::awaitable<void> run_tproxy_server(tcp::acceptor acceptor,
-                                               rv::app::config configuration,
-                                               std::shared_ptr<rv::app::runtime_state> runtime,
-                                               const std::size_t worker_index)
+void redirect_service::startup()
 {
-    co_await run_transparent_server(std::move(acceptor), std::move(configuration), std::move(runtime), worker_index, transparent_mode::kTproxy);
+    const auto self = shared_from_this();
+    boost::asio::co_spawn(acceptor_.get_executor(),
+                          accept_connections(),
+                          [self](const std::exception_ptr& exception)
+                          {
+                              log_service_exception(self->service_id_, exception);
+                              self->shutdown();
+                              static_cast<boost::asio::io_context&>(self->acceptor_.get_executor().context()).stop();
+                          });
+}
+
+void redirect_service::shutdown()
+{
+    const auto self = shared_from_this();
+    boost::asio::post(acceptor_.get_executor(),
+                      [self]
+                      {
+                          if (self->stopping_)
+                          {
+                              return;
+                          }
+                          self->stopping_ = true;
+                          boost::system::error_code ignored;
+                          self->acceptor_.close(ignored);
+                      });
+}
+
+boost::asio::awaitable<void> redirect_service::accept_connections()
+{
+    spdlog::info("redirect tcp proxy listening on 0.0.0.0:{} ({})", acceptor_.local_endpoint().port(), service_id_);
+    for (;;)
+    {
+        auto socket = co_await acceptor_.async_accept(boost::asio::use_awaitable);
+        auto session_id = service_id_ + "_" + std::to_string(next_session_number_++);
+        auto session = std::make_shared<redirect_session>(std::move(socket), configuration_, std::move(session_id));
+        session->startup();
+    }
+}
+
+tcp_tproxy_service::tcp_tproxy_service(tcp::acceptor acceptor, rv::app::config configuration, std::string service_id)
+    : acceptor_(std::move(acceptor)), configuration_(std::move(configuration)), service_id_(std::move(service_id))
+{
+}
+
+void tcp_tproxy_service::startup()
+{
+    const auto self = shared_from_this();
+    boost::asio::co_spawn(acceptor_.get_executor(),
+                          accept_connections(),
+                          [self](const std::exception_ptr& exception)
+                          {
+                              log_service_exception(self->service_id_, exception);
+                              self->shutdown();
+                              static_cast<boost::asio::io_context&>(self->acceptor_.get_executor().context()).stop();
+                          });
+}
+
+void tcp_tproxy_service::shutdown()
+{
+    const auto self = shared_from_this();
+    boost::asio::post(acceptor_.get_executor(),
+                      [self]
+                      {
+                          if (self->stopping_)
+                          {
+                              return;
+                          }
+                          self->stopping_ = true;
+                          boost::system::error_code ignored;
+                          self->acceptor_.close(ignored);
+                      });
+}
+
+boost::asio::awaitable<void> tcp_tproxy_service::accept_connections()
+{
+    spdlog::info("tproxy tcp proxy listening on 0.0.0.0:{} ({})", acceptor_.local_endpoint().port(), service_id_);
+    for (;;)
+    {
+        auto socket = co_await acceptor_.async_accept(boost::asio::use_awaitable);
+        auto session_id = service_id_ + "_" + std::to_string(next_session_number_++);
+        auto session = std::make_shared<tcp_tproxy_session>(std::move(socket), configuration_, std::move(session_id));
+        session->startup();
+    }
 }
 
 }    // namespace rv::tcp_proxy

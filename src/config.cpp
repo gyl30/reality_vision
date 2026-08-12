@@ -35,17 +35,6 @@ bool validate_listen_and_server_ports(const config& configuration)
     return true;
 }
 
-bool validate_resource_limits(const config& configuration)
-{
-    if (configuration.maximum_tcp_sessions == 0 || configuration.maximum_udp_flows == 0 || configuration.maximum_pending_handshakes == 0 ||
-        configuration.worker_count == 0)
-    {
-        std::cerr << "resource limits must be greater than zero\n";
-        return false;
-    }
-    return true;
-}
-
 bool parse_socks_credentials(const po::variables_map& options, std::string username, std::string password, config& configuration)
 {
     const bool has_username = options.contains("socks_username");
@@ -156,16 +145,7 @@ std::expected<config, config_exit_code> parse_config(const int argc, char* argv[
         "tproxy_port", po::value<std::uint16_t>(&configuration.tproxy_listen_port), "TCP TPROXY listen port")(
         "socks_username", po::value<std::string>(&socks_username), "socks5 username")(
         "socks_password", po::value<std::string>(&socks_password), "socks5 password")(
-        "max_tcp_sessions",
-        po::value<std::size_t>(&configuration.maximum_tcp_sessions)->default_value(kDefaultMaximumTcpSessions),
-        "maximum active TCP sessions")("max_udp_flows",
-                                       po::value<std::size_t>(&configuration.maximum_udp_flows)->default_value(kDefaultMaximumUdpFlows),
-                                       "maximum active UDP flows")(
-        "max_pending_handshakes",
-        po::value<std::size_t>(&configuration.maximum_pending_handshakes)->default_value(kDefaultMaximumPendingHandshakes),
-        "maximum concurrent upstream handshakes")("workers",
-                                                   po::value<std::size_t>(&configuration.worker_count)->default_value(kDefaultWorkerCount),
-                                                   "number of io_context workers");
+        "workers", po::value<std::size_t>(&configuration.worker_count)->default_value(kDefaultWorkerCount), "number of io_context workers");
 
     po::variables_map options;
     try
@@ -189,7 +169,12 @@ std::expected<config, config_exit_code> parse_config(const int argc, char* argv[
         return std::unexpected(config_exit_code::kFailure);
     }
 
-    if (!validate_listen_and_server_ports(configuration) || !validate_resource_limits(configuration) ||
+    if (configuration.worker_count == 0)
+    {
+        std::cerr << "--workers must be greater than zero\n";
+        return std::unexpected(config_exit_code::kFailure);
+    }
+    if (!validate_listen_and_server_ports(configuration) ||
         !parse_socks_credentials(options, std::move(socks_username), std::move(socks_password), configuration) ||
         !decode_reality_public_key(server_public_key, configuration) || !decode_reality_short_id(short_id, configuration) ||
         !decode_vless_user_id(uuid, configuration))

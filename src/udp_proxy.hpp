@@ -2,6 +2,7 @@
 #define REALITY_VISION_UDP_PROXY_HPP
 
 #include "config.hpp"
+#include "listener_service.hpp"
 #include "socks5_protocol.hpp"
 
 #include <boost/asio/any_io_executor.hpp>
@@ -10,20 +11,20 @@
 #include <boost/asio/ip/udp.hpp>
 #include <boost/system/error_code.hpp>
 
+#include <cstddef>
+#include <cstdint>
+#include <map>
 #include <memory>
 #include <string>
-
-namespace rv::app
-{
-struct runtime_state;
-}
+#include <vector>
 
 namespace rv::udp_proxy
 {
 
-[[nodiscard]] boost::asio::awaitable<void> run_socks_association(boost::asio::ip::tcp::socket control_socket,
+class udp_tproxy_session;
+
+[[nodiscard]] boost::asio::awaitable<void> run_socks_association(boost::asio::ip::tcp::socket& control_socket,
                                                                  app::config configuration,
-                                                                 std::shared_ptr<app::runtime_state> runtime,
                                                                  socks5::request request,
                                                                  std::string session_id);
 
@@ -32,10 +33,27 @@ namespace rv::udp_proxy
                                                                 bool enable_reuse_port,
                                                                 boost::system::error_code& ec);
 
-[[nodiscard]] boost::asio::awaitable<void> run_tproxy_server(boost::asio::ip::udp::socket socket,
-                                                             app::config configuration,
-                                                             std::shared_ptr<app::runtime_state> runtime,
-                                                             std::size_t worker_index);
+class udp_tproxy_service final : public app::listener_service, public std::enable_shared_from_this<udp_tproxy_service>
+{
+   public:
+    udp_tproxy_service(boost::asio::ip::udp::socket socket, app::config configuration, std::string service_id);
+
+    void startup() override;
+
+   private:
+    void shutdown();
+    boost::asio::awaitable<void> receive_datagrams();
+    std::shared_ptr<udp_tproxy_session> get_session(const boost::asio::ip::udp::endpoint& client,
+                                                    const boost::asio::ip::udp::endpoint& destination,
+                                                    boost::system::error_code& ec);
+
+    boost::asio::ip::udp::socket socket_;
+    app::config configuration_;
+    std::string service_id_;
+    std::map<std::string, std::weak_ptr<udp_tproxy_session>> sessions_;
+    std::uint64_t next_session_number_{1};
+    bool stopping_{false};
+};
 
 }    // namespace rv::udp_proxy
 

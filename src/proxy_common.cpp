@@ -2,7 +2,6 @@
 
 #include "config.hpp"
 #include "reality_config.hpp"
-#include "runtime_state.hpp"
 #include "tcp_byte_stream.hpp"
 
 #include <boost/asio/experimental/awaitable_operators.hpp>
@@ -10,7 +9,6 @@
 #include <boost/asio/steady_timer.hpp>
 #include <boost/asio/this_coro.hpp>
 #include <boost/asio/use_awaitable.hpp>
-#include <boost/scope/scope_exit.hpp>
 #include <boost/system/errc.hpp>
 
 #include <chrono>
@@ -28,18 +26,10 @@ constexpr auto kUpstreamHandshakeTimeout = std::chrono::seconds(60);
 }    // namespace
 
 boost::asio::awaitable<std::optional<reality::reality_stream>> connect_reality(const app::config& configuration,
-                                                                               std::shared_ptr<app::runtime_state> runtime,
                                                                                const std::string& session_id,
                                                                                boost::system::error_code& ec)
 {
     using namespace boost::asio::experimental::awaitable_operators;    // NOLINT
-
-    if (!runtime->try_acquire_handshake(configuration.maximum_pending_handshakes))
-    {
-        ec = boost::system::errc::make_error_code(boost::system::errc::resource_unavailable_try_again);
-        co_return std::nullopt;
-    }
-    const boost::scope::scope_exit release_handshake([runtime] { runtime->release_handshake(); });
 
     const auto executor = co_await boost::asio::this_coro::executor;
     const auto deadline = std::chrono::steady_clock::now() + kUpstreamHandshakeTimeout;

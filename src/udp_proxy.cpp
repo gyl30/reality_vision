@@ -3,20 +3,22 @@
 #include "network_address.hpp"
 #include "proxy_common.hpp"
 
-#include "runtime_state.hpp"
 #include "transparent.hpp"
 #include "vless_header.hpp"
 #include "vless_udp_stream.hpp"
 
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/co_spawn.hpp>
+#include <boost/asio/post.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
 #include <boost/asio/experimental/channel.hpp>
+#include <boost/asio/io_context.hpp>
 #include <boost/asio/redirect_error.hpp>
 #include <boost/asio/steady_timer.hpp>
 #include <boost/asio/this_coro.hpp>
 #include <boost/asio/use_awaitable.hpp>
 #include <boost/system/errc.hpp>
+#include <boost/system/system_error.hpp>
 #include <spdlog/spdlog.h>
 
 #include <array>
@@ -52,37 +54,6 @@ constexpr auto kUdpFlowIdleTimeout = std::chrono::seconds(120);
 constexpr auto kUdpFlowCleanupInterval = std::chrono::seconds(30);
 
 using udp_payload_channel = asio::experimental::channel<void(boost::system::error_code, std::vector<std::uint8_t>)>;
-
-class udp_flow_registration
-{
-   public:
-    udp_flow_registration(std::shared_ptr<app::runtime_state> runtime, const std::size_t maximum)
-        : runtime_(std::move(runtime)), acquired_(runtime_->try_acquire_udp(maximum))
-    {
-    }
-
-    udp_flow_registration(udp_flow_registration&& other) noexcept
-        : runtime_(std::move(other.runtime_)), acquired_(std::exchange(other.acquired_, false))
-    {
-    }
-    udp_flow_registration& operator=(udp_flow_registration&&) = delete;
-    udp_flow_registration(const udp_flow_registration&) = delete;
-    udp_flow_registration& operator=(const udp_flow_registration&) = delete;
-
-    bool acquired() const noexcept { return acquired_; }
-
-    ~udp_flow_registration()
-    {
-        if (acquired_)
-        {
-            runtime_->release_udp();
-        }
-    }
-
-   private:
-    std::shared_ptr<app::runtime_state> runtime_;
-    bool acquired_{};
-};
 
 template <typename State, typename CloseFlow>
 asio::awaitable<void> run_udp_flow_cleanup(std::shared_ptr<State> state, CloseFlow close_flow)
@@ -159,12 +130,11 @@ std::string socks_flow_key(const net::address& destination, const std::uint16_t 
 std::string format_endpoint(const udp::endpoint& endpoint) { return endpoint.address().to_string() + ":" + std::to_string(endpoint.port()); }
 
 asio::awaitable<std::optional<vless::vless_udp_stream>> connect_udp_upstream(const app::config& configuration,
-                                                                             std::shared_ptr<app::runtime_state> runtime,
                                                                              const proxy::target& target,
                                                                              const std::string& session_id,
                                                                              boost::system::error_code& ec)
 {
-    auto reality_stream = co_await proxy::connect_reality(configuration, std::move(runtime), session_id, ec);
+    auto reality_stream = co_await proxy::connect_reality(configuration, session_id, ec);
     if (ec)
     {
         co_return std::nullopt;
@@ -179,7 +149,6 @@ asio::awaitable<std::optional<vless::vless_udp_stream>> connect_udp_upstream(con
 
 struct socks_udp_flow
 {
-    udp_flow_registration registration;
     std::optional<vless::vless_udp_stream> upstream;
     udp_payload_channel uplink;
     net::address remote_address;
@@ -194,7 +163,6 @@ struct socks_udp_state
 {
     udp::socket relay_socket;
     asio::steady_timer cleanup_timer;
-    std::shared_ptr<app::runtime_state> runtime;
     std::optional<udp::endpoint> client_endpoint{};
     std::map<std::string, std::shared_ptr<socks_udp_flow>> flows{};
     std::uint64_t next_flow_number{1};
@@ -298,13 +266,35 @@ void log_session_exception(const std::string& session_id, const std::exception_p
     }
 }
 
+void log_service_exception(const std::string& service_id, const std::exception_ptr& exception)
+{
+    if (!exception)
+    {
+        spdlog::error("{} stopped", service_id);
+        return;
+    }
+
+    try
+    {
+        std::rethrow_exception(exception);
+    }
+    catch (const std::exception& error)
+    {
+        spdlog::error("{} stopped with exception: {}", service_id, error.what());
+    }
+    catch (...)
+    {
+        spdlog::error("{} stopped with non-standard exception", service_id);
+    }
+}
+
 asio::awaitable<void> run_socks_flow(std::shared_ptr<socks_udp_state> state,
                                      std::shared_ptr<socks_udp_flow> flow,
                                      app::config configuration,
                                      proxy::target target)
 {
     boost::system::error_code ec;
-    auto upstream = co_await connect_udp_upstream(configuration, state->runtime, target, flow->session_id, ec);
+    auto upstream = co_await connect_udp_upstream(configuration, target, flow->session_id, ec);
     if (ec)
     {
         spdlog::warn("{} socks5 udp upstream connection failed for {}: {}",
@@ -378,18 +368,11 @@ std::shared_ptr<socks_udp_flow> get_socks_flow(const std::shared_ptr<socks_udp_s
         return nullptr;
     }
 
-    auto registration = udp_flow_registration(state->runtime, configuration.maximum_udp_flows);
-    if (!registration.acquired())
-    {
-        return nullptr;
-    }
-
     const auto flow_id = association_id + "_udp_" + std::to_string(state->next_flow_number++);
     const auto target = make_proxy_target(datagram.destination, datagram.port);
     const auto executor = state->relay_socket.get_executor();
 
     auto flow = std::make_shared<socks_udp_flow>(socks_udp_flow{
-        .registration = std::move(registration),
         .upstream = std::nullopt,
         .uplink = udp_payload_channel(executor, kUdpFlowQueueCapacity),
         .remote_address = datagram.destination,
@@ -488,30 +471,6 @@ asio::awaitable<void> run_socks_udp_relay(const std::shared_ptr<socks_udp_state>
     }
 }
 
-struct tproxy_udp_flow
-{
-    udp_flow_registration registration;
-    std::optional<vless::vless_udp_stream> upstream;
-    udp_payload_channel uplink;
-    udp::socket reply_socket;
-    udp::endpoint client;
-    udp::endpoint destination;
-    std::chrono::steady_clock::time_point last_activity{std::chrono::steady_clock::now()};
-    std::string session_id;
-    std::string key;
-    bool closed{false};
-};
-
-struct tproxy_udp_state
-{
-    udp::socket socket;
-    asio::steady_timer cleanup_timer;
-    std::shared_ptr<app::runtime_state> runtime;
-    std::map<std::string, std::shared_ptr<tproxy_udp_flow>> flows{};
-    std::uint64_t next_flow_number{1};
-    bool closed{false};
-};
-
 std::string tproxy_flow_key(const udp::endpoint& client, const udp::endpoint& destination)
 {
     return format_endpoint(client) + "->" + format_endpoint(destination);
@@ -542,197 +501,204 @@ udp::socket create_transparent_reply_socket(asio::any_io_executor executor, cons
     return socket;
 }
 
-void close_tproxy_flow(tproxy_udp_flow& flow)
+}    // namespace
+
+class udp_tproxy_session final : public std::enable_shared_from_this<udp_tproxy_session>
 {
-    if (flow.closed)
+   public:
+    udp_tproxy_session(udp::socket reply_socket, udp::endpoint client, udp::endpoint destination, app::config configuration, std::string session_id)
+        : uplink_(reply_socket.get_executor(), kUdpFlowQueueCapacity),
+          idle_timer_(reply_socket.get_executor()),
+          reply_socket_(std::move(reply_socket)),
+          client_(std::move(client)),
+          destination_(std::move(destination)),
+          configuration_(std::move(configuration)),
+          session_id_(std::move(session_id))
     {
-        return;
     }
 
-    flow.closed = true;
-    flow.uplink.close();
-    if (flow.upstream)
+    void startup()
     {
-        flow.upstream->shutdown();
+        const auto self = shared_from_this();
+        asio::co_spawn(reply_socket_.get_executor(),
+                       run(),
+                       [self](const std::exception_ptr& exception)
+                       {
+                           log_session_exception(self->session_id_, exception);
+                           self->shutdown();
+                       });
+        asio::co_spawn(reply_socket_.get_executor(),
+                       run_idle_timer(),
+                       [self](const std::exception_ptr& exception)
+                       {
+                           log_session_exception(self->session_id_, exception);
+                           self->shutdown();
+                       });
     }
-    boost::system::error_code ignored;
-    flow.reply_socket.close(ignored);
-}
 
-asio::awaitable<void> run_tproxy_downlink(std::shared_ptr<tproxy_udp_flow> flow)
-{
-    for (;;)
+   private:
+    void shutdown()
+    {
+        const auto self = shared_from_this();
+        asio::post(reply_socket_.get_executor(),
+                   [self]
+                   {
+                       if (self->stopping_)
+                       {
+                           return;
+                       }
+                       self->stopping_ = true;
+                       self->close_resources();
+                   });
+    }
+
+    void close_resources()
+    {
+        uplink_.close();
+        if (upstream_)
+        {
+            upstream_->shutdown();
+        }
+        boost::system::error_code ignored;
+        reply_socket_.close(ignored);
+        static_cast<void>(idle_timer_.cancel());
+    }
+
+   public:
+    bool send(std::vector<std::uint8_t> payload)
+    {
+        if (!uplink_.try_send(boost::system::error_code{}, std::move(payload)))
+        {
+            return false;
+        }
+        idle_timer_.expires_after(kUdpFlowIdleTimeout);
+        return true;
+    }
+
+    bool stopped() const noexcept { return stopping_; }
+
+   private:
+    asio::awaitable<void> run()
     {
         boost::system::error_code ec;
-        auto payload = co_await flow->upstream->read_datagram(ec);
+        auto upstream = co_await connect_udp_upstream(configuration_, make_proxy_target(destination_), session_id_, ec);
         if (ec)
         {
-            if (ec != asio::error::operation_aborted)
-            {
-                spdlog::warn("{} tproxy udp downlink read failed: {}", flow->session_id, ec.message());
-            }
-            close_tproxy_flow(*flow);
+            spdlog::warn("{} tproxy udp upstream connection failed for {} -> {}: {}",
+                         session_id_,
+                         format_endpoint(client_),
+                         format_endpoint(destination_),
+                         ec.message());
             co_return;
         }
-        if (flow->closed)
+        if (stopping_)
         {
+            upstream->shutdown();
             co_return;
         }
 
-        flow->last_activity = std::chrono::steady_clock::now();
-        co_await flow->reply_socket.async_send_to(asio::buffer(payload), flow->client, asio::redirect_error(asio::use_awaitable, ec));
-        if (ec)
-        {
-            if (ec != asio::error::operation_aborted)
-            {
-                spdlog::warn("{} tproxy udp downlink send failed: {}", flow->session_id, ec.message());
-            }
-            close_tproxy_flow(*flow);
-            co_return;
-        }
-    }
-}
+        upstream_.emplace(std::move(*upstream));
+        spdlog::info("{} transparent udp {} -> {}", session_id_, format_endpoint(client_), format_endpoint(destination_));
 
-asio::awaitable<void> run_tproxy_flow(std::shared_ptr<tproxy_udp_state> state, std::shared_ptr<tproxy_udp_flow> flow, app::config configuration)
-{
-    boost::system::error_code ec;
-    auto upstream = co_await connect_udp_upstream(configuration, state->runtime, make_proxy_target(flow->destination), flow->session_id, ec);
-    if (ec)
-    {
-        spdlog::warn("{} tproxy udp upstream connection failed for {} -> {}: {}",
-                     flow->session_id,
-                     format_endpoint(flow->client),
-                     format_endpoint(flow->destination),
-                     ec.message());
-    }
-    else if (!state->closed && !flow->closed)
-    {
-        flow->upstream.emplace(std::move(*upstream));
-        spdlog::info("{} transparent udp {} -> {}", flow->session_id, format_endpoint(flow->client), format_endpoint(flow->destination));
-
-        const auto executor = co_await asio::this_coro::executor;
-        asio::co_spawn(executor,
-                       run_tproxy_downlink(flow),
-                       [flow](const std::exception_ptr& exception)
+        const auto self = shared_from_this();
+        asio::co_spawn(reply_socket_.get_executor(),
+                       run_downlink(),
+                       [self](const std::exception_ptr& exception)
                        {
                            if (exception)
                            {
-                               log_session_exception(flow->session_id, exception);
-                               close_tproxy_flow(*flow);
+                               log_session_exception(self->session_id_, exception);
+                               self->shutdown();
                            }
                        });
 
-        for (;;)
+        while (!stopping_)
         {
-            auto payload = co_await flow->uplink.async_receive(asio::redirect_error(asio::use_awaitable, ec));
-            if (ec || flow->closed)
+            auto payload = co_await uplink_.async_receive(asio::redirect_error(asio::use_awaitable, ec));
+            if (ec || stopping_)
             {
                 break;
             }
 
-            flow->last_activity = std::chrono::steady_clock::now();
-            co_await flow->upstream->write_datagram(payload, ec);
+            co_await upstream_->write_datagram(payload, ec);
             if (ec)
             {
-                spdlog::warn("{} udp uplink failed: {}", flow->session_id, ec.message());
+                spdlog::warn("{} udp uplink failed: {}", session_id_, ec.message());
                 break;
             }
         }
     }
-    else
-    {
-        upstream->shutdown();
-    }
 
-    close_tproxy_flow(*flow);
-    if (const auto iterator = state->flows.find(flow->key); iterator != state->flows.end() && iterator->second == flow)
+    asio::awaitable<void> run_downlink()
     {
-        state->flows.erase(iterator);
-    }
-}
-
-std::shared_ptr<tproxy_udp_flow> get_tproxy_flow(const std::shared_ptr<tproxy_udp_state>& state,
-                                                 const app::config& configuration,
-                                                 const udp::endpoint& client,
-                                                 const udp::endpoint& destination,
-                                                 boost::system::error_code& ec)
-{
-    const auto key = tproxy_flow_key(client, destination);
-    if (const auto iterator = state->flows.find(key); iterator != state->flows.end())
-    {
-        if (!iterator->second->closed)
+        for (;;)
         {
-            return iterator->second;
+            boost::system::error_code ec;
+            auto payload = co_await upstream_->read_datagram(ec);
+            if (ec)
+            {
+                if (ec != asio::error::operation_aborted)
+                {
+                    spdlog::warn("{} tproxy udp downlink read failed: {}", session_id_, ec.message());
+                }
+                shutdown();
+                co_return;
+            }
+            if (stopping_)
+            {
+                co_return;
+            }
+
+            idle_timer_.expires_after(kUdpFlowIdleTimeout);
+            co_await reply_socket_.async_send_to(asio::buffer(payload), client_, asio::redirect_error(asio::use_awaitable, ec));
+            if (ec)
+            {
+                if (ec != asio::error::operation_aborted)
+                {
+                    spdlog::warn("{} tproxy udp downlink send failed: {}", session_id_, ec.message());
+                }
+                shutdown();
+                co_return;
+            }
         }
-        close_tproxy_flow(*iterator->second);
-        state->flows.erase(iterator);
     }
-    const auto session_id = "tproxy_udp_" + std::to_string(state->next_flow_number++);
-    const auto executor = state->socket.get_executor();
-    auto reply_socket = create_transparent_reply_socket(executor, destination, ec);
-    if (ec)
+
+    asio::awaitable<void> run_idle_timer()
     {
-        spdlog::warn(
-            "{} tproxy udp reply socket failed for {} -> {}: {}", session_id, format_endpoint(client), format_endpoint(destination), ec.message());
-        return nullptr;
+        while (!stopping_)
+        {
+            idle_timer_.expires_after(kUdpFlowIdleTimeout);
+            boost::system::error_code ec;
+            co_await idle_timer_.async_wait(asio::redirect_error(asio::use_awaitable, ec));
+            if (stopping_)
+            {
+                co_return;
+            }
+            if (ec == asio::error::operation_aborted)
+            {
+                continue;
+            }
+            if (ec)
+            {
+                co_return;
+            }
+            shutdown();
+            co_return;
+        }
     }
 
-    auto registration = udp_flow_registration(state->runtime, configuration.maximum_udp_flows);
-    if (!registration.acquired())
-    {
-        return nullptr;
-    }
+    std::optional<vless::vless_udp_stream> upstream_;
+    udp_payload_channel uplink_;
+    asio::steady_timer idle_timer_;
+    udp::socket reply_socket_;
+    udp::endpoint client_;
+    udp::endpoint destination_;
+    app::config configuration_;
+    std::string session_id_;
+    bool stopping_{false};
+};
 
-    auto flow = std::make_shared<tproxy_udp_flow>(tproxy_udp_flow{
-        .registration = std::move(registration),
-        .upstream = std::nullopt,
-        .uplink = udp_payload_channel(executor, kUdpFlowQueueCapacity),
-        .reply_socket = std::move(reply_socket),
-        .client = client,
-        .destination = destination,
-        .session_id = session_id,
-        .key = key,
-    });
-    state->flows.emplace(key, flow);
-    asio::co_spawn(executor,
-                   run_tproxy_flow(state, flow, configuration),
-                   [flow](const std::exception_ptr& exception)
-                   {
-                       if (exception)
-                       {
-                           log_session_exception(flow->session_id, exception);
-                           close_tproxy_flow(*flow);
-                       }
-                   });
-    return flow;
-}
-
-void shutdown_tproxy_state(const std::shared_ptr<tproxy_udp_state>& state)
-{
-    if (state->closed)
-    {
-        return;
-    }
-
-    state->closed = true;
-    boost::system::error_code ignored;
-    state->socket.close(ignored);
-    for (auto& [key, flow] : state->flows)
-    {
-        static_cast<void>(key);
-        close_tproxy_flow(*flow);
-    }
-    state->flows.clear();
-    static_cast<void>(state->cleanup_timer.cancel());
-}
-
-}    // namespace
-
-asio::awaitable<void> run_socks_association(tcp::socket control_socket,
-                                            app::config configuration,
-                                            std::shared_ptr<app::runtime_state> runtime,
-                                            socks5::request request,
-                                            std::string session_id)
+asio::awaitable<void> run_socks_association(tcp::socket& control_socket, app::config configuration, socks5::request request, std::string session_id)
 {
     boost::system::error_code ec;
     udp::socket relay_socket(control_socket.get_executor());
@@ -773,7 +739,6 @@ asio::awaitable<void> run_socks_association(tcp::socket control_socket,
     auto state = std::make_shared<socks_udp_state>(socks_udp_state{
         .relay_socket = std::move(relay_socket),
         .cleanup_timer = asio::steady_timer(executor),
-        .runtime = std::move(runtime),
     });
     asio::co_spawn(executor,
                    run_udp_flow_cleanup(state, close_socks_flow),
@@ -842,64 +807,118 @@ udp::socket create_tproxy_socket(asio::any_io_executor executor,
     return socket;
 }
 
-asio::awaitable<void> run_tproxy_server(udp::socket socket,
-                                        app::config configuration,
-                                        std::shared_ptr<app::runtime_state> runtime,
-                                        const std::size_t worker_index)
+udp_tproxy_service::udp_tproxy_service(udp::socket socket, app::config configuration, std::string service_id)
+    : socket_(std::move(socket)), configuration_(std::move(configuration)), service_id_(std::move(service_id))
+{
+}
+
+void udp_tproxy_service::startup()
+{
+    const auto self = shared_from_this();
+    asio::co_spawn(socket_.get_executor(),
+                   receive_datagrams(),
+                   [self](const std::exception_ptr& exception)
+                   {
+                       log_service_exception(self->service_id_, exception);
+                       self->shutdown();
+                       static_cast<asio::io_context&>(self->socket_.get_executor().context()).stop();
+                   });
+}
+
+void udp_tproxy_service::shutdown()
+{
+    const auto self = shared_from_this();
+    asio::post(socket_.get_executor(),
+               [self]
+               {
+                   if (self->stopping_)
+                   {
+                       return;
+                   }
+                   self->stopping_ = true;
+                   boost::system::error_code ignored;
+                   self->socket_.close(ignored);
+               });
+}
+
+asio::awaitable<void> udp_tproxy_service::receive_datagrams()
 {
     boost::system::error_code ec;
-    const auto executor = co_await asio::this_coro::executor;
-    const auto listen_port = socket.local_endpoint(ec).port();
+    const auto listen_port = socket_.local_endpoint(ec).port();
     if (ec)
     {
-        co_return;
+        throw boost::system::system_error(ec);
     }
 
-    spdlog::info("tproxy udp proxy listening on 0.0.0.0:{} (worker {})", listen_port, worker_index);
-    auto state = std::make_shared<tproxy_udp_state>(tproxy_udp_state{
-        .socket = std::move(socket),
-        .cleanup_timer = asio::steady_timer(executor),
-        .runtime = std::move(runtime),
-    });
-    asio::co_spawn(executor,
-                   run_udp_flow_cleanup(state, close_tproxy_flow),
-                   [](const std::exception_ptr& exception) { log_session_exception("tproxy_udp_cleanup", exception); });
+    spdlog::info("tproxy udp proxy listening on 0.0.0.0:{} ({})", listen_port, service_id_);
 
     std::array<std::uint8_t, kMaxUdpPacketSize> buffer{};
     for (;;)
     {
-        co_await state->socket.async_wait(udp::socket::wait_read, asio::redirect_error(asio::use_awaitable, ec));
-        if (ec)
-        {
-            shutdown_tproxy_state(state);
-            co_return;
-        }
+        co_await socket_.async_wait(udp::socket::wait_read, asio::use_awaitable);
 
         udp::endpoint client;
         udp::endpoint destination;
-        const auto count = transparent::receive_ipv4_original_datagram(state->socket, buffer, client, destination, ec);
+        const auto count = transparent::receive_ipv4_original_datagram(socket_, buffer, client, destination, ec);
         if (ec)
         {
-            shutdown_tproxy_state(state);
-            co_return;
+            throw boost::system::system_error(ec);
         }
         if (!count || *count == 0)
         {
             continue;
         }
-        auto flow = get_tproxy_flow(state, configuration, client, destination, ec);
-        if (ec || !flow)
+        auto session = get_session(client, destination, ec);
+        if (ec || !session)
         {
             ec.clear();
             continue;
         }
 
         auto payload = std::vector<std::uint8_t>(buffer.begin(), buffer.begin() + static_cast<std::ptrdiff_t>(*count));
-        if (flow->uplink.try_send(boost::system::error_code{}, std::move(payload)))
+        static_cast<void>(session->send(std::move(payload)));
+    }
+}
+
+std::shared_ptr<udp_tproxy_session> udp_tproxy_service::get_session(const udp::endpoint& client,
+                                                                    const udp::endpoint& destination,
+                                                                    boost::system::error_code& ec)
+{
+    const auto key = tproxy_flow_key(client, destination);
+    if (const auto iterator = sessions_.find(key); iterator != sessions_.end())
+    {
+        if (auto session = iterator->second.lock(); session && !session->stopped())
         {
-            flow->last_activity = std::chrono::steady_clock::now();
+            return session;
+        }
+        sessions_.erase(iterator);
+    }
+
+    for (auto iterator = sessions_.begin(); iterator != sessions_.end();)
+    {
+        if (iterator->second.expired())
+        {
+            iterator = sessions_.erase(iterator);
+        }
+        else
+        {
+            ++iterator;
         }
     }
+
+    const auto session_id = service_id_ + "_" + std::to_string(next_session_number_++);
+    auto reply_socket = create_transparent_reply_socket(socket_.get_executor(), destination, ec);
+    if (ec)
+    {
+        spdlog::warn(
+            "{} tproxy udp reply socket failed for {} -> {}: {}", session_id, format_endpoint(client), format_endpoint(destination), ec.message());
+        return nullptr;
+    }
+
+    auto session = std::make_shared<udp_tproxy_session>(std::move(reply_socket), client, destination, configuration_, session_id);
+    sessions_.emplace(key, session);
+    session->startup();
+    return session;
 }
 
 }    // namespace rv::udp_proxy

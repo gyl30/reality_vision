@@ -1,42 +1,34 @@
 #include "service.hpp"
 
-#include "runtime_state.hpp"
+#include "listener_service.hpp"
 #include "tcp_proxy.hpp"
 #include "transparent.hpp"
 #include "udp_proxy.hpp"
 
-#include <boost/asio/awaitable.hpp>
-#include <boost/asio/co_spawn.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/system/error_code.hpp>
 #include <spdlog/spdlog.h>
 
-#include <atomic>
 #include <cerrno>
-#include <exception>
-#include <memory>
-#include <optional>
-#include <string>
-#include <thread>
 #include <utility>
-#include <vector>
 
 #include <sys/socket.h>
 
 namespace rv::app
 {
+namespace
+{
 
 using tcp = boost::asio::ip::tcp;
-using udp = boost::asio::ip::udp;
 
-static tcp::acceptor create_acceptor(boost::asio::io_context& executor,
-                                     const tcp::endpoint& endpoint,
-                                     const bool enable_transparent,
-                                     const bool enable_reuse_port,
-                                     boost::system::error_code& ec)
+tcp::acceptor create_acceptor(boost::asio::io_context& context,
+                              const tcp::endpoint& endpoint,
+                              const bool enable_transparent,
+                              const bool enable_reuse_port,
+                              boost::system::error_code& ec)
 {
-    tcp::acceptor acceptor(executor);
+    tcp::acceptor acceptor(context);
     acceptor.open(tcp::v4(), ec);
     if (ec)
     {
@@ -75,119 +67,102 @@ static tcp::acceptor create_acceptor(boost::asio::io_context& executor,
     return acceptor;
 }
 
+}    // namespace
+
 service::service(config configuration) : configuration_(std::move(configuration)) {}
 
-void service::run()
+void service::startup()
 {
-    auto runtime = std::make_shared<runtime_state>();
+    contexts_.reserve(configuration_.worker_count);
     for (std::size_t i = 0; i < configuration_.worker_count; ++i)
     {
         contexts_.push_back(std::make_shared<boost::asio::io_context>(1));
     }
 
+    const bool reuse_port = configuration_.worker_count > 1;
     for (std::size_t worker_index = 0; worker_index < contexts_.size(); ++worker_index)
     {
-        auto& context = contexts_[worker_index];
-        const bool reuse_port = configuration_.worker_count > 1;
+        const auto& context = contexts_[worker_index];
+        const auto worker_id = std::to_string(worker_index);
         boost::system::error_code ec;
-        std::optional<tcp::acceptor> socks_acceptor;
-        std::optional<tcp::acceptor> redirect_acceptor;
-        std::optional<tcp::acceptor> tproxy_acceptor;
-        std::optional<udp::socket> tproxy_udp_socket;
 
         if (configuration_.socks_listen_port != 0)
         {
-            socks_acceptor.emplace(create_acceptor(
-                *context, tcp::endpoint(boost::asio::ip::address_v4::loopback(), configuration_.socks_listen_port), false, reuse_port, ec));
+            const auto service_id = "socks_" + worker_id;
+            auto acceptor = create_acceptor(
+                *context, tcp::endpoint(boost::asio::ip::address_v4::loopback(), configuration_.socks_listen_port), false, reuse_port, ec);
             if (ec)
             {
-                spdlog::error("failed to create socks5 listener: {}", ec.message());
+                spdlog::error("{} listener creation failed: {}", service_id, ec.message());
                 return;
             }
+            listener_services_.push_back(std::make_shared<tcp_proxy::socks_service>(std::move(acceptor), configuration_, service_id));
         }
+
         if (configuration_.redirect_listen_port != 0)
         {
-            redirect_acceptor.emplace(
-                create_acceptor(*context, tcp::endpoint(tcp::v4(), configuration_.redirect_listen_port), false, reuse_port, ec));
+            const auto service_id = "redirect_" + worker_id;
+            auto acceptor = create_acceptor(*context, tcp::endpoint(tcp::v4(), configuration_.redirect_listen_port), false, reuse_port, ec);
             if (ec)
             {
-                spdlog::error("failed to create redirect listener: {}", ec.message());
+                spdlog::error("{} listener creation failed: {}", service_id, ec.message());
                 return;
             }
+            listener_services_.push_back(std::make_shared<tcp_proxy::redirect_service>(std::move(acceptor), configuration_, service_id));
         }
+
         if (configuration_.tproxy_listen_port != 0)
         {
-            tproxy_acceptor.emplace(create_acceptor(*context, tcp::endpoint(tcp::v4(), configuration_.tproxy_listen_port), true, reuse_port, ec));
+            const auto tcp_service_id = "tcp_tproxy_" + worker_id;
+            auto acceptor = create_acceptor(*context, tcp::endpoint(tcp::v4(), configuration_.tproxy_listen_port), true, reuse_port, ec);
             if (ec)
             {
-                spdlog::error("failed to create tproxy listener: {}", ec.message());
+                spdlog::error("{} listener creation failed: {}", tcp_service_id, ec.message());
                 return;
             }
+            listener_services_.push_back(std::make_shared<tcp_proxy::tcp_tproxy_service>(std::move(acceptor), configuration_, tcp_service_id));
 
-            tproxy_udp_socket.emplace(udp_proxy::create_tproxy_socket(context->get_executor(), configuration_.tproxy_listen_port, reuse_port, ec));
+            const auto udp_service_id = "udp_tproxy_" + worker_id;
+            auto socket = udp_proxy::create_tproxy_socket(context->get_executor(), configuration_.tproxy_listen_port, reuse_port, ec);
             if (ec)
             {
-                spdlog::error("failed to create tproxy udp listener: {}", ec.message());
+                spdlog::error("{} listener creation failed: {}", udp_service_id, ec.message());
                 return;
             }
+            listener_services_.push_back(std::make_shared<udp_proxy::udp_tproxy_service>(std::move(socket), configuration_, udp_service_id));
         }
+    }
 
-        if (socks_acceptor)
-        {
-            spawn_server(*context, tcp_proxy::run_socks_server(std::move(*socks_acceptor), configuration_, runtime, worker_index), "socks5");
-        }
-        if (redirect_acceptor)
-        {
-            spawn_server(*context, tcp_proxy::run_redirect_server(std::move(*redirect_acceptor), configuration_, runtime, worker_index), "redirect");
-        }
-        if (tproxy_acceptor)
-        {
-            spawn_server(*context, tcp_proxy::run_tproxy_server(std::move(*tproxy_acceptor), configuration_, runtime, worker_index), "tproxy");
-        }
-        if (tproxy_udp_socket)
-        {
-            spawn_server(*context, udp_proxy::run_tproxy_server(std::move(*tproxy_udp_socket), configuration_, runtime, worker_index), "tproxy udp");
-        }
+    for (const auto& listener : listener_services_)
+    {
+        listener->startup();
     }
 
     workers_.reserve(contexts_.size());
     for (const auto& context : contexts_)
     {
-        workers_.emplace_back([context] { context->run(); });
+        workers_.emplace_back(
+            [this, context]
+            {
+                context->run();
+                shutdown();
+            });
     }
     for (auto& worker : workers_)
     {
         worker.join();
     }
 }
-void service::spawn_server(boost::asio::io_context& context, boost::asio::awaitable<void> server, const std::string& server_name)
-{
-    boost::asio::co_spawn(
-        context, std::move(server), [server_name, this](const std::exception_ptr& exception) { server_exception(server_name, exception); });
-}
-void service::server_exception(const std::string& server_name, const std::exception_ptr& exception)
-{
-    for (const auto& context : contexts_)
-    {
-        context->stop();
-    }
 
-    if (!exception)
+void service::shutdown()
+{
+    if (stopping_.exchange(true, std::memory_order_relaxed))
     {
         return;
     }
-
-    try
+    for (const auto& context : contexts_)
     {
-        std::rethrow_exception(exception);
-    }
-    catch (const std::exception& error)
-    {
-        spdlog::error("{} server unexpected exception {}", server_name, error.what());
-    }
-    catch (...)
-    {
-        spdlog::error("{} server unexpected non standard exception", server_name);
+        context->stop();
     }
 }
 

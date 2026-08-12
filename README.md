@@ -200,9 +200,7 @@ SOCKS5 UDP header 中的目标地址/端口决定远端 VLESS UDP flow；同一 
 `reality_stream -> vless_udp_stream`。SOCKS5 UDP flow 与 TPROXY UDP flow 都在 120 秒无活动后回收。UDP flow 的 VLESS addon 长度为 0，不创建 `vision_stream`，datagram 在 VLESS body 中按
 `uint16_be length + payload` 保持边界。SOCKS5 `FRAG != 0` 当前拒绝。UDP/443 与其他 UDP 使用相同的 VLESS UDP + REALITY 路径，不经过 Vision。
 
-默认最多保留 1024 个 TCP session、1024 个 UDP flow，并允许 64 个上游握手同时进行；单个 SOCKS5 UDP association 最多创建 256 个 flow。
-可分别通过 `--max_tcp_sessions`、`--max_udp_flows` 和 `--max_pending_handshakes` 调整全局上限，取值必须大于 0。达到上限时拒绝新 TCP session
-或丢弃需要创建新 UDP flow 的 datagram，已有 flow 不受影响。
+单个 SOCKS5 UDP association 最多创建 256 个 flow；达到上限时丢弃需要创建新 flow 的 datagram，已有 flow 不受影响。
 
 ## 作为 Linux TCP / UDP 透明代理运行
 

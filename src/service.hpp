@@ -1,29 +1,38 @@
 #ifndef REALITY_VISION_SERVICE_HPP
 #define REALITY_VISION_SERVICE_HPP
 
-#include <thread>
 #include "config.hpp"
+
+#include <atomic>
+#include <memory>
+#include <thread>
+#include <vector>
+
+namespace boost::asio
+{
+class io_context;
+}
 
 namespace rv::app
 {
+
+class listener_service;
 
 class service
 {
    public:
     explicit service(config configuration);
 
-   public:
-    void run();
+    void startup();
 
    private:
-    void spawn_server(boost::asio::io_context& context, boost::asio::awaitable<void> server, const std::string& server_name);
+    void shutdown();
 
-    void server_exception(const std::string& server_name, const std::exception_ptr& exception);
-
-   private:
     config configuration_;
-    std::vector<std::thread> workers_;
     std::vector<std::shared_ptr<boost::asio::io_context>> contexts_;
+    std::vector<std::shared_ptr<listener_service>> listener_services_;
+    std::vector<std::thread> workers_;
+    std::atomic_bool stopping_{false};
 };
 
 }    // namespace rv::app

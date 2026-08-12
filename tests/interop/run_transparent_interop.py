@@ -592,12 +592,6 @@ def run_test(xray: Path, client: Path, work_dir: Path) -> int:
                 str(redirect_listener_port),
                 "--tproxy_port",
                 str(tproxy_listener_port),
-                "--max_tcp_sessions",
-                "32",
-                "--max_udp_flows",
-                "16",
-                "--max_pending_handshakes",
-                "4",
             ],
             proxy_log_path,
         )
