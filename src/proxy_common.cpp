@@ -34,13 +34,12 @@ boost::asio::awaitable<std::optional<reality::reality_stream>> connect_reality(c
 {
     using namespace boost::asio::experimental::awaitable_operators;    // NOLINT
 
-    if (runtime->pending_handshakes >= configuration.maximum_pending_handshakes)
+    if (!runtime->try_acquire_handshake(configuration.maximum_pending_handshakes))
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::resource_unavailable_try_again);
         co_return std::nullopt;
     }
-    ++runtime->pending_handshakes;
-    const boost::scope::scope_exit release_handshake([runtime] { --runtime->pending_handshakes; });
+    const boost::scope::scope_exit release_handshake([runtime] { runtime->release_handshake(); });
 
     const auto executor = co_await boost::asio::this_coro::executor;
     const auto deadline = std::chrono::steady_clock::now() + kUpstreamHandshakeTimeout;

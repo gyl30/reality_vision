@@ -54,23 +54,32 @@ using udp_payload_channel = asio::experimental::channel<void(boost::system::erro
 class udp_flow_registration
 {
    public:
-    explicit udp_flow_registration(std::shared_ptr<app::runtime_state> runtime) : runtime_(std::move(runtime)) { ++runtime_->active_udp_flows; }
+    udp_flow_registration(std::shared_ptr<app::runtime_state> runtime, const std::size_t maximum)
+        : runtime_(std::move(runtime)), acquired_(runtime_->try_acquire_udp(maximum))
+    {
+    }
 
-    udp_flow_registration(udp_flow_registration&&) noexcept = default;
+    udp_flow_registration(udp_flow_registration&& other) noexcept
+        : runtime_(std::move(other.runtime_)), acquired_(std::exchange(other.acquired_, false))
+    {
+    }
     udp_flow_registration& operator=(udp_flow_registration&&) = delete;
     udp_flow_registration(const udp_flow_registration&) = delete;
     udp_flow_registration& operator=(const udp_flow_registration&) = delete;
 
+    bool acquired() const noexcept { return acquired_; }
+
     ~udp_flow_registration()
     {
-        if (runtime_)
+        if (acquired_)
         {
-            --runtime_->active_udp_flows;
+            runtime_->release_udp();
         }
     }
 
    private:
     std::shared_ptr<app::runtime_state> runtime_;
+    bool acquired_{};
 };
 
 template <typename State, typename CloseFlow>
@@ -362,7 +371,13 @@ std::shared_ptr<socks_udp_flow> get_socks_flow(const std::shared_ptr<socks_udp_s
         close_socks_flow(*iterator->second);
         state->flows.erase(iterator);
     }
-    if (state->flows.size() >= kMaximumSocksFlowsPerAssociation || state->runtime->active_udp_flows >= configuration.maximum_udp_flows)
+    if (state->flows.size() >= kMaximumSocksFlowsPerAssociation)
+    {
+        return nullptr;
+    }
+
+    auto registration = udp_flow_registration(state->runtime, configuration.maximum_udp_flows);
+    if (!registration.acquired())
     {
         return nullptr;
     }
@@ -372,7 +387,7 @@ std::shared_ptr<socks_udp_flow> get_socks_flow(const std::shared_ptr<socks_udp_s
     const auto executor = state->relay_socket.get_executor();
 
     auto flow = std::make_shared<socks_udp_flow>(socks_udp_flow{
-        .registration = udp_flow_registration(state->runtime),
+        .registration = std::move(registration),
         .upstream = std::nullopt,
         .uplink = udp_payload_channel(executor, kUdpFlowQueueCapacity),
         .remote_address = datagram.destination,
@@ -650,11 +665,6 @@ std::shared_ptr<tproxy_udp_flow> get_tproxy_flow(const std::shared_ptr<tproxy_ud
         close_tproxy_flow(*iterator->second);
         state->flows.erase(iterator);
     }
-    if (state->runtime->active_udp_flows >= configuration.maximum_udp_flows)
-    {
-        return nullptr;
-    }
-
     const auto session_id = "tproxy_udp_" + std::to_string(state->next_flow_number++);
     const auto executor = state->socket.get_executor();
     auto reply_socket = create_transparent_reply_socket(executor, destination, ec);
@@ -665,8 +675,14 @@ std::shared_ptr<tproxy_udp_flow> get_tproxy_flow(const std::shared_ptr<tproxy_ud
         return nullptr;
     }
 
+    auto registration = udp_flow_registration(state->runtime, configuration.maximum_udp_flows);
+    if (!registration.acquired())
+    {
+        return nullptr;
+    }
+
     auto flow = std::make_shared<tproxy_udp_flow>(tproxy_udp_flow{
-        .registration = udp_flow_registration(state->runtime),
+        .registration = std::move(registration),
         .upstream = std::nullopt,
         .uplink = udp_payload_channel(executor, kUdpFlowQueueCapacity),
         .reply_socket = std::move(reply_socket),

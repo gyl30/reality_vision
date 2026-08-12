@@ -12,6 +12,7 @@
 #include "hex.hpp"
 #include "reality_client_hello.hpp"
 #include "reality_record.hpp"
+#include "runtime_state.hpp"
 #include "socks5_protocol.hpp"
 #include "sniffer.hpp"
 #include "tls_constants.hpp"
@@ -159,6 +160,16 @@ void test_short_id_config()
 
     const auto empty_short_id = parse_short_id_test_config("");
     expect(empty_short_id.reality_short_id == std::array<std::uint8_t, 8>{}, "empty short id mismatch");
+}
+
+void test_runtime_limits()
+{
+    rv::app::runtime_state runtime;
+    expect(runtime.try_acquire_tcp(2), "first TCP session reservation failed");
+    expect(runtime.try_acquire_tcp(2), "second TCP session reservation failed");
+    expect(!runtime.try_acquire_tcp(2), "TCP session limit was exceeded");
+    runtime.release_tcp();
+    expect(runtime.try_acquire_tcp(2), "TCP session reservation was not released");
 }
 
 void test_text_codecs()
@@ -1073,6 +1084,7 @@ int run_protocol_tests()
     const std::array tests{
         std::pair{"text codecs", &test_text_codecs},
         std::pair{"short id config", &test_short_id_config},
+        std::pair{"runtime limits", &test_runtime_limits},
         std::pair{"byte queue", &test_byte_queue},
         std::pair{"byte reader", &test_byte_reader},
         std::pair{"byte writer", &test_byte_writer},

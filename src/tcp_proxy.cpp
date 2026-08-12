@@ -517,20 +517,18 @@ boost::asio::awaitable<void> run_transparent_server(tcp::acceptor acceptor,
         {
             co_return;
         }
-        if (runtime->active_tcp_sessions >= configuration.maximum_tcp_sessions)
+        if (!runtime->try_acquire_tcp(configuration.maximum_tcp_sessions))
         {
             boost::system::error_code ignored;
             client_socket.close(ignored);
             continue;
         }
-        ++runtime->active_tcp_sessions;
-
         std::string session_id{std::string(name) + "_" + std::to_string(next_session_number++)};
         boost::asio::co_spawn(executor,
                               run_transparent_session(std::move(client_socket), configuration, runtime, session_id, mode),
                               [runtime, session_id](const std::exception_ptr& exception)
                               {
-                                  --runtime->active_tcp_sessions;
+                                  runtime->release_tcp();
                                   log_session_exception(session_id, exception);
                               });
     }
@@ -554,20 +552,18 @@ boost::asio::awaitable<void> run_socks_server(tcp::acceptor acceptor,
         {
             co_return;
         }
-        if (runtime->active_tcp_sessions >= configuration.maximum_tcp_sessions)
+        if (!runtime->try_acquire_tcp(configuration.maximum_tcp_sessions))
         {
             boost::system::error_code ignored;
             client_socket.close(ignored);
             continue;
         }
-        ++runtime->active_tcp_sessions;
-
         std::string session_id{"socks_" + std::to_string(next_session_number++)};
         boost::asio::co_spawn(executor,
                               run_socks_session(std::move(client_socket), configuration, runtime, session_id),
                               [runtime, session_id](const std::exception_ptr& exception)
                               {
-                                  --runtime->active_tcp_sessions;
+                                  runtime->release_tcp();
                                   log_session_exception(session_id, exception);
                               });
     }
