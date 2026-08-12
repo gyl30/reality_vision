@@ -20,20 +20,17 @@ namespace rv::tcp_proxy
 boost::asio::awaitable<void> run_socks_server(boost::asio::ip::tcp::acceptor acceptor,
                                               app::config configuration,
                                               std::shared_ptr<app::runtime_state> runtime,
-                                              std::size_t worker_index,
-                                              boost::system::error_code& ec);
+                                              std::size_t worker_index);
 
 boost::asio::awaitable<void> run_redirect_server(boost::asio::ip::tcp::acceptor acceptor,
                                                  app::config configuration,
                                                  std::shared_ptr<app::runtime_state> runtime,
-                                                 std::size_t worker_index,
-                                                 boost::system::error_code& ec);
+                                                 std::size_t worker_index);
 
 boost::asio::awaitable<void> run_tproxy_server(boost::asio::ip::tcp::acceptor acceptor,
                                                app::config configuration,
                                                std::shared_ptr<app::runtime_state> runtime,
-                                               std::size_t worker_index,
-                                               boost::system::error_code& ec);
+                                               std::size_t worker_index);
 
 }    // namespace rv::tcp_proxy
 

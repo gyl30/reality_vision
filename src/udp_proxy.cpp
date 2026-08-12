@@ -845,9 +845,9 @@ udp::socket create_tproxy_socket(asio::any_io_executor executor,
 asio::awaitable<void> run_tproxy_server(udp::socket socket,
                                         app::config configuration,
                                         std::shared_ptr<app::runtime_state> runtime,
-                                        const std::size_t worker_index,
-                                        boost::system::error_code& ec)
+                                        const std::size_t worker_index)
 {
+    boost::system::error_code ec;
     const auto executor = co_await asio::this_coro::executor;
     const auto listen_port = socket.local_endpoint(ec).port();
     if (ec)

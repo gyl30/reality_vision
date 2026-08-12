@@ -35,8 +35,7 @@ namespace rv::udp_proxy
 [[nodiscard]] boost::asio::awaitable<void> run_tproxy_server(boost::asio::ip::udp::socket socket,
                                                              app::config configuration,
                                                              std::shared_ptr<app::runtime_state> runtime,
-                                                             std::size_t worker_index,
-                                                             boost::system::error_code& ec);
+                                                             std::size_t worker_index);
 
 }    // namespace rv::udp_proxy
 
