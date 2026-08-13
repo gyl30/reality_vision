@@ -11,12 +11,10 @@
 #include <boost/asio/ip/udp.hpp>
 #include <boost/system/error_code.hpp>
 
-#include <cstddef>
 #include <cstdint>
 #include <map>
 #include <memory>
 #include <string>
-#include <vector>
 
 namespace rv::udp_proxy
 {
