@@ -715,7 +715,7 @@ def test_server_hello_error(
                 )
                 wait_for_text(log_path, "socks5 tcp proxy listening", process)
                 trigger_socks5_connect_failure(socks_port)
-                wait_for_text(log_path, f"socks_1 upstream connection failed: {expected_error}", process)
+                wait_for_text(log_path, f"socks_0_1 upstream connection failed: {expected_error}", process)
         finally:
             stop_process(process)
             server.shutdown()
@@ -1018,7 +1018,7 @@ def main() -> int:
                         )
                         wait_for_text(
                             vision_no_auth_socks_log_path,
-                            "socks_1 socks5 tcp session completed",
+                            "socks_0_1 socks5 tcp session completed",
                             vision_no_auth_socks_process,
                         )
 
@@ -1032,7 +1032,7 @@ def main() -> int:
                         )
                         wait_for_text(
                             vision_no_auth_socks_log_path,
-                            "socks_2 socks5 tcp session completed",
+                            "socks_0_2 socks5 tcp session completed",
                             vision_no_auth_socks_process,
                         )
 
@@ -1043,7 +1043,7 @@ def main() -> int:
                         )
                         wait_for_text(
                             vision_no_auth_socks_log_path,
-                            "socks_3 socks5 tcp session completed",
+                            "socks_0_3 socks5 tcp session completed",
                             vision_no_auth_socks_process,
                         )
 
@@ -1056,12 +1056,12 @@ def main() -> int:
                         )
                         wait_for_text(
                             vision_no_auth_socks_log_path,
-                            "socks_4_udp_1 vless udp request header sent",
+                            "socks_0_4_udp_1 vless udp request header sent",
                             vision_no_auth_socks_process,
                         )
                         wait_for_text(
                             vision_no_auth_socks_log_path,
-                            "socks_4 socks5 udp association completed",
+                            "socks_0_4 socks5 udp association completed",
                             vision_no_auth_socks_process,
                         )
 
@@ -1072,7 +1072,7 @@ def main() -> int:
                         )
                         wait_for_text(
                             vision_socks_log_path,
-                            "socks_1 socks5 tcp session completed",
+                            "socks_0_1 socks5 tcp session completed",
                             vision_socks_process,
                         )
 
@@ -1083,7 +1083,7 @@ def main() -> int:
                         )
                         wait_for_text(
                             vision_socks_log_path,
-                            "socks_2 socks5 tcp session completed",
+                            "socks_0_2 socks5 tcp session completed",
                             vision_socks_process,
                         )
 
@@ -1097,7 +1097,7 @@ def main() -> int:
                         )
                         wait_for_text(
                             vision_socks_log_path,
-                            "socks_3 socks5 tcp session completed",
+                            "socks_0_3 socks5 tcp session completed",
                             vision_socks_process,
                         )
                         splice_count_after_tls12 = xray_log_path.read_bytes().count(
@@ -1113,14 +1113,14 @@ def main() -> int:
                         )
                         wait_for_text(
                             vision_socks_log_path,
-                            "socks_4 socks5 tcp session completed",
+                            "socks_0_4 socks5 tcp session completed",
                             vision_socks_process,
                         )
 
                         socks5_rejects_wrong_password(vision_socks_port)
                         wait_for_text(
                             vision_socks_log_path,
-                            "socks_5 socks5 negotiation failed",
+                            "socks_0_5 socks5 negotiation failed",
                             vision_socks_process,
                         )
 
@@ -1131,7 +1131,7 @@ def main() -> int:
                         )
                         wait_for_text(
                             vision_socks_log_path,
-                            "socks_6 socks5 udp association completed",
+                            "socks_0_6 socks5 udp association completed",
                             vision_socks_process,
                         )
 
@@ -1144,12 +1144,12 @@ def main() -> int:
                         )
                         wait_for_text(
                             vision_socks_log_path,
-                            "socks_7_udp_1 vless udp request header sent",
+                            "socks_0_7_udp_1 vless udp request header sent",
                             vision_socks_process,
                         )
                         wait_for_text(
                             vision_socks_log_path,
-                            "socks_7 socks5 udp association completed",
+                            "socks_0_7 socks5 udp association completed",
                             vision_socks_process,
                         )
 
@@ -1161,7 +1161,7 @@ def main() -> int:
                         )
                         wait_for_text(
                             vision_socks_log_path,
-                            "socks_8 socks5 udp association completed",
+                            "socks_0_8 socks5 udp association completed",
                             vision_socks_process,
                         )
 
@@ -1173,7 +1173,7 @@ def main() -> int:
                         )
                         wait_for_text(
                             vision_socks_log_path,
-                            "socks_9 socks5 udp association completed",
+                            "socks_0_9 socks5 udp association completed",
                             vision_socks_process,
                         )
 
@@ -1184,7 +1184,7 @@ def main() -> int:
                         )
                         wait_for_text(
                             vision_socks_log_path,
-                            "socks_10 socks5 udp association completed",
+                            "socks_0_10 socks5 udp association completed",
                             vision_socks_process,
                         )
 
@@ -1195,14 +1195,14 @@ def main() -> int:
                         )
                         wait_for_text(
                             vision_socks_log_path,
-                            "socks_11 socks5 udp association completed",
+                            "socks_0_11 socks5 udp association completed",
                             vision_socks_process,
                         )
 
                         socks5_rejects_wrong_version(vision_socks_port)
                         wait_for_text(
                             vision_socks_log_path,
-                            "socks_12 socks5 negotiation failed: Bad message",
+                            "socks_0_12 socks5 negotiation failed: Bad message",
                             vision_socks_process,
                         )
                         time.sleep(0.1)
@@ -1222,48 +1222,48 @@ def main() -> int:
 
                         socks_output = tail(vision_socks_log_path)
                         direct_markers = (
-                            "socks_2 vision send padding ended with command 2",
-                            "socks_2 reality send direction switched to raw",
-                            "socks_2 vision receive direction entered direct mode",
-                            f"socks_4 sniffed destination localhost:{inner_tls_port}",
-                            "socks_4 vision send padding ended with command 2",
-                            "socks_4 reality send direction switched to raw",
-                            "socks_4 vision receive direction entered direct mode",
+                            "socks_0_2 vision send padding ended with command 2",
+                            "socks_0_2 reality send direction switched to raw",
+                            "socks_0_2 vision receive direction entered direct mode",
+                            f"socks_0_4 sniffed destination localhost:{inner_tls_port}",
+                            "socks_0_4 vision send padding ended with command 2",
+                            "socks_0_4 reality send direction switched to raw",
+                            "socks_0_4 vision receive direction entered direct mode",
                         )
                         missing_direct = [
                             marker for marker in direct_markers if marker not in socks_output
                         ]
 
                         fallback_markers = (
-                            "socks_1 vision send padding ended with command 1",
-                            "socks_3 vision send padding ended with command 1",
+                            "socks_0_1 vision send padding ended with command 1",
+                            "socks_0_3 vision send padding ended with command 1",
                         )
                         missing_fallback = [
                             marker for marker in fallback_markers if marker not in socks_output
                         ]
                         forbidden = (
-                            "socks_1 reality send direction switched to raw",
-                            "socks_1 vision receive direction entered direct mode",
-                            "socks_3 reality send direction switched to raw",
-                            "socks_3 vision receive direction entered direct mode",
+                            "socks_0_1 reality send direction switched to raw",
+                            "socks_0_1 vision receive direction entered direct mode",
+                            "socks_0_3 reality send direction switched to raw",
+                            "socks_0_3 vision receive direction entered direct mode",
                         )
                         present_forbidden = [
                             marker for marker in forbidden if marker in socks_output
                         ]
                         udp_markers = (
-                            "socks_6_udp_1 vless udp request header sent",
-                            "socks_6 socks5 udp association completed",
-                            "socks_7_udp_1 vless udp request header sent",
-                            "socks_7 socks5 udp association completed",
-                            "socks_8_udp_1 vless udp request header sent",
-                            "socks_8_udp_2 vless udp request header sent",
-                            "socks_8 socks5 udp association completed",
-                            "socks_9_udp_1 vless udp request header sent",
-                            "socks_9 socks5 udp association completed",
-                            "socks_10_udp_1 vless udp request header sent",
-                            "socks_10 socks5 udp association completed",
-                            "socks_11_udp_1 vless udp request header sent",
-                            "socks_11 socks5 udp association completed",
+                            "socks_0_6_udp_1 vless udp request header sent",
+                            "socks_0_6 socks5 udp association completed",
+                            "socks_0_7_udp_1 vless udp request header sent",
+                            "socks_0_7 socks5 udp association completed",
+                            "socks_0_8_udp_1 vless udp request header sent",
+                            "socks_0_8_udp_2 vless udp request header sent",
+                            "socks_0_8 socks5 udp association completed",
+                            "socks_0_9_udp_1 vless udp request header sent",
+                            "socks_0_9 socks5 udp association completed",
+                            "socks_0_10_udp_1 vless udp request header sent",
+                            "socks_0_10 socks5 udp association completed",
+                            "socks_0_11_udp_1 vless udp request header sent",
+                            "socks_0_11 socks5 udp association completed",
                         )
                         missing_udp = [marker for marker in udp_markers if marker not in socks_output]
                         udp_vision_markers = [

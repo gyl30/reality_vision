@@ -674,8 +674,8 @@ def run_test(xray: Path, client: Path, work_dir: Path) -> int:
 
         proxy_output = interop.tail(proxy_log_path)
         for marker in (
-            "redirect_1 transparent connect",
-            "tproxy_1 transparent connect",
+            "redirect_0_1 transparent connect",
+            "tcp_tproxy_0_1 transparent connect",
             "transparent udp",
         ):
             if marker not in proxy_output:
