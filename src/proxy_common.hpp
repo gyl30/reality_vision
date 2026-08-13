@@ -31,9 +31,9 @@ struct target
                                                                                              const std::string& session_id,
                                                                                              boost::system::error_code& ec);
 
-void log_session_exception(const std::string& session_id,
-                           const std::exception_ptr& exception,
-                           std::string_view session_kind = "session");
+void session_exception(const std::string& session_id,
+                       const std::exception_ptr& exception,
+                       std::string_view session_kind = "session");
 
 void log_service_exception(const std::string& service_id, const std::exception_ptr& exception);
 

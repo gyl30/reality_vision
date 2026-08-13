@@ -28,9 +28,9 @@ constexpr auto kUpstreamHandshakeTimeout = std::chrono::seconds(60);
 
 }    // namespace
 
-void log_session_exception(const std::string& session_id,
-                           const std::exception_ptr& exception,
-                           const std::string_view session_kind)
+void session_exception(const std::string& session_id,
+                       const std::exception_ptr& exception,
+                       const std::string_view session_kind)
 {
     if (!exception)
     {

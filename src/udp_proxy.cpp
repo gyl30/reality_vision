@@ -271,7 +271,7 @@ asio::awaitable<void> run_socks_flow(std::shared_ptr<socks_udp_state> state,
                        {
                            if (exception)
                            {
-                               rv::proxy::log_session_exception(flow->session_id, exception, "udp session");
+                               rv::proxy::session_exception(flow->session_id, exception, "udp session");
                                close_socks_flow(*flow);
                            }
                        });
@@ -344,7 +344,7 @@ std::shared_ptr<socks_udp_flow> get_socks_flow(const std::shared_ptr<socks_udp_s
                    {
                        if (exception)
                        {
-                           rv::proxy::log_session_exception(flow->session_id, exception, "udp session");
+                           rv::proxy::session_exception(flow->session_id, exception, "udp session");
                            close_socks_flow(*flow);
                        }
                    });
@@ -481,14 +481,14 @@ class udp_tproxy_session final : public std::enable_shared_from_this<udp_tproxy_
                        run(),
                        [self](const std::exception_ptr& exception)
                        {
-                           rv::proxy::log_session_exception(self->session_id_, exception, "udp session");
+                           rv::proxy::session_exception(self->session_id_, exception, "udp session");
                            self->shutdown();
                        });
         asio::co_spawn(reply_socket_.get_executor(),
                        run_idle_timer(),
                        [self](const std::exception_ptr& exception)
                        {
-                           rv::proxy::log_session_exception(self->session_id_, exception, "udp session");
+                           rv::proxy::session_exception(self->session_id_, exception, "udp session");
                            self->shutdown();
                        });
     }
@@ -564,7 +564,7 @@ class udp_tproxy_session final : public std::enable_shared_from_this<udp_tproxy_
                        {
                            if (exception)
                            {
-                               rv::proxy::log_session_exception(self->session_id_, exception, "udp session");
+                               rv::proxy::session_exception(self->session_id_, exception, "udp session");
                                self->shutdown();
                            }
                        });
@@ -701,7 +701,7 @@ asio::awaitable<void> run_socks_association(tcp::socket& control_socket, app::co
                    run_udp_flow_cleanup(state, close_socks_flow),
                    [session_id](const std::exception_ptr& exception)
                    {
-                       rv::proxy::log_session_exception(session_id + "_udp_cleanup", exception, "udp session");
+                       rv::proxy::session_exception(session_id + "_udp_cleanup", exception, "udp session");
                    });
 
     using namespace asio::experimental::awaitable_operators;    // NOLINT

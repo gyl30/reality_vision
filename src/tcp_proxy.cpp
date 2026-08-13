@@ -483,7 +483,7 @@ void detail::tcp_session::startup()
                           run(),
                           [self](const std::exception_ptr& exception)
                           {
-                              rv::proxy::log_session_exception(self->session_id_, exception);
+                              rv::proxy::session_exception(self->session_id_, exception);
                               self->shutdown();
                           });
 }
