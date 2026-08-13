@@ -6,6 +6,7 @@
 
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/ip/tcp.hpp>
+#include <boost/system/error_code.hpp>
 
 #include <cstdint>
 #include <memory>
@@ -76,7 +77,7 @@ class tcp_listener : public app::proxy_service, public std::enable_shared_from_t
     void startup() override;
 
    protected:
-    virtual boost::asio::awaitable<void> accept_connections() = 0;
+    virtual boost::asio::awaitable<boost::system::error_code> accept_connections() = 0;
     std::string next_session_id();
 
     boost::asio::ip::tcp::acceptor acceptor_;
@@ -98,7 +99,7 @@ class socks_proxy final : public detail::tcp_listener
     using tcp_listener::tcp_listener;
 
    private:
-    boost::asio::awaitable<void> accept_connections() override;
+    boost::asio::awaitable<boost::system::error_code> accept_connections() override;
 };
 
 class redirect_proxy final : public detail::tcp_listener
@@ -107,7 +108,7 @@ class redirect_proxy final : public detail::tcp_listener
     using tcp_listener::tcp_listener;
 
    private:
-    boost::asio::awaitable<void> accept_connections() override;
+    boost::asio::awaitable<boost::system::error_code> accept_connections() override;
 };
 
 class tcp_tproxy final : public detail::tcp_listener
@@ -116,7 +117,7 @@ class tcp_tproxy final : public detail::tcp_listener
     using tcp_listener::tcp_listener;
 
    private:
-    boost::asio::awaitable<void> accept_connections() override;
+    boost::asio::awaitable<boost::system::error_code> accept_connections() override;
 };
 
 }    // namespace rv::tcp_proxy

@@ -18,7 +18,6 @@
 #include <boost/asio/this_coro.hpp>
 #include <boost/asio/use_awaitable.hpp>
 #include <boost/system/errc.hpp>
-#include <boost/system/system_error.hpp>
 #include <spdlog/spdlog.h>
 
 #include <array>
@@ -800,28 +799,33 @@ void udp_tproxy::shutdown()
                });
 }
 
-boost::asio::awaitable<void> udp_tproxy::receive_datagrams()
+boost::asio::awaitable<boost::system::error_code> udp_tproxy::receive_datagrams()
 {
     boost::system::error_code ec;
-    const auto listen_port = socket_.local_endpoint(ec).port();
+    const auto endpoint = socket_.local_endpoint(ec);
     if (ec)
     {
-        throw boost::system::system_error(ec);
+        co_return ec;
     }
 
-    spdlog::info("tproxy udp proxy listening on 0.0.0.0:{} ({})", listen_port, service_id_);
+    spdlog::info("tproxy udp proxy listening on 0.0.0.0:{} ({})", endpoint.port(), service_id_);
 
     std::array<std::uint8_t, kMaxUdpPacketSize> buffer{};
     for (;;)
     {
-        co_await socket_.async_wait(udp::socket::wait_read, boost::asio::use_awaitable);
+        ec.clear();
+        co_await socket_.async_wait(udp::socket::wait_read, boost::asio::redirect_error(boost::asio::use_awaitable, ec));
+        if (ec)
+        {
+            co_return ec;
+        }
 
         udp::endpoint client;
         udp::endpoint destination;
         const auto count = transparent::receive_ipv4_original_datagram(socket_, buffer, client, destination, ec);
         if (ec)
         {
-            throw boost::system::system_error(ec);
+            co_return ec;
         }
         if (!count || *count == 0)
         {

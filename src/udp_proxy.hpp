@@ -40,7 +40,7 @@ class udp_tproxy final : public app::proxy_service, public std::enable_shared_fr
 
    private:
     void shutdown();
-    boost::asio::awaitable<void> receive_datagrams();
+    boost::asio::awaitable<boost::system::error_code> receive_datagrams();
     std::shared_ptr<udp_tproxy_session> get_session(const boost::asio::ip::udp::endpoint& client,
                                                     const boost::asio::ip::udp::endpoint& destination,
                                                     boost::system::error_code& ec);
