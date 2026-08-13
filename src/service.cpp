@@ -1,6 +1,6 @@
 #include "service.hpp"
 
-#include "listener_service.hpp"
+#include "proxy_service.hpp"
 #include "tcp_proxy.hpp"
 #include "transparent.hpp"
 #include "udp_proxy.hpp"
@@ -96,7 +96,7 @@ void service::startup()
                 spdlog::error("{} listener creation failed: {}", service_id, ec.message());
                 return;
             }
-            listener_services_.push_back(std::make_shared<tcp_proxy::socks_service>(std::move(acceptor), configuration_, service_id));
+            proxy_services_.push_back(std::make_shared<tcp_proxy::socks_proxy>(std::move(acceptor), configuration_, service_id));
         }
 
         if (configuration_.redirect_listen_port != 0)
@@ -108,7 +108,7 @@ void service::startup()
                 spdlog::error("{} listener creation failed: {}", service_id, ec.message());
                 return;
             }
-            listener_services_.push_back(std::make_shared<tcp_proxy::redirect_service>(std::move(acceptor), configuration_, service_id));
+            proxy_services_.push_back(std::make_shared<tcp_proxy::redirect_proxy>(std::move(acceptor), configuration_, service_id));
         }
 
         if (configuration_.tproxy_listen_port != 0)
@@ -120,7 +120,7 @@ void service::startup()
                 spdlog::error("{} listener creation failed: {}", tcp_service_id, ec.message());
                 return;
             }
-            listener_services_.push_back(std::make_shared<tcp_proxy::tcp_tproxy_service>(std::move(acceptor), configuration_, tcp_service_id));
+            proxy_services_.push_back(std::make_shared<tcp_proxy::tcp_tproxy>(std::move(acceptor), configuration_, tcp_service_id));
 
             const auto udp_service_id = "udp_tproxy_" + worker_id;
             auto socket = udp_proxy::create_tproxy_socket(context->get_executor(), configuration_.tproxy_listen_port, reuse_port, ec);
@@ -129,15 +129,13 @@ void service::startup()
                 spdlog::error("{} listener creation failed: {}", udp_service_id, ec.message());
                 return;
             }
-            listener_services_.push_back(std::make_shared<udp_proxy::udp_tproxy_service>(std::move(socket), configuration_, udp_service_id));
+            proxy_services_.push_back(std::make_shared<udp_proxy::udp_tproxy>(std::move(socket), configuration_, udp_service_id));
         }
     }
-
-    for (const auto& listener : listener_services_)
+    for (const auto& proxy_service : proxy_services_)
     {
-        listener->startup();
+        proxy_service->startup();
     }
-
     workers_.reserve(contexts_.size());
     for (const auto& context : contexts_)
     {

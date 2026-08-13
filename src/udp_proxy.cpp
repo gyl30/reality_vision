@@ -807,12 +807,12 @@ udp::socket create_tproxy_socket(asio::any_io_executor executor,
     return socket;
 }
 
-udp_tproxy_service::udp_tproxy_service(udp::socket socket, app::config configuration, std::string service_id)
+udp_tproxy::udp_tproxy(udp::socket socket, app::config configuration, std::string service_id)
     : socket_(std::move(socket)), configuration_(std::move(configuration)), service_id_(std::move(service_id))
 {
 }
 
-void udp_tproxy_service::startup()
+void udp_tproxy::startup()
 {
     const auto self = shared_from_this();
     asio::co_spawn(socket_.get_executor(),
@@ -825,7 +825,7 @@ void udp_tproxy_service::startup()
                    });
 }
 
-void udp_tproxy_service::shutdown()
+void udp_tproxy::shutdown()
 {
     const auto self = shared_from_this();
     asio::post(socket_.get_executor(),
@@ -841,7 +841,7 @@ void udp_tproxy_service::shutdown()
                });
 }
 
-asio::awaitable<void> udp_tproxy_service::receive_datagrams()
+asio::awaitable<void> udp_tproxy::receive_datagrams()
 {
     boost::system::error_code ec;
     const auto listen_port = socket_.local_endpoint(ec).port();
@@ -880,7 +880,7 @@ asio::awaitable<void> udp_tproxy_service::receive_datagrams()
     }
 }
 
-std::shared_ptr<udp_tproxy_session> udp_tproxy_service::get_session(const udp::endpoint& client,
+std::shared_ptr<udp_tproxy_session> udp_tproxy::get_session(const udp::endpoint& client,
                                                                     const udp::endpoint& destination,
                                                                     boost::system::error_code& ec)
 {

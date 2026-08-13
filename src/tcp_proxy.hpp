@@ -2,7 +2,7 @@
 #define REALITY_VISION_TCP_PROXY_HPP
 
 #include "config.hpp"
-#include "listener_service.hpp"
+#include "proxy_service.hpp"
 
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/ip/tcp.hpp>
@@ -64,10 +64,10 @@ class tcp_tproxy_session final : public std::enable_shared_from_this<tcp_tproxy_
     std::string session_id_;
 };
 
-class socks_service final : public app::listener_service, public std::enable_shared_from_this<socks_service>
+class socks_proxy final : public app::proxy_service, public std::enable_shared_from_this<socks_proxy>
 {
    public:
-    socks_service(boost::asio::ip::tcp::acceptor acceptor, app::config configuration, std::string service_id);
+    socks_proxy(boost::asio::ip::tcp::acceptor acceptor, app::config configuration, std::string service_id);
 
     void startup() override;
 
@@ -82,10 +82,10 @@ class socks_service final : public app::listener_service, public std::enable_sha
     bool stopping_{false};
 };
 
-class redirect_service final : public app::listener_service, public std::enable_shared_from_this<redirect_service>
+class redirect_proxy final : public app::proxy_service, public std::enable_shared_from_this<redirect_proxy>
 {
    public:
-    redirect_service(boost::asio::ip::tcp::acceptor acceptor, app::config configuration, std::string service_id);
+    redirect_proxy(boost::asio::ip::tcp::acceptor acceptor, app::config configuration, std::string service_id);
 
     void startup() override;
 
@@ -100,10 +100,10 @@ class redirect_service final : public app::listener_service, public std::enable_
     bool stopping_{false};
 };
 
-class tcp_tproxy_service final : public app::listener_service, public std::enable_shared_from_this<tcp_tproxy_service>
+class tcp_tproxy final : public app::proxy_service, public std::enable_shared_from_this<tcp_tproxy>
 {
    public:
-    tcp_tproxy_service(boost::asio::ip::tcp::acceptor acceptor, app::config configuration, std::string service_id);
+    tcp_tproxy(boost::asio::ip::tcp::acceptor acceptor, app::config configuration, std::string service_id);
 
     void startup() override;
 

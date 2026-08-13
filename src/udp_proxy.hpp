@@ -2,7 +2,7 @@
 #define REALITY_VISION_UDP_PROXY_HPP
 
 #include "config.hpp"
-#include "listener_service.hpp"
+#include "proxy_service.hpp"
 #include "socks5_protocol.hpp"
 
 #include <boost/asio/any_io_executor.hpp>
@@ -33,10 +33,10 @@ class udp_tproxy_session;
                                                                 bool enable_reuse_port,
                                                                 boost::system::error_code& ec);
 
-class udp_tproxy_service final : public app::listener_service, public std::enable_shared_from_this<udp_tproxy_service>
+class udp_tproxy final : public app::proxy_service, public std::enable_shared_from_this<udp_tproxy>
 {
    public:
-    udp_tproxy_service(boost::asio::ip::udp::socket socket, app::config configuration, std::string service_id);
+    udp_tproxy(boost::asio::ip::udp::socket socket, app::config configuration, std::string service_id);
 
     void startup() override;
 

@@ -610,12 +610,12 @@ boost::asio::awaitable<void> tcp_tproxy_session::run()
     co_await run_transparent_session(socket_, configuration_, session_id_, transparent_mode::kTproxy);
 }
 
-socks_service::socks_service(tcp::acceptor acceptor, rv::app::config configuration, std::string service_id)
+socks_proxy::socks_proxy(tcp::acceptor acceptor, rv::app::config configuration, std::string service_id)
     : acceptor_(std::move(acceptor)), configuration_(std::move(configuration)), service_id_(std::move(service_id))
 {
 }
 
-void socks_service::startup()
+void socks_proxy::startup()
 {
     const auto self = shared_from_this();
     boost::asio::co_spawn(acceptor_.get_executor(),
@@ -628,7 +628,7 @@ void socks_service::startup()
                           });
 }
 
-void socks_service::shutdown()
+void socks_proxy::shutdown()
 {
     const auto self = shared_from_this();
     boost::asio::post(acceptor_.get_executor(),
@@ -644,7 +644,7 @@ void socks_service::shutdown()
                       });
 }
 
-boost::asio::awaitable<void> socks_service::accept_connections()
+boost::asio::awaitable<void> socks_proxy::accept_connections()
 {
     spdlog::info("socks5 tcp proxy listening on 127.0.0.1:{} ({})", acceptor_.local_endpoint().port(), service_id_);
     for (;;)
@@ -656,12 +656,12 @@ boost::asio::awaitable<void> socks_service::accept_connections()
     }
 }
 
-redirect_service::redirect_service(tcp::acceptor acceptor, rv::app::config configuration, std::string service_id)
+redirect_proxy::redirect_proxy(tcp::acceptor acceptor, rv::app::config configuration, std::string service_id)
     : acceptor_(std::move(acceptor)), configuration_(std::move(configuration)), service_id_(std::move(service_id))
 {
 }
 
-void redirect_service::startup()
+void redirect_proxy::startup()
 {
     const auto self = shared_from_this();
     boost::asio::co_spawn(acceptor_.get_executor(),
@@ -674,7 +674,7 @@ void redirect_service::startup()
                           });
 }
 
-void redirect_service::shutdown()
+void redirect_proxy::shutdown()
 {
     const auto self = shared_from_this();
     boost::asio::post(acceptor_.get_executor(),
@@ -690,7 +690,7 @@ void redirect_service::shutdown()
                       });
 }
 
-boost::asio::awaitable<void> redirect_service::accept_connections()
+boost::asio::awaitable<void> redirect_proxy::accept_connections()
 {
     spdlog::info("redirect tcp proxy listening on 0.0.0.0:{} ({})", acceptor_.local_endpoint().port(), service_id_);
     for (;;)
@@ -702,12 +702,12 @@ boost::asio::awaitable<void> redirect_service::accept_connections()
     }
 }
 
-tcp_tproxy_service::tcp_tproxy_service(tcp::acceptor acceptor, rv::app::config configuration, std::string service_id)
+tcp_tproxy::tcp_tproxy(tcp::acceptor acceptor, rv::app::config configuration, std::string service_id)
     : acceptor_(std::move(acceptor)), configuration_(std::move(configuration)), service_id_(std::move(service_id))
 {
 }
 
-void tcp_tproxy_service::startup()
+void tcp_tproxy::startup()
 {
     const auto self = shared_from_this();
     boost::asio::co_spawn(acceptor_.get_executor(),
@@ -720,7 +720,7 @@ void tcp_tproxy_service::startup()
                           });
 }
 
-void tcp_tproxy_service::shutdown()
+void tcp_tproxy::shutdown()
 {
     const auto self = shared_from_this();
     boost::asio::post(acceptor_.get_executor(),
@@ -736,7 +736,7 @@ void tcp_tproxy_service::shutdown()
                       });
 }
 
-boost::asio::awaitable<void> tcp_tproxy_service::accept_connections()
+boost::asio::awaitable<void> tcp_tproxy::accept_connections()
 {
     spdlog::info("tproxy tcp proxy listening on 0.0.0.0:{} ({})", acceptor_.local_endpoint().port(), service_id_);
     for (;;)

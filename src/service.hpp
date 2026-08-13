@@ -1,12 +1,12 @@
 #ifndef REALITY_VISION_SERVICE_HPP
 #define REALITY_VISION_SERVICE_HPP
 
-#include "config.hpp"
-
 #include <atomic>
 #include <memory>
 #include <thread>
 #include <vector>
+
+#include "config.hpp"
 
 namespace boost::asio
 {
@@ -16,7 +16,7 @@ class io_context;
 namespace rv::app
 {
 
-class listener_service;
+class proxy_service;
 
 class service
 {
@@ -30,7 +30,7 @@ class service
 
     config configuration_;
     std::vector<std::shared_ptr<boost::asio::io_context>> contexts_;
-    std::vector<std::shared_ptr<listener_service>> listener_services_;
+    std::vector<std::shared_ptr<proxy_service>> proxy_services_;
     std::vector<std::thread> workers_;
     std::atomic_bool stopping_{false};
 };
