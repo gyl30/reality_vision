@@ -18,8 +18,6 @@ namespace rv::app
 namespace
 {
 
-namespace po = boost::program_options;
-
 bool validate_listen_and_server_ports(const config& configuration)
 {
     if (configuration.reality_server_port == 0)
@@ -35,7 +33,7 @@ bool validate_listen_and_server_ports(const config& configuration)
     return true;
 }
 
-bool parse_socks_credentials(const po::variables_map& options, std::string username, std::string password, config& configuration)
+bool parse_socks_credentials(const boost::program_options::variables_map& options, std::string username, std::string password, config& configuration)
 {
     const bool has_username = options.contains("socks_username");
     const bool has_password = options.contains("socks_password");
@@ -132,25 +130,25 @@ std::expected<config, config_exit_code> parse_config(const int argc, char* argv[
     std::string socks_username;
     std::string socks_password;
 
-    po::options_description description("configuration");
+    boost::program_options::options_description description("configuration");
     description.add_options()("help,h", "show help")("self_test", "run protocol tests")(
-        "server", po::value<std::string>(&configuration.reality_server_host)->required(), "reality server host")(
-        "port", po::value<std::uint16_t>(&configuration.reality_server_port)->required(), "reality server port")(
-        "server_name", po::value<std::string>(&configuration.reality_server_name)->required(), "reality server name")(
-        "server_public_key", po::value<std::string>(&server_public_key)->required(), "reality server public key")(
-        "short_id", po::value<std::string>(&short_id)->required(), "reality short id")(
-        "uuid", po::value<std::string>(&uuid)->required(), "vless uuid")(
-        "socks_port", po::value<std::uint16_t>(&configuration.socks_listen_port), "socks5 listen port")(
-        "redirect_port", po::value<std::uint16_t>(&configuration.redirect_listen_port), "TCP REDIRECT listen port")(
-        "tproxy_port", po::value<std::uint16_t>(&configuration.tproxy_listen_port), "TCP TPROXY listen port")(
-        "socks_username", po::value<std::string>(&socks_username), "socks5 username")(
-        "socks_password", po::value<std::string>(&socks_password), "socks5 password")(
-        "workers", po::value<std::size_t>(&configuration.worker_count)->default_value(kDefaultWorkerCount), "number of io_context workers");
+        "server", boost::program_options::value<std::string>(&configuration.reality_server_host)->required(), "reality server host")(
+        "port", boost::program_options::value<std::uint16_t>(&configuration.reality_server_port)->required(), "reality server port")(
+        "server_name", boost::program_options::value<std::string>(&configuration.reality_server_name)->required(), "reality server name")(
+        "server_public_key", boost::program_options::value<std::string>(&server_public_key)->required(), "reality server public key")(
+        "short_id", boost::program_options::value<std::string>(&short_id)->required(), "reality short id")(
+        "uuid", boost::program_options::value<std::string>(&uuid)->required(), "vless uuid")(
+        "socks_port", boost::program_options::value<std::uint16_t>(&configuration.socks_listen_port), "socks5 listen port")(
+        "redirect_port", boost::program_options::value<std::uint16_t>(&configuration.redirect_listen_port), "TCP REDIRECT listen port")(
+        "tproxy_port", boost::program_options::value<std::uint16_t>(&configuration.tproxy_listen_port), "TCP TPROXY listen port")(
+        "socks_username", boost::program_options::value<std::string>(&socks_username), "socks5 username")(
+        "socks_password", boost::program_options::value<std::string>(&socks_password), "socks5 password")(
+        "workers", boost::program_options::value<std::size_t>(&configuration.worker_count)->default_value(kDefaultWorkerCount), "number of io_context workers");
 
-    po::variables_map options;
+    boost::program_options::variables_map options;
     try
     {
-        po::store(po::parse_command_line(argc, argv, description), options);
+        boost::program_options::store(boost::program_options::parse_command_line(argc, argv, description), options);
         if (options.contains("help"))
         {
             std::cout << description << '\n';
@@ -161,9 +159,9 @@ std::expected<config, config_exit_code> parse_config(const int argc, char* argv[
             configuration.self_test = true;
             return configuration;
         }
-        po::notify(options);
+        boost::program_options::notify(options);
     }
-    catch (const po::error& error)
+    catch (const boost::program_options::error& error)
     {
         std::cerr << "configuration error: " << error.what() << '\n';
         return std::unexpected(config_exit_code::kFailure);

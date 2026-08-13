@@ -25,7 +25,6 @@
 
 namespace rv::socks5
 {
-namespace asio = boost::asio;
 namespace
 {
 
@@ -54,14 +53,14 @@ constexpr std::size_t kIpv6RequestBodySize = kIpv6AddressSize + kPortSize;
 constexpr std::size_t kMaximumUdpHeaderSize = kUdpHeaderPrefixSize + 1 + kIpv6AddressSize + kPortSize;
 static_assert(kIpv4ReplySize == kRequestHeaderSize + kIpv4AddressSize + kPortSize);
 
-asio::awaitable<void> read_exact(asio::ip::tcp::socket& socket, std::span<std::uint8_t> output, boost::system::error_code& ec)
+boost::asio::awaitable<void> read_exact(boost::asio::ip::tcp::socket& socket, std::span<std::uint8_t> output, boost::system::error_code& ec)
 {
-    co_await asio::async_read(socket, asio::buffer(output.data(), output.size()), asio::redirect_error(asio::use_awaitable, ec));
+    co_await boost::asio::async_read(socket, boost::asio::buffer(output.data(), output.size()), boost::asio::redirect_error(boost::asio::use_awaitable, ec));
 }
 
-asio::awaitable<void> write_all(asio::ip::tcp::socket& socket, std::span<const std::uint8_t> input, boost::system::error_code& ec)
+boost::asio::awaitable<void> write_all(boost::asio::ip::tcp::socket& socket, std::span<const std::uint8_t> input, boost::system::error_code& ec)
 {
-    co_await asio::async_write(socket, asio::buffer(input.data(), input.size()), asio::redirect_error(asio::use_awaitable, ec));
+    co_await boost::asio::async_write(socket, boost::asio::buffer(input.data(), input.size()), boost::asio::redirect_error(boost::asio::use_awaitable, ec));
 }
 
 boost::system::error_code decode_address(const std::span<const std::uint8_t> input,
@@ -164,7 +163,7 @@ void encode_address(const net::address& source, std::vector<std::uint8_t>& outpu
         source);
 }
 
-asio::awaitable<void> authenticate_username_password(asio::ip::tcp::socket& socket, const credentials& expected, boost::system::error_code& ec)
+boost::asio::awaitable<void> authenticate_username_password(boost::asio::ip::tcp::socket& socket, const credentials& expected, boost::system::error_code& ec)
 {
     std::array<std::uint8_t, 2> header{};
     co_await read_exact(socket, header, ec);
@@ -220,7 +219,7 @@ asio::awaitable<void> authenticate_username_password(asio::ip::tcp::socket& sock
     }
 }
 
-asio::awaitable<void> negotiate_authentication(asio::ip::tcp::socket& socket,
+boost::asio::awaitable<void> negotiate_authentication(boost::asio::ip::tcp::socket& socket,
                                                const std::optional<credentials>& expected_credentials,
                                                boost::system::error_code& ec)
 {
@@ -266,13 +265,13 @@ asio::awaitable<void> negotiate_authentication(asio::ip::tcp::socket& socket,
     }
 }
 
-asio::awaitable<void> send_reply_ignoring_error(asio::ip::tcp::socket& socket, const reply value)
+boost::asio::awaitable<void> send_reply_ignoring_error(boost::asio::ip::tcp::socket& socket, const reply value)
 {
     boost::system::error_code ignored;
     co_await send_reply(socket, value, ignored);
 }
 
-asio::awaitable<void> read_request_header(asio::ip::tcp::socket& socket,
+boost::asio::awaitable<void> read_request_header(boost::asio::ip::tcp::socket& socket,
                                           std::array<std::uint8_t, kRequestHeaderSize>& header,
                                           boost::system::error_code& ec)
 {
@@ -295,7 +294,7 @@ asio::awaitable<void> read_request_header(asio::ip::tcp::socket& socket,
     }
 }
 
-asio::awaitable<void> read_request_body(asio::ip::tcp::socket& socket,
+boost::asio::awaitable<void> read_request_body(boost::asio::ip::tcp::socket& socket,
                                         const std::array<std::uint8_t, kRequestHeaderSize>& header,
                                         std::vector<std::uint8_t>& request_bytes,
                                         boost::system::error_code& ec)
@@ -343,7 +342,7 @@ asio::awaitable<void> read_request_body(asio::ip::tcp::socket& socket,
     }
 }
 
-asio::awaitable<std::optional<std::vector<std::uint8_t>>> read_request_bytes(asio::ip::tcp::socket& socket, boost::system::error_code& ec)
+boost::asio::awaitable<std::optional<std::vector<std::uint8_t>>> read_request_bytes(boost::asio::ip::tcp::socket& socket, boost::system::error_code& ec)
 {
     std::array<std::uint8_t, kRequestHeaderSize> header{};
     co_await read_request_header(socket, header, ec);
@@ -362,7 +361,7 @@ asio::awaitable<std::optional<std::vector<std::uint8_t>>> read_request_bytes(asi
     co_return request_bytes;
 }
 
-std::vector<std::uint8_t> encode_bound_reply(const reply value, const asio::ip::udp::endpoint& endpoint, boost::system::error_code& ec)
+std::vector<std::uint8_t> encode_bound_reply(const reply value, const boost::asio::ip::udp::endpoint& endpoint, boost::system::error_code& ec)
 {
     if (!endpoint.address().is_v4())
     {
@@ -510,15 +509,15 @@ std::vector<std::uint8_t> encode_udp_datagram(const net::address& source,
     return output;
 }
 
-asio::awaitable<void> send_reply(asio::ip::tcp::socket& socket, const reply value, boost::system::error_code& ec)
+boost::asio::awaitable<void> send_reply(boost::asio::ip::tcp::socket& socket, const reply value, boost::system::error_code& ec)
 {
     const auto reply_bytes = encode_reply(value);
     co_await write_all(socket, reply_bytes, ec);
 }
 
-asio::awaitable<void> send_reply(asio::ip::tcp::socket& socket,
+boost::asio::awaitable<void> send_reply(boost::asio::ip::tcp::socket& socket,
                                  const reply value,
-                                 const asio::ip::udp::endpoint& bound_endpoint,
+                                 const boost::asio::ip::udp::endpoint& bound_endpoint,
                                  boost::system::error_code& ec)
 {
     const auto reply_bytes = encode_bound_reply(value, bound_endpoint, ec);
@@ -529,7 +528,7 @@ asio::awaitable<void> send_reply(asio::ip::tcp::socket& socket,
     co_await write_all(socket, reply_bytes, ec);
 }
 
-asio::awaitable<std::optional<request>> negotiate(asio::ip::tcp::socket& socket,
+boost::asio::awaitable<std::optional<request>> negotiate(boost::asio::ip::tcp::socket& socket,
                                                   const std::optional<credentials>& expected_credentials,
                                                   boost::system::error_code& ec)
 {
