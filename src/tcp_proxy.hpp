@@ -67,58 +67,58 @@ class tcp_tproxy_session final : public detail::tcp_session
     boost::asio::awaitable<void> run() override;
 };
 
-class socks_proxy final : public app::proxy_service, public std::enable_shared_from_this<socks_proxy>
+namespace detail
+{
+
+class tcp_listener : public app::proxy_service, public std::enable_shared_from_this<tcp_listener>
 {
    public:
-    socks_proxy(boost::asio::ip::tcp::acceptor acceptor, app::config configuration, std::string service_id);
+    tcp_listener(boost::asio::ip::tcp::acceptor acceptor, app::config configuration, std::string service_id);
 
     void startup() override;
 
-   private:
-    void shutdown();
-    boost::asio::awaitable<void> accept_connections();
+   protected:
+    virtual boost::asio::awaitable<void> accept_connections() = 0;
+    std::string next_session_id();
 
     boost::asio::ip::tcp::acceptor acceptor_;
     app::config configuration_;
     std::string service_id_;
+
+   private:
+    void shutdown();
+
     std::uint64_t next_session_number_{1};
     bool stopping_{false};
 };
 
-class redirect_proxy final : public app::proxy_service, public std::enable_shared_from_this<redirect_proxy>
+}    // namespace detail
+
+class socks_proxy final : public detail::tcp_listener
 {
    public:
-    redirect_proxy(boost::asio::ip::tcp::acceptor acceptor, app::config configuration, std::string service_id);
-
-    void startup() override;
+    using tcp_listener::tcp_listener;
 
    private:
-    void shutdown();
-    boost::asio::awaitable<void> accept_connections();
-
-    boost::asio::ip::tcp::acceptor acceptor_;
-    app::config configuration_;
-    std::string service_id_;
-    std::uint64_t next_session_number_{1};
-    bool stopping_{false};
+    boost::asio::awaitable<void> accept_connections() override;
 };
 
-class tcp_tproxy final : public app::proxy_service, public std::enable_shared_from_this<tcp_tproxy>
+class redirect_proxy final : public detail::tcp_listener
 {
    public:
-    tcp_tproxy(boost::asio::ip::tcp::acceptor acceptor, app::config configuration, std::string service_id);
-
-    void startup() override;
+    using tcp_listener::tcp_listener;
 
    private:
-    void shutdown();
-    boost::asio::awaitable<void> accept_connections();
+    boost::asio::awaitable<void> accept_connections() override;
+};
 
-    boost::asio::ip::tcp::acceptor acceptor_;
-    app::config configuration_;
-    std::string service_id_;
-    std::uint64_t next_session_number_{1};
-    bool stopping_{false};
+class tcp_tproxy final : public detail::tcp_listener
+{
+   public:
+    using tcp_listener::tcp_listener;
+
+   private:
+    boost::asio::awaitable<void> accept_connections() override;
 };
 
 }    // namespace rv::tcp_proxy

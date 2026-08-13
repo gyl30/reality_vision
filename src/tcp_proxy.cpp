@@ -554,12 +554,12 @@ boost::asio::awaitable<void> tcp_tproxy_session::run()
     co_await run_transparent_session(socket_, configuration_, session_id_, transparent_mode::kTproxy);
 }
 
-socks_proxy::socks_proxy(tcp::acceptor acceptor, rv::app::config configuration, std::string service_id)
+detail::tcp_listener::tcp_listener(tcp::acceptor acceptor, rv::app::config configuration, std::string service_id)
     : acceptor_(std::move(acceptor)), configuration_(std::move(configuration)), service_id_(std::move(service_id))
 {
 }
 
-void socks_proxy::startup()
+void detail::tcp_listener::startup()
 {
     const auto self = shared_from_this();
     boost::asio::co_spawn(acceptor_.get_executor(),
@@ -572,7 +572,7 @@ void socks_proxy::startup()
                           });
 }
 
-void socks_proxy::shutdown()
+void detail::tcp_listener::shutdown()
 {
     const auto self = shared_from_this();
     boost::asio::post(acceptor_.get_executor(),
@@ -586,6 +586,11 @@ void socks_proxy::shutdown()
                           boost::system::error_code ignored;
                           self->acceptor_.close(ignored);
                       });
+}
+
+std::string detail::tcp_listener::next_session_id()
+{
+    return service_id_ + "_" + std::to_string(next_session_number_++);
 }
 
 boost::asio::awaitable<void> socks_proxy::accept_connections()
@@ -594,44 +599,10 @@ boost::asio::awaitable<void> socks_proxy::accept_connections()
     for (;;)
     {
         auto socket = co_await acceptor_.async_accept(boost::asio::use_awaitable);
-        auto session_id = service_id_ + "_" + std::to_string(next_session_number_++);
+        auto session_id = next_session_id();
         auto session = std::make_shared<socks_session>(std::move(socket), configuration_, std::move(session_id));
         session->startup();
     }
-}
-
-redirect_proxy::redirect_proxy(tcp::acceptor acceptor, rv::app::config configuration, std::string service_id)
-    : acceptor_(std::move(acceptor)), configuration_(std::move(configuration)), service_id_(std::move(service_id))
-{
-}
-
-void redirect_proxy::startup()
-{
-    const auto self = shared_from_this();
-    boost::asio::co_spawn(acceptor_.get_executor(),
-                          accept_connections(),
-                          [self](const std::exception_ptr& exception)
-                          {
-                              log_service_exception(self->service_id_, exception);
-                              self->shutdown();
-                              static_cast<boost::asio::io_context&>(self->acceptor_.get_executor().context()).stop();
-                          });
-}
-
-void redirect_proxy::shutdown()
-{
-    const auto self = shared_from_this();
-    boost::asio::post(acceptor_.get_executor(),
-                      [self]
-                      {
-                          if (self->stopping_)
-                          {
-                              return;
-                          }
-                          self->stopping_ = true;
-                          boost::system::error_code ignored;
-                          self->acceptor_.close(ignored);
-                      });
 }
 
 boost::asio::awaitable<void> redirect_proxy::accept_connections()
@@ -640,44 +611,10 @@ boost::asio::awaitable<void> redirect_proxy::accept_connections()
     for (;;)
     {
         auto socket = co_await acceptor_.async_accept(boost::asio::use_awaitable);
-        auto session_id = service_id_ + "_" + std::to_string(next_session_number_++);
+        auto session_id = next_session_id();
         auto session = std::make_shared<redirect_session>(std::move(socket), configuration_, std::move(session_id));
         session->startup();
     }
-}
-
-tcp_tproxy::tcp_tproxy(tcp::acceptor acceptor, rv::app::config configuration, std::string service_id)
-    : acceptor_(std::move(acceptor)), configuration_(std::move(configuration)), service_id_(std::move(service_id))
-{
-}
-
-void tcp_tproxy::startup()
-{
-    const auto self = shared_from_this();
-    boost::asio::co_spawn(acceptor_.get_executor(),
-                          accept_connections(),
-                          [self](const std::exception_ptr& exception)
-                          {
-                              log_service_exception(self->service_id_, exception);
-                              self->shutdown();
-                              static_cast<boost::asio::io_context&>(self->acceptor_.get_executor().context()).stop();
-                          });
-}
-
-void tcp_tproxy::shutdown()
-{
-    const auto self = shared_from_this();
-    boost::asio::post(acceptor_.get_executor(),
-                      [self]
-                      {
-                          if (self->stopping_)
-                          {
-                              return;
-                          }
-                          self->stopping_ = true;
-                          boost::system::error_code ignored;
-                          self->acceptor_.close(ignored);
-                      });
 }
 
 boost::asio::awaitable<void> tcp_tproxy::accept_connections()
@@ -686,7 +623,7 @@ boost::asio::awaitable<void> tcp_tproxy::accept_connections()
     for (;;)
     {
         auto socket = co_await acceptor_.async_accept(boost::asio::use_awaitable);
-        auto session_id = service_id_ + "_" + std::to_string(next_session_number_++);
+        auto session_id = next_session_id();
         auto session = std::make_shared<tcp_tproxy_session>(std::move(socket), configuration_, std::move(session_id));
         session->startup();
     }
