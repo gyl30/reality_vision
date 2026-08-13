@@ -775,9 +775,16 @@ void udp_tproxy::startup()
     const auto self = shared_from_this();
     boost::asio::co_spawn(socket_.get_executor(),
                    receive_datagrams(),
-                   [self](const std::exception_ptr& exception)
+                   [self](const std::exception_ptr& exception, const boost::system::error_code& ec)
                    {
-                       rv::proxy::log_service_exception(self->service_id_, exception);
+                       if (exception)
+                       {
+                           rv::proxy::log_service_exception(self->service_id_, exception);
+                       }
+                       else
+                       {
+                           rv::proxy::log_service_error(self->service_id_, ec);
+                       }
                        self->shutdown();
                        static_cast<boost::asio::io_context&>(self->socket_.get_executor().context()).stop();
                    });

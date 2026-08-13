@@ -37,6 +37,8 @@ void session_exception(const std::string& session_id,
 
 void log_service_exception(const std::string& service_id, const std::exception_ptr& exception);
 
+void log_service_error(const std::string& service_id, const boost::system::error_code& ec);
+
 }    // namespace rv::proxy
 
 #endif    // REALITY_VISION_PROXY_COMMON_HPP
