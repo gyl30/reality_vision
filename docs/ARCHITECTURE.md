@@ -188,8 +188,8 @@ stream 不在内部排队或检测同方向并发。调用方必须保证同一�
 - 不支持的版本或算法映射为 `protocol_not_supported` 或 `operation_not_supported`。
 
 异步 I/O 使用 `redirect_error(use_awaitable, ec)`，避免裸 `use_awaitable` 将预期错误转换为
-`boost::system::system_error`。只有内存分配失败等非预期 C++ 异常仍可能向上传播，并在
-最外层任务边界记录。调用方必须在每次同步解析或 `co_await` 后立即检查 `ec`。
+`boost::system::system_error`。启动协程的完成回调不处理 `exception_ptr`，服务停止仅依据显式
+`error_code`。调用方必须在每次同步解析或 `co_await` 后立即检查 `ec`。
 
 所有可变长度输入都有显式上限：TLS plaintext 16 KiB、TLS ciphertext 上限、handshake 1 MiB、Vision/Xray frame
 8192 bytes、内部 byte_queue 上限；UDP datagram payload 按 Xray 的 8192-byte writer buffer 限制为 8190 bytes。身份校验、AEAD tag、

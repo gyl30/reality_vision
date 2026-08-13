@@ -481,9 +481,8 @@ void detail::tcp_session::startup()
     const auto self = shared_from_this();
     boost::asio::co_spawn(socket_.get_executor(),
                           run(),
-                          [self](const std::exception_ptr& exception)
+                          [self](std::exception_ptr)
                           {
-                              rv::proxy::session_exception(self->session_id_, exception);
                               self->shutdown();
                           });
 }
@@ -521,16 +520,9 @@ void detail::tcp_listener::startup()
     const auto self = shared_from_this();
     boost::asio::co_spawn(acceptor_.get_executor(),
                           accept_connections(),
-                          [self](const std::exception_ptr& exception, const boost::system::error_code& ec)
+                          [self](std::exception_ptr, const boost::system::error_code& ec)
                           {
-                              if (exception)
-                              {
-                                  rv::proxy::log_service_exception(self->service_id_, exception);
-                              }
-                              else
-                              {
-                                  rv::proxy::log_service_error(self->service_id_, ec);
-                              }
+                              rv::proxy::log_service_error(self->service_id_, ec);
                               self->shutdown();
                               static_cast<boost::asio::io_context&>(self->acceptor_.get_executor().context()).stop();
                           });

@@ -9,6 +9,7 @@
 
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/co_spawn.hpp>
+#include <boost/asio/detached.hpp>
 #include <boost/asio/post.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
 #include <boost/asio/experimental/channel.hpp>
@@ -265,13 +266,9 @@ boost::asio::awaitable<void> run_socks_flow(std::shared_ptr<socks_udp_state> sta
         const auto executor = co_await boost::asio::this_coro::executor;
         boost::asio::co_spawn(executor,
                        run_socks_downlink(state, flow),
-                       [flow](const std::exception_ptr& exception)
+                       [flow](std::exception_ptr)
                        {
-                           if (exception)
-                           {
-                               rv::proxy::session_exception(flow->session_id, exception, "udp session");
-                               close_socks_flow(*flow);
-                           }
+                           close_socks_flow(*flow);
                        });
 
         for (;;)
@@ -338,13 +335,9 @@ std::shared_ptr<socks_udp_flow> get_socks_flow(const std::shared_ptr<socks_udp_s
     state->flows.emplace(key, flow);
     boost::asio::co_spawn(executor,
                    run_socks_flow(state, flow, configuration, target),
-                   [flow](const std::exception_ptr& exception)
+                   [flow](std::exception_ptr)
                    {
-                       if (exception)
-                       {
-                           rv::proxy::session_exception(flow->session_id, exception, "udp session");
-                           close_socks_flow(*flow);
-                       }
+                       close_socks_flow(*flow);
                    });
     return flow;
 }
@@ -477,16 +470,14 @@ class udp_tproxy_session final : public std::enable_shared_from_this<udp_tproxy_
         const auto self = shared_from_this();
         boost::asio::co_spawn(reply_socket_.get_executor(),
                        run(),
-                       [self](const std::exception_ptr& exception)
+                       [self](std::exception_ptr)
                        {
-                           rv::proxy::session_exception(self->session_id_, exception, "udp session");
                            self->shutdown();
                        });
         boost::asio::co_spawn(reply_socket_.get_executor(),
                        run_idle_timer(),
-                       [self](const std::exception_ptr& exception)
+                       [self](std::exception_ptr)
                        {
-                           rv::proxy::session_exception(self->session_id_, exception, "udp session");
                            self->shutdown();
                        });
     }
@@ -558,13 +549,9 @@ class udp_tproxy_session final : public std::enable_shared_from_this<udp_tproxy_
         const auto self = shared_from_this();
         boost::asio::co_spawn(reply_socket_.get_executor(),
                        run_downlink(),
-                       [self](const std::exception_ptr& exception)
+                       [self](std::exception_ptr)
                        {
-                           if (exception)
-                           {
-                               rv::proxy::session_exception(self->session_id_, exception, "udp session");
-                               self->shutdown();
-                           }
+                           self->shutdown();
                        });
 
         while (!stopping_)
@@ -695,12 +682,7 @@ boost::asio::awaitable<void> run_socks_association(tcp::socket& control_socket, 
         .relay_socket = std::move(relay_socket),
         .cleanup_timer = boost::asio::steady_timer(executor),
     });
-    boost::asio::co_spawn(executor,
-                   run_udp_flow_cleanup(state, close_socks_flow),
-                   [session_id](const std::exception_ptr& exception)
-                   {
-                       rv::proxy::session_exception(session_id + "_udp_cleanup", exception, "udp session");
-                   });
+    boost::asio::co_spawn(executor, run_udp_flow_cleanup(state, close_socks_flow), boost::asio::detached);
 
     using namespace boost::asio::experimental::awaitable_operators;    // NOLINT
     boost::system::error_code control_ec;
@@ -775,16 +757,9 @@ void udp_tproxy::startup()
     const auto self = shared_from_this();
     boost::asio::co_spawn(socket_.get_executor(),
                    receive_datagrams(),
-                   [self](const std::exception_ptr& exception, const boost::system::error_code& ec)
+                   [self](std::exception_ptr, const boost::system::error_code& ec)
                    {
-                       if (exception)
-                       {
-                           rv::proxy::log_service_exception(self->service_id_, exception);
-                       }
-                       else
-                       {
-                           rv::proxy::log_service_error(self->service_id_, ec);
-                       }
+                       rv::proxy::log_service_error(self->service_id_, ec);
                        self->shutdown();
                        static_cast<boost::asio::io_context&>(self->socket_.get_executor().context()).stop();
                    });
