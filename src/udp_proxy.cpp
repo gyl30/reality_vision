@@ -245,49 +245,6 @@ asio::awaitable<void> run_socks_downlink(std::shared_ptr<socks_udp_state> state,
     }
 }
 
-void log_session_exception(const std::string& session_id, const std::exception_ptr& exception)
-{
-    if (!exception)
-    {
-        return;
-    }
-
-    try
-    {
-        std::rethrow_exception(exception);
-    }
-    catch (const std::exception& error)
-    {
-        spdlog::error("{} unexpected udp session exception: {}", session_id, error.what());
-    }
-    catch (...)
-    {
-        spdlog::error("{} unexpected non-standard udp session exception", session_id);
-    }
-}
-
-void log_service_exception(const std::string& service_id, const std::exception_ptr& exception)
-{
-    if (!exception)
-    {
-        spdlog::error("{} stopped", service_id);
-        return;
-    }
-
-    try
-    {
-        std::rethrow_exception(exception);
-    }
-    catch (const std::exception& error)
-    {
-        spdlog::error("{} stopped with exception: {}", service_id, error.what());
-    }
-    catch (...)
-    {
-        spdlog::error("{} stopped with non-standard exception", service_id);
-    }
-}
-
 asio::awaitable<void> run_socks_flow(std::shared_ptr<socks_udp_state> state,
                                      std::shared_ptr<socks_udp_flow> flow,
                                      app::config configuration,
@@ -314,7 +271,7 @@ asio::awaitable<void> run_socks_flow(std::shared_ptr<socks_udp_state> state,
                        {
                            if (exception)
                            {
-                               log_session_exception(flow->session_id, exception);
+                               rv::proxy::log_session_exception(flow->session_id, exception, "udp session");
                                close_socks_flow(*flow);
                            }
                        });
@@ -387,7 +344,7 @@ std::shared_ptr<socks_udp_flow> get_socks_flow(const std::shared_ptr<socks_udp_s
                    {
                        if (exception)
                        {
-                           log_session_exception(flow->session_id, exception);
+                           rv::proxy::log_session_exception(flow->session_id, exception, "udp session");
                            close_socks_flow(*flow);
                        }
                    });
@@ -524,14 +481,14 @@ class udp_tproxy_session final : public std::enable_shared_from_this<udp_tproxy_
                        run(),
                        [self](const std::exception_ptr& exception)
                        {
-                           log_session_exception(self->session_id_, exception);
+                           rv::proxy::log_session_exception(self->session_id_, exception, "udp session");
                            self->shutdown();
                        });
         asio::co_spawn(reply_socket_.get_executor(),
                        run_idle_timer(),
                        [self](const std::exception_ptr& exception)
                        {
-                           log_session_exception(self->session_id_, exception);
+                           rv::proxy::log_session_exception(self->session_id_, exception, "udp session");
                            self->shutdown();
                        });
     }
@@ -607,7 +564,7 @@ class udp_tproxy_session final : public std::enable_shared_from_this<udp_tproxy_
                        {
                            if (exception)
                            {
-                               log_session_exception(self->session_id_, exception);
+                               rv::proxy::log_session_exception(self->session_id_, exception, "udp session");
                                self->shutdown();
                            }
                        });
@@ -742,7 +699,10 @@ asio::awaitable<void> run_socks_association(tcp::socket& control_socket, app::co
     });
     asio::co_spawn(executor,
                    run_udp_flow_cleanup(state, close_socks_flow),
-                   [session_id](const std::exception_ptr& exception) { log_session_exception(session_id + "_udp_cleanup", exception); });
+                   [session_id](const std::exception_ptr& exception)
+                   {
+                       rv::proxy::log_session_exception(session_id + "_udp_cleanup", exception, "udp session");
+                   });
 
     using namespace asio::experimental::awaitable_operators;    // NOLINT
     boost::system::error_code control_ec;
@@ -819,7 +779,7 @@ void udp_tproxy::startup()
                    receive_datagrams(),
                    [self](const std::exception_ptr& exception)
                    {
-                       log_service_exception(self->service_id_, exception);
+                       rv::proxy::log_service_exception(self->service_id_, exception);
                        self->shutdown();
                        static_cast<asio::io_context&>(self->socket_.get_executor().context()).stop();
                    });

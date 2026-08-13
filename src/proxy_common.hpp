@@ -8,8 +8,10 @@
 #include <boost/system/error_code.hpp>
 
 #include <cstdint>
+#include <exception>
 #include <optional>
 #include <string>
+#include <string_view>
 
 namespace rv::app
 {
@@ -28,6 +30,12 @@ struct target
 [[nodiscard]] boost::asio::awaitable<std::optional<reality::reality_stream>> connect_reality(const app::config& configuration,
                                                                                              const std::string& session_id,
                                                                                              boost::system::error_code& ec);
+
+void log_session_exception(const std::string& session_id,
+                           const std::exception_ptr& exception,
+                           std::string_view session_kind = "session");
+
+void log_service_exception(const std::string& service_id, const std::exception_ptr& exception);
 
 }    // namespace rv::proxy
 

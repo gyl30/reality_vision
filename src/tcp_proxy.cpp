@@ -469,49 +469,6 @@ boost::asio::awaitable<void> run_transparent_session(tcp::socket& client_socket,
     spdlog::info("{} transparent tcp session completed", session_id);
 }
 
-void log_session_exception(const std::string& session_id, const std::exception_ptr& exception)
-{
-    if (!exception)
-    {
-        return;
-    }
-
-    try
-    {
-        std::rethrow_exception(exception);
-    }
-    catch (const std::exception& error)
-    {
-        spdlog::error("{} unexpected session exception: {}", session_id, error.what());
-    }
-    catch (...)
-    {
-        spdlog::error("{} unexpected non-standard session exception", session_id);
-    }
-}
-
-void log_service_exception(const std::string& service_id, const std::exception_ptr& exception)
-{
-    if (!exception)
-    {
-        spdlog::error("{} stopped", service_id);
-        return;
-    }
-
-    try
-    {
-        std::rethrow_exception(exception);
-    }
-    catch (const std::exception& error)
-    {
-        spdlog::error("{} stopped with exception: {}", service_id, error.what());
-    }
-    catch (...)
-    {
-        spdlog::error("{} stopped with non-standard exception", service_id);
-    }
-}
-
 }    // namespace
 
 detail::tcp_session::tcp_session(tcp::socket socket, rv::app::config configuration, std::string session_id)
@@ -526,7 +483,7 @@ void detail::tcp_session::startup()
                           run(),
                           [self](const std::exception_ptr& exception)
                           {
-                              log_session_exception(self->session_id_, exception);
+                              rv::proxy::log_session_exception(self->session_id_, exception);
                               self->shutdown();
                           });
 }
@@ -566,7 +523,7 @@ void detail::tcp_listener::startup()
                           accept_connections(),
                           [self](const std::exception_ptr& exception)
                           {
-                              log_service_exception(self->service_id_, exception);
+                              rv::proxy::log_service_exception(self->service_id_, exception);
                               self->shutdown();
                               static_cast<boost::asio::io_context&>(self->acceptor_.get_executor().context()).stop();
                           });

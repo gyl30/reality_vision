@@ -10,9 +10,12 @@
 #include <boost/asio/this_coro.hpp>
 #include <boost/asio/use_awaitable.hpp>
 #include <boost/system/errc.hpp>
+#include <spdlog/spdlog.h>
 
 #include <chrono>
+#include <exception>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <variant>
 
@@ -24,6 +27,51 @@ namespace
 constexpr auto kUpstreamHandshakeTimeout = std::chrono::seconds(60);
 
 }    // namespace
+
+void log_session_exception(const std::string& session_id,
+                           const std::exception_ptr& exception,
+                           const std::string_view session_kind)
+{
+    if (!exception)
+    {
+        return;
+    }
+
+    try
+    {
+        std::rethrow_exception(exception);
+    }
+    catch (const std::exception& error)
+    {
+        spdlog::error("{} unexpected {} exception: {}", session_id, session_kind, error.what());
+    }
+    catch (...)
+    {
+        spdlog::error("{} unexpected non-standard {} exception", session_id, session_kind);
+    }
+}
+
+void log_service_exception(const std::string& service_id, const std::exception_ptr& exception)
+{
+    if (!exception)
+    {
+        spdlog::error("{} stopped", service_id);
+        return;
+    }
+
+    try
+    {
+        std::rethrow_exception(exception);
+    }
+    catch (const std::exception& error)
+    {
+        spdlog::error("{} stopped with exception: {}", service_id, error.what());
+    }
+    catch (...)
+    {
+        spdlog::error("{} stopped with non-standard exception", service_id);
+    }
+}
 
 boost::asio::awaitable<std::optional<reality::reality_stream>> connect_reality(const app::config& configuration,
                                                                                const std::string& session_id,
