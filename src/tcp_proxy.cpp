@@ -514,12 +514,12 @@ void log_service_exception(const std::string& service_id, const std::exception_p
 
 }    // namespace
 
-socks_session::socks_session(tcp::socket socket, rv::app::config configuration, std::string session_id)
+detail::tcp_session::tcp_session(tcp::socket socket, rv::app::config configuration, std::string session_id)
     : socket_(std::move(socket)), configuration_(std::move(configuration)), session_id_(std::move(session_id))
 {
 }
 
-void socks_session::startup()
+void detail::tcp_session::startup()
 {
     const auto self = shared_from_this();
     boost::asio::co_spawn(socket_.get_executor(),
@@ -531,7 +531,7 @@ void socks_session::startup()
                           });
 }
 
-void socks_session::shutdown()
+void detail::tcp_session::shutdown()
 {
     const auto self = shared_from_this();
     boost::asio::post(socket_.get_executor(),
@@ -544,65 +544,9 @@ void socks_session::shutdown()
 
 boost::asio::awaitable<void> socks_session::run() { co_await run_socks_session(socket_, configuration_, session_id_); }
 
-redirect_session::redirect_session(tcp::socket socket, rv::app::config configuration, std::string session_id)
-    : socket_(std::move(socket)), configuration_(std::move(configuration)), session_id_(std::move(session_id))
-{
-}
-
-void redirect_session::startup()
-{
-    const auto self = shared_from_this();
-    boost::asio::co_spawn(socket_.get_executor(),
-                          run(),
-                          [self](const std::exception_ptr& exception)
-                          {
-                              log_session_exception(self->session_id_, exception);
-                              self->shutdown();
-                          });
-}
-
-void redirect_session::shutdown()
-{
-    const auto self = shared_from_this();
-    boost::asio::post(socket_.get_executor(),
-                      [self]
-                      {
-                          boost::system::error_code ignored;
-                          self->socket_.close(ignored);
-                      });
-}
-
 boost::asio::awaitable<void> redirect_session::run()
 {
     co_await run_transparent_session(socket_, configuration_, session_id_, transparent_mode::kRedirect);
-}
-
-tcp_tproxy_session::tcp_tproxy_session(tcp::socket socket, rv::app::config configuration, std::string session_id)
-    : socket_(std::move(socket)), configuration_(std::move(configuration)), session_id_(std::move(session_id))
-{
-}
-
-void tcp_tproxy_session::startup()
-{
-    const auto self = shared_from_this();
-    boost::asio::co_spawn(socket_.get_executor(),
-                          run(),
-                          [self](const std::exception_ptr& exception)
-                          {
-                              log_session_exception(self->session_id_, exception);
-                              self->shutdown();
-                          });
-}
-
-void tcp_tproxy_session::shutdown()
-{
-    const auto self = shared_from_this();
-    boost::asio::post(socket_.get_executor(),
-                      [self]
-                      {
-                          boost::system::error_code ignored;
-                          self->socket_.close(ignored);
-                      });
 }
 
 boost::asio::awaitable<void> tcp_tproxy_session::run()

@@ -16,52 +16,55 @@
 namespace rv::tcp_proxy
 {
 
-class socks_session final : public std::enable_shared_from_this<socks_session>
+namespace detail
+{
+
+class tcp_session : public std::enable_shared_from_this<tcp_session>
 {
    public:
-    socks_session(boost::asio::ip::tcp::socket socket, app::config configuration, std::string session_id);
+    tcp_session(boost::asio::ip::tcp::socket socket, app::config configuration, std::string session_id);
+    virtual ~tcp_session() = default;
 
     void startup();
 
-   private:
-    void shutdown();
-    boost::asio::awaitable<void> run();
+   protected:
+    virtual boost::asio::awaitable<void> run() = 0;
 
     boost::asio::ip::tcp::socket socket_;
     app::config configuration_;
     std::string session_id_;
+
+   private:
+    void shutdown();
 };
 
-class redirect_session final : public std::enable_shared_from_this<redirect_session>
+}    // namespace detail
+
+class socks_session final : public detail::tcp_session
 {
    public:
-    redirect_session(boost::asio::ip::tcp::socket socket, app::config configuration, std::string session_id);
-
-    void startup();
+    using tcp_session::tcp_session;
 
    private:
-    void shutdown();
-    boost::asio::awaitable<void> run();
-
-    boost::asio::ip::tcp::socket socket_;
-    app::config configuration_;
-    std::string session_id_;
+    boost::asio::awaitable<void> run() override;
 };
 
-class tcp_tproxy_session final : public std::enable_shared_from_this<tcp_tproxy_session>
+class redirect_session final : public detail::tcp_session
 {
    public:
-    tcp_tproxy_session(boost::asio::ip::tcp::socket socket, app::config configuration, std::string session_id);
-
-    void startup();
+    using tcp_session::tcp_session;
 
    private:
-    void shutdown();
-    boost::asio::awaitable<void> run();
+    boost::asio::awaitable<void> run() override;
+};
 
-    boost::asio::ip::tcp::socket socket_;
-    app::config configuration_;
-    std::string session_id_;
+class tcp_tproxy_session final : public detail::tcp_session
+{
+   public:
+    using tcp_session::tcp_session;
+
+   private:
+    boost::asio::awaitable<void> run() override;
 };
 
 class socks_proxy final : public app::proxy_service, public std::enable_shared_from_this<socks_proxy>
