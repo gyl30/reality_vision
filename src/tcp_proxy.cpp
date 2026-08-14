@@ -476,10 +476,7 @@ detail::tcp_session::tcp_session(tcp::socket socket, rv::app::config configurati
 {
 }
 
-void detail::tcp_session::startup()
-{
-    boost::asio::co_spawn(socket_.get_executor(), run(), boost::asio::detached);
-}
+void detail::tcp_session::startup() { boost::asio::co_spawn(socket_.get_executor(), run(), boost::asio::detached); }
 
 boost::asio::awaitable<void> socks_session::run()
 {
@@ -507,15 +504,9 @@ detail::tcp_listener::tcp_listener(tcp::acceptor acceptor, rv::app::config confi
 {
 }
 
-void detail::tcp_listener::startup()
-{
-    boost::asio::co_spawn(acceptor_.get_executor(), accept_connections(), boost::asio::detached);
-}
+void detail::tcp_listener::startup() { boost::asio::co_spawn(acceptor_.get_executor(), accept_connections(), boost::asio::detached); }
 
-std::string detail::tcp_listener::next_session_id()
-{
-    return service_id_ + "_" + std::to_string(next_session_number_++);
-}
+std::string detail::tcp_listener::next_session_id() { return service_id_ + "_" + std::to_string(next_session_number_++); }
 
 boost::asio::awaitable<void> socks_proxy::accept_connections()
 {

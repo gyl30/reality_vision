@@ -128,9 +128,9 @@ std::string socks_flow_key(const net::address& destination, const std::uint16_t 
 std::string format_endpoint(const udp::endpoint& endpoint) { return endpoint.address().to_string() + ":" + std::to_string(endpoint.port()); }
 
 boost::asio::awaitable<std::optional<vless::vless_udp_stream>> connect_udp_upstream(const app::config& configuration,
-                                                                             const proxy::target& target,
-                                                                             const std::string& session_id,
-                                                                             boost::system::error_code& ec)
+                                                                                    const proxy::target& target,
+                                                                                    const std::string& session_id,
+                                                                                    boost::system::error_code& ec)
 {
     auto reality_stream = co_await proxy::connect_reality(configuration, session_id, ec);
     if (ec)
@@ -230,7 +230,8 @@ boost::asio::awaitable<void> run_socks_downlink(std::shared_ptr<socks_udp_state>
             co_return;
         }
 
-        co_await state->relay_socket.async_send_to(boost::asio::buffer(packet), *state->client_endpoint, boost::asio::redirect_error(boost::asio::use_awaitable, ec));
+        co_await state->relay_socket.async_send_to(
+            boost::asio::buffer(packet), *state->client_endpoint, boost::asio::redirect_error(boost::asio::use_awaitable, ec));
         if (ec)
         {
             if (ec != boost::asio::error::operation_aborted)
@@ -244,9 +245,9 @@ boost::asio::awaitable<void> run_socks_downlink(std::shared_ptr<socks_udp_state>
 }
 
 boost::asio::awaitable<void> run_socks_flow(std::shared_ptr<socks_udp_state> state,
-                                     std::shared_ptr<socks_udp_flow> flow,
-                                     app::config configuration,
-                                     proxy::target target)
+                                            std::shared_ptr<socks_udp_flow> flow,
+                                            app::config configuration,
+                                            proxy::target target)
 {
     boost::system::error_code ec;
     auto upstream = co_await connect_udp_upstream(configuration, target, flow->session_id, ec);
@@ -336,7 +337,8 @@ boost::asio::awaitable<void> wait_for_control_close(tcp::socket& control_socket,
     std::array<std::uint8_t, 1> buffer{};
     for (;;)
     {
-        const auto count = co_await control_socket.async_read_some(boost::asio::buffer(buffer), boost::asio::redirect_error(boost::asio::use_awaitable, ec));
+        const auto count =
+            co_await control_socket.async_read_some(boost::asio::buffer(buffer), boost::asio::redirect_error(boost::asio::use_awaitable, ec));
         if (ec == boost::asio::error::eof || (!ec && count == 0))
         {
             ec.clear();
@@ -350,19 +352,19 @@ boost::asio::awaitable<void> wait_for_control_close(tcp::socket& control_socket,
 }
 
 boost::asio::awaitable<void> run_socks_udp_relay(const std::shared_ptr<socks_udp_state>& state,
-                                          const app::config& configuration,
-                                          const socks5::request& request,
-                                          const udp::endpoint& tcp_peer,
-                                          const std::string& session_id,
-                                          boost::system::error_code& ec)
+                                                 const app::config& configuration,
+                                                 const socks5::request& request,
+                                                 const udp::endpoint& tcp_peer,
+                                                 const std::string& session_id,
+                                                 boost::system::error_code& ec)
 {
     std::array<std::uint8_t, kMaxUdpPacketSize> buffer{};
 
     for (;;)
     {
         udp::endpoint source;
-        const auto count =
-            co_await state->relay_socket.async_receive_from(boost::asio::buffer(buffer), source, boost::asio::redirect_error(boost::asio::use_awaitable, ec));
+        const auto count = co_await state->relay_socket.async_receive_from(
+            boost::asio::buffer(buffer), source, boost::asio::redirect_error(boost::asio::use_awaitable, ec));
         if (ec)
         {
             co_return;
@@ -465,15 +467,15 @@ class udp_tproxy_session final : public std::enable_shared_from_this<udp_tproxy_
     {
         const auto self = shared_from_this();
         boost::asio::post(reply_socket_.get_executor(),
-                   [self]
-                   {
-                       if (self->stopping_)
-                       {
-                           return;
-                       }
-                       self->stopping_ = true;
-                       self->close_resources();
-                   });
+                          [self]
+                          {
+                              if (self->stopping_)
+                              {
+                                  return;
+                              }
+                              self->stopping_ = true;
+                              self->close_resources();
+                          });
     }
 
     void close_resources()
@@ -621,7 +623,10 @@ class udp_tproxy_session final : public std::enable_shared_from_this<udp_tproxy_
     bool stopping_{false};
 };
 
-boost::asio::awaitable<void> run_socks_association(tcp::socket& control_socket, app::config configuration, socks5::request request, std::string session_id)
+boost::asio::awaitable<void> run_socks_association(tcp::socket& control_socket,
+                                                   app::config configuration,
+                                                   socks5::request request,
+                                                   std::string session_id)
 {
     boost::system::error_code ec;
     udp::socket relay_socket(control_socket.get_executor());
@@ -733,10 +738,7 @@ udp_tproxy::udp_tproxy(udp::socket socket, app::config configuration, std::strin
 {
 }
 
-void udp_tproxy::startup()
-{
-    boost::asio::co_spawn(socket_.get_executor(), receive_datagrams(), boost::asio::detached);
-}
+void udp_tproxy::startup() { boost::asio::co_spawn(socket_.get_executor(), receive_datagrams(), boost::asio::detached); }
 
 boost::asio::awaitable<void> udp_tproxy::receive_datagrams()
 {
@@ -789,8 +791,8 @@ boost::asio::awaitable<void> udp_tproxy::receive_datagrams()
 }
 
 std::shared_ptr<udp_tproxy_session> udp_tproxy::get_session(const udp::endpoint& client,
-                                                                    const udp::endpoint& destination,
-                                                                    boost::system::error_code& ec)
+                                                            const udp::endpoint& destination,
+                                                            boost::system::error_code& ec)
 {
     const auto key = tproxy_flow_key(client, destination);
     if (const auto iterator = sessions_.find(key); iterator != sessions_.end())
