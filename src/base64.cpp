@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <string_view>
 
-#include <openssl/evp.h>
+#include <openssl/base64.h>
 
 #include "base64.hpp"
 

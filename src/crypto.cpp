@@ -1,7 +1,6 @@
 #include <array>
 #include <limits>
 #include <string>
-#include <utility>
 
 #include <openssl/ec.h>
 #include <openssl/err.h>

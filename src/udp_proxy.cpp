@@ -16,7 +16,6 @@
 #include <spdlog/spdlog.h>
 #include <boost/asio/post.hpp>
 #include <boost/asio/buffer.hpp>
-#include <boost/system/errc.hpp>
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>
 #include <boost/asio/this_coro.hpp>
