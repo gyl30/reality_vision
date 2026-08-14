@@ -509,7 +509,7 @@ boost::asio::awaitable<void> socks_proxy::accept_connections()
     const auto endpoint = acceptor_.local_endpoint(ec);
     if (ec)
     {
-        rv::proxy::log_service_error(service_id_, ec);
+        spdlog::error("{} stopped with error: {}", service_id_, ec.message());
         static_cast<boost::asio::io_context&>(acceptor_.get_executor().context()).stop();
         co_return;
     }
@@ -520,7 +520,7 @@ boost::asio::awaitable<void> socks_proxy::accept_connections()
         auto socket = co_await acceptor_.async_accept(boost::asio::redirect_error(boost::asio::use_awaitable, ec));
         if (ec)
         {
-            rv::proxy::log_service_error(service_id_, ec);
+            spdlog::error("{} stopped with error: {}", service_id_, ec.message());
             static_cast<boost::asio::io_context&>(acceptor_.get_executor().context()).stop();
             co_return;
         }
@@ -536,7 +536,7 @@ boost::asio::awaitable<void> redirect_proxy::accept_connections()
     const auto endpoint = acceptor_.local_endpoint(ec);
     if (ec)
     {
-        rv::proxy::log_service_error(service_id_, ec);
+        spdlog::error("{} stopped with error: {}", service_id_, ec.message());
         static_cast<boost::asio::io_context&>(acceptor_.get_executor().context()).stop();
         co_return;
     }
@@ -547,7 +547,7 @@ boost::asio::awaitable<void> redirect_proxy::accept_connections()
         auto socket = co_await acceptor_.async_accept(boost::asio::redirect_error(boost::asio::use_awaitable, ec));
         if (ec)
         {
-            rv::proxy::log_service_error(service_id_, ec);
+            spdlog::error("{} stopped with error: {}", service_id_, ec.message());
             static_cast<boost::asio::io_context&>(acceptor_.get_executor().context()).stop();
             co_return;
         }
@@ -563,7 +563,7 @@ boost::asio::awaitable<void> tcp_tproxy::accept_connections()
     const auto endpoint = acceptor_.local_endpoint(ec);
     if (ec)
     {
-        rv::proxy::log_service_error(service_id_, ec);
+        spdlog::error("{} stopped with error: {}", service_id_, ec.message());
         static_cast<boost::asio::io_context&>(acceptor_.get_executor().context()).stop();
         co_return;
     }
@@ -574,7 +574,7 @@ boost::asio::awaitable<void> tcp_tproxy::accept_connections()
         auto socket = co_await acceptor_.async_accept(boost::asio::redirect_error(boost::asio::use_awaitable, ec));
         if (ec)
         {
-            rv::proxy::log_service_error(service_id_, ec);
+            spdlog::error("{} stopped with error: {}", service_id_, ec.message());
             static_cast<boost::asio::io_context&>(acceptor_.get_executor().context()).stop();
             co_return;
         }

@@ -29,8 +29,6 @@ struct target
                                                                                              const std::string& session_id,
                                                                                              boost::system::error_code& ec);
 
-void log_service_error(const std::string& service_id, const boost::system::error_code& ec);
-
 }    // namespace rv::proxy
 
 #endif    // REALITY_VISION_PROXY_COMMON_HPP

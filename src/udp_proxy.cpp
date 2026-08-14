@@ -742,7 +742,7 @@ boost::asio::awaitable<void> udp_tproxy::receive_datagrams()
     const auto endpoint = socket_.local_endpoint(ec);
     if (ec)
     {
-        rv::proxy::log_service_error(service_id_, ec);
+        spdlog::error("{} stopped with error: {}", service_id_, ec.message());
         static_cast<boost::asio::io_context&>(socket_.get_executor().context()).stop();
         co_return;
     }
@@ -756,7 +756,7 @@ boost::asio::awaitable<void> udp_tproxy::receive_datagrams()
         co_await socket_.async_wait(udp::socket::wait_read, boost::asio::redirect_error(boost::asio::use_awaitable, ec));
         if (ec)
         {
-            rv::proxy::log_service_error(service_id_, ec);
+            spdlog::error("{} stopped with error: {}", service_id_, ec.message());
             static_cast<boost::asio::io_context&>(socket_.get_executor().context()).stop();
             co_return;
         }
@@ -766,7 +766,7 @@ boost::asio::awaitable<void> udp_tproxy::receive_datagrams()
         const auto count = transparent::receive_ipv4_original_datagram(socket_, buffer, client, destination, ec);
         if (ec)
         {
-            rv::proxy::log_service_error(service_id_, ec);
+            spdlog::error("{} stopped with error: {}", service_id_, ec.message());
             static_cast<boost::asio::io_context&>(socket_.get_executor().context()).stop();
             co_return;
         }

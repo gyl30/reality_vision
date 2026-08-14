@@ -3,7 +3,6 @@
 #include <utility>
 #include <variant>
 
-#include <spdlog/spdlog.h>
 #include <boost/system/errc.hpp>
 #include <boost/asio/this_coro.hpp>
 #include <boost/asio/steady_timer.hpp>
@@ -24,16 +23,6 @@ namespace
 constexpr auto kUpstreamHandshakeTimeout = std::chrono::seconds(60);
 
 }    // namespace
-
-void log_service_error(const std::string& service_id, const boost::system::error_code& ec)
-{
-    if (ec)
-    {
-        spdlog::error("{} stopped with error: {}", service_id, ec.message());
-        return;
-    }
-    spdlog::error("{} stopped", service_id);
-}
 
 boost::asio::awaitable<std::optional<reality::reality_stream>> connect_reality(const app::config& configuration,
                                                                                const std::string& session_id,
