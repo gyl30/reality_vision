@@ -1,9 +1,9 @@
-#include "hex.hpp"
-
+#include <vector>
 #include <cstddef>
 #include <cstdint>
 #include <string_view>
-#include <vector>
+
+#include "hex.hpp"
 
 namespace rv::core
 {

@@ -1,17 +1,17 @@
 #ifndef REALITY_VISION_VLESS_STREAM_HPP
 #define REALITY_VISION_VLESS_STREAM_HPP
 
-#include "reality_stream.hpp"
-#include "vless_header.hpp"
+#include <span>
+#include <string>
+#include <cstddef>
+#include <cstdint>
+#include <optional>
 
 #include <boost/asio/awaitable.hpp>
 #include <boost/system/error_code.hpp>
 
-#include <cstddef>
-#include <cstdint>
-#include <optional>
-#include <span>
-#include <string>
+#include "vless_header.hpp"
+#include "reality_stream.hpp"
 
 namespace rv::vless
 {

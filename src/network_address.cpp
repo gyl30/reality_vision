@@ -1,10 +1,10 @@
-#include "network_address.hpp"
+#include <string>
+#include <algorithm>
+#include <type_traits>
 
 #include <boost/asio/ip/address_v6.hpp>
 
-#include <algorithm>
-#include <string>
-#include <type_traits>
+#include "network_address.hpp"
 
 namespace rv::net
 {

@@ -1,13 +1,13 @@
 #ifndef REALITY_VISION_STREAM_IO_HPP
 #define REALITY_VISION_STREAM_IO_HPP
 
-#include <boost/asio/awaitable.hpp>
-#include <boost/asio/error.hpp>
-#include <boost/system/error_code.hpp>
-
+#include <span>
 #include <cstddef>
 #include <cstdint>
-#include <span>
+
+#include <boost/asio/error.hpp>
+#include <boost/asio/awaitable.hpp>
+#include <boost/system/error_code.hpp>
 
 namespace rv::net
 {

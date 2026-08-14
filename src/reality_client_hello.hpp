@@ -1,18 +1,18 @@
 #ifndef REALITY_VISION_REALITY_CLIENT_HELLO_HPP
 #define REALITY_VISION_REALITY_CLIENT_HELLO_HPP
 
-#include "crypto.hpp"
-#include "reality_config.hpp"
-#include "tls_constants.hpp"
-
-#include <boost/system/error_code.hpp>
-
 #include <array>
 #include <chrono>
+#include <vector>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
-#include <vector>
+
+#include <boost/system/error_code.hpp>
+
+#include "crypto.hpp"
+#include "tls_constants.hpp"
+#include "reality_config.hpp"
 
 namespace rv::reality
 {

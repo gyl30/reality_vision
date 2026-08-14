@@ -1,19 +1,19 @@
-#include "transparent.hpp"
-
-#include <boost/asio/ip/address_v4.hpp>
-#include <boost/system/errc.hpp>
-
 #include <array>
 #include <cerrno>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
 
+#include <boost/system/errc.hpp>
+#include <boost/asio/ip/address_v4.hpp>
+
+#include "transparent.hpp"
+
 #ifdef __linux__
 #include <linux/in.h>
-#include <linux/netfilter_ipv4.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <linux/netfilter_ipv4.h>
 #endif
 
 namespace rv::transparent

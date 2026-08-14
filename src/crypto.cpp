@@ -1,27 +1,26 @@
-#include "crypto.hpp"
-
-#include <openssl/aead.h>
-#include <openssl/base.h>
-#include <openssl/crypto.h>
-#include <openssl/curve25519.h>
-#include <openssl/ec.h>
-#include <openssl/ec_key.h>
-#include <openssl/err.h>
-#include <openssl/evp.h>
-#include <openssl/hkdf.h>
-#include <openssl/hmac.h>
-#include <openssl/mem.h>
-#include <openssl/nid.h>
-#include <openssl/rand.h>
-#include <openssl/x509.h>
-
-#include <boost/system/errc.hpp>
-#include <spdlog/spdlog.h>
-
 #include <array>
 #include <limits>
 #include <string>
 #include <utility>
+
+#include <openssl/ec.h>
+#include <openssl/err.h>
+#include <openssl/evp.h>
+#include <openssl/mem.h>
+#include <openssl/nid.h>
+#include <openssl/aead.h>
+#include <openssl/base.h>
+#include <openssl/hkdf.h>
+#include <openssl/hmac.h>
+#include <openssl/rand.h>
+#include <openssl/x509.h>
+#include <spdlog/spdlog.h>
+#include <openssl/crypto.h>
+#include <openssl/ec_key.h>
+#include <openssl/curve25519.h>
+#include <boost/system/errc.hpp>
+
+#include "crypto.hpp"
 
 namespace rv::crypto
 {

@@ -1,14 +1,14 @@
 #ifndef REALITY_VISION_CRYPTO_HPP
 #define REALITY_VISION_CRYPTO_HPP
 
-#include <boost/system/error_code.hpp>
-
+#include <span>
 #include <array>
+#include <memory>
+#include <vector>
 #include <cstddef>
 #include <cstdint>
-#include <memory>
-#include <span>
-#include <vector>
+
+#include <boost/system/error_code.hpp>
 
 namespace rv::crypto
 {

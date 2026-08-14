@@ -1,18 +1,17 @@
-#include "vless_udp_stream.hpp"
+#include <span>
+#include <array>
+#include <vector>
+#include <cstddef>
+#include <cstdint>
+#include <utility>
+
+#include <spdlog/spdlog.h>
+#include <boost/system/errc.hpp>
 
 #include "byte_order.hpp"
 #include "byte_writer.hpp"
 #include "vless_response.hpp"
-
-#include <boost/system/errc.hpp>
-#include <spdlog/spdlog.h>
-
-#include <array>
-#include <cstddef>
-#include <cstdint>
-#include <span>
-#include <utility>
-#include <vector>
+#include "vless_udp_stream.hpp"
 
 namespace rv::vless
 {

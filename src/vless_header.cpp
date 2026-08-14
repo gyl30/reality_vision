@@ -1,14 +1,13 @@
-#include "vless_header.hpp"
-
-#include "byte_writer.hpp"
+#include <limits>
+#include <cstdint>
+#include <variant>
+#include <string_view>
+#include <type_traits>
 
 #include <boost/system/errc.hpp>
 
-#include <cstdint>
-#include <limits>
-#include <string_view>
-#include <type_traits>
-#include <variant>
+#include "byte_writer.hpp"
+#include "vless_header.hpp"
 
 namespace rv::vless
 {

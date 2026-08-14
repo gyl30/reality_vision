@@ -1,27 +1,26 @@
-#include "socks5_protocol.hpp"
+#include <span>
+#include <array>
+#include <limits>
+#include <ranges>
+#include <string>
+#include <vector>
+#include <cstddef>
+#include <cstdint>
+#include <utility>
+#include <optional>
+#include <algorithm>
+#include <type_traits>
+
+#include <boost/asio/read.hpp>
+#include <boost/asio/write.hpp>
+#include <boost/asio/buffer.hpp>
+#include <boost/system/errc.hpp>
+#include <boost/asio/use_awaitable.hpp>
+#include <boost/asio/redirect_error.hpp>
 
 #include "byte_order.hpp"
 #include "byte_writer.hpp"
-
-#include <boost/asio/buffer.hpp>
-#include <boost/asio/read.hpp>
-#include <boost/asio/redirect_error.hpp>
-#include <boost/asio/use_awaitable.hpp>
-#include <boost/asio/write.hpp>
-#include <boost/system/errc.hpp>
-
-#include <algorithm>
-#include <array>
-#include <cstddef>
-#include <cstdint>
-#include <limits>
-#include <optional>
-#include <ranges>
-#include <span>
-#include <string>
-#include <type_traits>
-#include <utility>
-#include <vector>
+#include "socks5_protocol.hpp"
 
 namespace rv::socks5
 {

@@ -1,27 +1,26 @@
-#include "reality_handshake.hpp"
+#include <span>
+#include <array>
+#include <vector>
+#include <cstddef>
+#include <cstdint>
+#include <utility>
+#include <optional>
+#include <algorithm>
+#include <string_view>
 
+#include <spdlog/spdlog.h>
+#include <boost/system/errc.hpp>
+#include <boost/asio/awaitable.hpp>
+
+#include "crypto.hpp"
+#include "stream_io.hpp"
 #include "byte_order.hpp"
 #include "byte_queue.hpp"
 #include "byte_reader.hpp"
 #include "byte_writer.hpp"
-#include "crypto.hpp"
-#include "reality_client_hello.hpp"
-#include "stream_io.hpp"
 #include "tls_constants.hpp"
-
-#include <boost/asio/awaitable.hpp>
-#include <boost/system/errc.hpp>
-#include <spdlog/spdlog.h>
-
-#include <algorithm>
-#include <array>
-#include <cstddef>
-#include <cstdint>
-#include <optional>
-#include <span>
-#include <string_view>
-#include <utility>
-#include <vector>
+#include "reality_handshake.hpp"
+#include "reality_client_hello.hpp"
 
 namespace rv::reality
 {

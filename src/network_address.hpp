@@ -2,8 +2,8 @@
 #define REALITY_VISION_NETWORK_ADDRESS_HPP
 
 #include <array>
-#include <cstdint>
 #include <string>
+#include <cstdint>
 #include <variant>
 
 namespace rv::net

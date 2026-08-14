@@ -1,18 +1,18 @@
 #ifndef REALITY_VISION_VISION_STREAM_HPP
 #define REALITY_VISION_VISION_STREAM_HPP
 
-#include "vision_codec.hpp"
-#include "vless_stream.hpp"
+#include <span>
+#include <array>
+#include <string>
+#include <cstddef>
+#include <cstdint>
+#include <optional>
 
 #include <boost/asio/awaitable.hpp>
 #include <boost/system/error_code.hpp>
 
-#include <array>
-#include <cstddef>
-#include <cstdint>
-#include <optional>
-#include <span>
-#include <string>
+#include "vision_codec.hpp"
+#include "vless_stream.hpp"
 
 namespace rv::vision
 {

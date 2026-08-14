@@ -1,18 +1,17 @@
-#include "sniffer.hpp"
+#include <span>
+#include <array>
+#include <string>
+#include <cstddef>
+#include <cstdint>
+#include <utility>
+#include <optional>
+#include <algorithm>
+#include <string_view>
 
+#include "sniffer.hpp"
 #include "byte_order.hpp"
 #include "byte_reader.hpp"
 #include "tls_constants.hpp"
-
-#include <algorithm>
-#include <array>
-#include <cstddef>
-#include <cstdint>
-#include <optional>
-#include <span>
-#include <string>
-#include <string_view>
-#include <utility>
 
 namespace rv::sniff
 {

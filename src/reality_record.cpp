@@ -1,14 +1,13 @@
-#include "reality_record.hpp"
-
-#include "byte_order.hpp"
-#include "byte_writer.hpp"
+#include <array>
+#include <limits>
+#include <algorithm>
+#include <string_view>
 
 #include <boost/system/errc.hpp>
 
-#include <algorithm>
-#include <array>
-#include <limits>
-#include <string_view>
+#include "byte_order.hpp"
+#include "byte_writer.hpp"
+#include "reality_record.hpp"
 
 namespace rv::reality
 {

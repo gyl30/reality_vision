@@ -1,17 +1,18 @@
 #ifndef REALITY_VISION_CONFIG_HPP
 #define REALITY_VISION_CONFIG_HPP
 
-#include "crypto.hpp"
-#include "reality_config.hpp"
-#include "socks5_protocol.hpp"
-#include "vless_header.hpp"
-
 #include <array>
+#include <string>
 #include <cstddef>
 #include <cstdint>
-#include <expected>
 #include <optional>
-#include <string>
+
+#include <expected>
+
+#include "crypto.hpp"
+#include "vless_header.hpp"
+#include "reality_config.hpp"
+#include "socks5_protocol.hpp"
 
 namespace rv::app
 {

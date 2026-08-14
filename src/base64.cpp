@@ -1,12 +1,12 @@
-#include "base64.hpp"
+#include <string>
+#include <vector>
+#include <cstddef>
+#include <cstdint>
+#include <string_view>
 
 #include <openssl/evp.h>
 
-#include <cstddef>
-#include <cstdint>
-#include <string>
-#include <string_view>
-#include <vector>
+#include "base64.hpp"
 
 namespace rv::core
 {

@@ -1,8 +1,8 @@
+#include <spdlog/spdlog.h>
+
 #include "config.hpp"
 #include "service.hpp"
 #include "protocol_tests.hpp"
-
-#include <spdlog/spdlog.h>
 
 int main(int argc, char* argv[])
 {

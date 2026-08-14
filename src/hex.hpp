@@ -1,9 +1,9 @@
 #ifndef REALITY_VISION_RV_CORE_HEX_HPP
 #define REALITY_VISION_RV_CORE_HEX_HPP
 
+#include <vector>
 #include <cstdint>
 #include <string_view>
-#include <vector>
 
 namespace rv::core
 {

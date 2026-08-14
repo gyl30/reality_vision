@@ -1,21 +1,21 @@
 #ifndef REALITY_VISION_SOCKS5_PROTOCOL_HPP
 #define REALITY_VISION_SOCKS5_PROTOCOL_HPP
 
-#include <boost/asio/awaitable.hpp>
+#include <span>
+#include <array>
+#include <limits>
+#include <string>
+#include <vector>
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/ip/udp.hpp>
+#include <boost/asio/awaitable.hpp>
 #include <boost/system/error_code.hpp>
 
 #include "network_address.hpp"
-
-#include <array>
-#include <cstddef>
-#include <cstdint>
-#include <limits>
-#include <optional>
-#include <span>
-#include <string>
-#include <vector>
 
 namespace rv::socks5
 {

@@ -1,21 +1,21 @@
 #ifndef REALITY_VISION_REALITY_STREAM_HPP
 #define REALITY_VISION_REALITY_STREAM_HPP
 
-#include "byte_queue.hpp"
-#include "reality_config.hpp"
-#include "reality_record.hpp"
-#include "tcp_byte_stream.hpp"
+#include <span>
+#include <array>
+#include <string>
+#include <vector>
+#include <cstddef>
+#include <cstdint>
+#include <optional>
 
 #include <boost/asio/awaitable.hpp>
 #include <boost/system/error_code.hpp>
 
-#include <array>
-#include <cstddef>
-#include <cstdint>
-#include <optional>
-#include <span>
-#include <string>
-#include <vector>
+#include "byte_queue.hpp"
+#include "reality_config.hpp"
+#include "reality_record.hpp"
+#include "tcp_byte_stream.hpp"
 
 namespace rv::reality
 {

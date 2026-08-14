@@ -1,18 +1,17 @@
-#include "reality_client_hello.hpp"
+#include <span>
+#include <array>
+#include <chrono>
+#include <limits>
+#include <algorithm>
+#include <string_view>
+
+#include <boost/system/errc.hpp>
 
 #include "crypto.hpp"
 #include "byte_order.hpp"
 #include "byte_writer.hpp"
 #include "tls_constants.hpp"
-
-#include <boost/system/errc.hpp>
-
-#include <algorithm>
-#include <array>
-#include <chrono>
-#include <limits>
-#include <span>
-#include <string_view>
+#include "reality_client_hello.hpp"
 
 namespace rv::reality
 {

@@ -1,12 +1,12 @@
 #ifndef REALITY_VISION_RV_REALITY_CONFIG_HPP
 #define REALITY_VISION_RV_REALITY_CONFIG_HPP
 
-#include "crypto.hpp"
-
 #include <array>
+#include <string>
 #include <cstddef>
 #include <cstdint>
-#include <string>
+
+#include "crypto.hpp"
 
 namespace rv::reality
 {

@@ -1,17 +1,17 @@
 #ifndef REALITY_VISION_REALITY_RECORD_HPP
 #define REALITY_VISION_REALITY_RECORD_HPP
 
-#include "crypto.hpp"
-#include "tls_constants.hpp"
-
-#include <boost/system/error_code.hpp>
-
+#include <span>
 #include <array>
+#include <vector>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
-#include <span>
-#include <vector>
+
+#include <boost/system/error_code.hpp>
+
+#include "crypto.hpp"
+#include "tls_constants.hpp"
 
 namespace rv::reality
 {

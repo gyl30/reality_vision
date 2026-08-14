@@ -1,19 +1,17 @@
-#include "service.hpp"
-
-#include "proxy_service.hpp"
-#include "tcp_proxy.hpp"
-#include "transparent.hpp"
-#include "udp_proxy.hpp"
-
-#include <boost/asio/io_context.hpp>
-#include <boost/asio/ip/tcp.hpp>
-#include <boost/system/error_code.hpp>
-#include <spdlog/spdlog.h>
-
 #include <cerrno>
 #include <utility>
-
 #include <sys/socket.h>
+
+#include <spdlog/spdlog.h>
+#include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/io_context.hpp>
+#include <boost/system/error_code.hpp>
+
+#include "service.hpp"
+#include "tcp_proxy.hpp"
+#include "udp_proxy.hpp"
+#include "transparent.hpp"
+#include "proxy_service.hpp"
 
 namespace rv::app
 {

@@ -1,17 +1,16 @@
-#include "config.hpp"
-
-#include "base64.hpp"
-#include "hex.hpp"
+#include <ranges>
+#include <string>
+#include <cstdint>
+#include <utility>
+#include <iostream>
+#include <algorithm>
 
 #include <boost/program_options.hpp>
 #include <boost/uuid/string_generator.hpp>
 
-#include <algorithm>
-#include <cstdint>
-#include <iostream>
-#include <ranges>
-#include <string>
-#include <utility>
+#include "hex.hpp"
+#include "base64.hpp"
+#include "config.hpp"
 
 namespace rv::app
 {

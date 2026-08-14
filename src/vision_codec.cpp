@@ -1,20 +1,19 @@
-#include "vision_codec.hpp"
-
-#include "byte_order.hpp"
-#include "byte_reader.hpp"
-#include "byte_writer.hpp"
-#include "crypto.hpp"
-#include "tls_constants.hpp"
+#include <span>
+#include <array>
+#include <limits>
+#include <vector>
+#include <cstddef>
+#include <cstdint>
+#include <algorithm>
 
 #include <boost/system/errc.hpp>
 
-#include <algorithm>
-#include <array>
-#include <cstddef>
-#include <cstdint>
-#include <limits>
-#include <span>
-#include <vector>
+#include "crypto.hpp"
+#include "byte_order.hpp"
+#include "byte_reader.hpp"
+#include "byte_writer.hpp"
+#include "vision_codec.hpp"
+#include "tls_constants.hpp"
 
 namespace rv::vision
 {

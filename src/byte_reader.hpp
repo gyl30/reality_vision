@@ -1,12 +1,12 @@
 #ifndef REALITY_VISION_BYTE_READER_HPP
 #define REALITY_VISION_BYTE_READER_HPP
 
-#include "byte_order.hpp"
-
+#include <span>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
-#include <span>
+
+#include "byte_order.hpp"
 
 namespace rv::core
 {

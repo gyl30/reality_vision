@@ -1,14 +1,14 @@
 #ifndef REALITY_VISION_TRANSPARENT_HPP
 #define REALITY_VISION_TRANSPARENT_HPP
 
-#include <boost/asio/ip/tcp.hpp>
-#include <boost/asio/ip/udp.hpp>
-#include <boost/system/error_code.hpp>
-
+#include <span>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
-#include <span>
+
+#include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/ip/udp.hpp>
+#include <boost/system/error_code.hpp>
 
 namespace rv::transparent
 {

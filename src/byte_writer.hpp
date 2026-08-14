@@ -1,8 +1,8 @@
 #ifndef REALITY_VISION_BYTE_WRITER_HPP
 #define REALITY_VISION_BYTE_WRITER_HPP
 
-#include <cstdint>
 #include <vector>
+#include <cstdint>
 
 namespace rv::core
 {

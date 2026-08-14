@@ -1,12 +1,12 @@
-#include "tcp_byte_stream.hpp"
-
-#include <boost/asio/connect.hpp>
-#include <boost/asio/redirect_error.hpp>
-#include <boost/asio/use_awaitable.hpp>
-#include <boost/asio/write.hpp>
-#include <spdlog/spdlog.h>
-
 #include <utility>
+
+#include <spdlog/spdlog.h>
+#include <boost/asio/write.hpp>
+#include <boost/asio/connect.hpp>
+#include <boost/asio/use_awaitable.hpp>
+#include <boost/asio/redirect_error.hpp>
+
+#include "tcp_byte_stream.hpp"
 
 namespace rv::net
 {

@@ -1,20 +1,19 @@
-#include "reality_stream.hpp"
-
-#include "byte_order.hpp"
-#include "reality_handshake.hpp"
-#include "stream_io.hpp"
-
-#include <boost/asio/error.hpp>
-#include <boost/system/errc.hpp>
-#include <spdlog/spdlog.h>
-
-#include <algorithm>
+#include <span>
 #include <array>
+#include <vector>
 #include <cstddef>
 #include <cstdint>
-#include <span>
 #include <utility>
-#include <vector>
+#include <algorithm>
+
+#include <spdlog/spdlog.h>
+#include <boost/asio/error.hpp>
+#include <boost/system/errc.hpp>
+
+#include "stream_io.hpp"
+#include "byte_order.hpp"
+#include "reality_stream.hpp"
+#include "reality_handshake.hpp"
 
 namespace rv::reality
 {

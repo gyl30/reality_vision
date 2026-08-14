@@ -1,15 +1,15 @@
 #ifndef REALITY_VISION_REALITY_HANDSHAKE_HPP
 #define REALITY_VISION_REALITY_HANDSHAKE_HPP
 
-#include "reality_config.hpp"
-#include "reality_record.hpp"
-#include "tcp_byte_stream.hpp"
+#include <string>
+#include <optional>
 
 #include <boost/asio/awaitable.hpp>
 #include <boost/system/error_code.hpp>
 
-#include <optional>
-#include <string>
+#include "reality_config.hpp"
+#include "reality_record.hpp"
+#include "tcp_byte_stream.hpp"
 
 namespace rv::reality
 {

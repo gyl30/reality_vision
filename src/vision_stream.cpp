@@ -1,17 +1,16 @@
-#include "vision_stream.hpp"
-
-#include "stream_io.hpp"
-
-#include <boost/asio/error.hpp>
-#include <spdlog/spdlog.h>
-
-#include <algorithm>
+#include <span>
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <optional>
-#include <span>
 #include <utility>
+#include <optional>
+#include <algorithm>
+
+#include <spdlog/spdlog.h>
+#include <boost/asio/error.hpp>
+
+#include "stream_io.hpp"
+#include "vision_stream.hpp"
 
 namespace rv::vision
 {

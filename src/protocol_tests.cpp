@@ -1,38 +1,36 @@
-#include "protocol_tests.hpp"
+#include <span>
+#include <array>
+#include <chrono>
+#include <string>
+#include <vector>
+#include <cstdint>
+#include <optional>
+#include <algorithm>
+#include <exception>
+#include <stdexcept>
+#include <string_view>
 
-#include "network_address.hpp"
+#include <spdlog/spdlog.h>
+#include <boost/system/errc.hpp>
+#include <boost/system/error_code.hpp>
 
+#include "hex.hpp"
 #include "base64.hpp"
+#include "config.hpp"
+#include "crypto.hpp"
+#include "sniffer.hpp"
 #include "byte_order.hpp"
 #include "byte_queue.hpp"
 #include "byte_reader.hpp"
 #include "byte_writer.hpp"
-#include "config.hpp"
-#include "crypto.hpp"
-#include "hex.hpp"
-#include "reality_client_hello.hpp"
-#include "reality_record.hpp"
-#include "socks5_protocol.hpp"
-#include "sniffer.hpp"
-#include "tls_constants.hpp"
 #include "vision_codec.hpp"
 #include "vless_header.hpp"
-
-#include <boost/system/errc.hpp>
-#include <boost/system/error_code.hpp>
-#include <spdlog/spdlog.h>
-
-#include <algorithm>
-#include <array>
-#include <chrono>
-#include <cstdint>
-#include <exception>
-#include <optional>
-#include <span>
-#include <stdexcept>
-#include <string>
-#include <string_view>
-#include <vector>
+#include "tls_constants.hpp"
+#include "protocol_tests.hpp"
+#include "reality_record.hpp"
+#include "network_address.hpp"
+#include "socks5_protocol.hpp"
+#include "reality_client_hello.hpp"
 
 namespace rv::testing
 {

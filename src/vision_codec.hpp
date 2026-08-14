@@ -1,16 +1,16 @@
 #ifndef REALITY_VISION_VISION_CODEC_HPP
 #define REALITY_VISION_VISION_CODEC_HPP
 
-#include "tls_constants.hpp"
-
-#include <boost/system/error_code.hpp>
-
+#include <span>
 #include <array>
+#include <vector>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
-#include <span>
-#include <vector>
+
+#include <boost/system/error_code.hpp>
+
+#include "tls_constants.hpp"
 
 namespace rv::vision
 {

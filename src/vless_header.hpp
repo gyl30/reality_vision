@@ -1,14 +1,14 @@
 #ifndef REALITY_VISION_VLESS_HEADER_HPP
 #define REALITY_VISION_VLESS_HEADER_HPP
 
+#include <array>
+#include <vector>
+#include <cstddef>
+#include <cstdint>
+
 #include <boost/system/error_code.hpp>
 
 #include "network_address.hpp"
-
-#include <array>
-#include <cstddef>
-#include <cstdint>
-#include <vector>
 
 namespace rv::vless
 {

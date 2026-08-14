@@ -1,9 +1,9 @@
 #ifndef REALITY_VISION_SNIFFER_HPP
 #define REALITY_VISION_SNIFFER_HPP
 
-#include <cstdint>
 #include <span>
 #include <string>
+#include <cstdint>
 
 namespace rv::sniff
 {

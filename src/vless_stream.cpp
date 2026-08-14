@@ -1,13 +1,12 @@
-#include "vless_stream.hpp"
-
-#include "vless_response.hpp"
+#include <span>
+#include <cstddef>
+#include <cstdint>
+#include <utility>
 
 #include <spdlog/spdlog.h>
 
-#include <cstddef>
-#include <cstdint>
-#include <span>
-#include <utility>
+#include "vless_stream.hpp"
+#include "vless_response.hpp"
 
 namespace rv::vless
 {

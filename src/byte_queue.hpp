@@ -1,15 +1,15 @@
 #ifndef REALITY_VISION_BYTE_QUEUE_HPP
 #define REALITY_VISION_BYTE_QUEUE_HPP
 
-#include <boost/system/errc.hpp>
-#include <boost/system/error_code.hpp>
-
-#include <algorithm>
+#include <span>
+#include <vector>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <span>
-#include <vector>
+#include <algorithm>
+
+#include <boost/system/errc.hpp>
+#include <boost/system/error_code.hpp>
 
 namespace rv::core
 {

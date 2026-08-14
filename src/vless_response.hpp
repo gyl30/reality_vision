@@ -1,18 +1,18 @@
 #ifndef REALITY_VISION_VLESS_RESPONSE_HPP
 #define REALITY_VISION_VLESS_RESPONSE_HPP
 
-#include "reality_stream.hpp"
-#include "stream_io.hpp"
-
-#include <boost/asio/awaitable.hpp>
-#include <boost/system/errc.hpp>
-#include <boost/system/error_code.hpp>
-
+#include <span>
 #include <array>
+#include <limits>
 #include <cstddef>
 #include <cstdint>
-#include <limits>
-#include <span>
+
+#include <boost/system/errc.hpp>
+#include <boost/asio/awaitable.hpp>
+#include <boost/system/error_code.hpp>
+
+#include "stream_io.hpp"
+#include "reality_stream.hpp"
 
 namespace rv::vless
 {

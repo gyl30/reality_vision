@@ -1,16 +1,16 @@
 #ifndef REALITY_VISION_TCP_BYTE_STREAM_HPP
 #define REALITY_VISION_TCP_BYTE_STREAM_HPP
 
-#include <boost/asio/any_io_executor.hpp>
-#include <boost/asio/awaitable.hpp>
-#include <boost/asio/ip/tcp.hpp>
-#include <boost/system/error_code.hpp>
-
+#include <span>
+#include <string>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
-#include <span>
-#include <string>
+
+#include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/awaitable.hpp>
+#include <boost/system/error_code.hpp>
+#include <boost/asio/any_io_executor.hpp>
 
 namespace rv::net
 {
