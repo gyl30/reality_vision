@@ -1,15 +1,15 @@
 #ifndef REALITY_VISION_TCP_PROXY_HPP
 #define REALITY_VISION_TCP_PROXY_HPP
 
-#include "config.hpp"
-#include "proxy_service.hpp"
-
-#include <boost/asio/awaitable.hpp>
-#include <boost/asio/ip/tcp.hpp>
-
-#include <cstdint>
 #include <memory>
 #include <string>
+#include <cstdint>
+
+#include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/awaitable.hpp>
+
+#include "config.hpp"
+#include "proxy_service.hpp"
 
 namespace rv::tcp_proxy
 {

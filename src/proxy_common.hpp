@@ -1,15 +1,15 @@
 #ifndef REALITY_VISION_PROXY_COMMON_HPP
 #define REALITY_VISION_PROXY_COMMON_HPP
 
-#include "network_address.hpp"
-#include "reality_stream.hpp"
+#include <string>
+#include <cstdint>
+#include <optional>
 
 #include <boost/asio/awaitable.hpp>
 #include <boost/system/error_code.hpp>
 
-#include <cstdint>
-#include <optional>
-#include <string>
+#include "reality_stream.hpp"
+#include "network_address.hpp"
 
 namespace rv::app
 {

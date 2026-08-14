@@ -1,42 +1,40 @@
-#include "tcp_proxy.hpp"
-
-#include "network_address.hpp"
-#include "proxy_common.hpp"
-
-#include "reality_stream.hpp"
-#include "socks5_protocol.hpp"
-#include "sniffer.hpp"
-#include "transparent.hpp"
-#include "udp_proxy.hpp"
-#include "vision_stream.hpp"
-#include "vless_header.hpp"
-#include "vless_stream.hpp"
-
-#include <boost/asio/co_spawn.hpp>
-#include <boost/asio/detached.hpp>
-#include <boost/asio/io_context.hpp>
-#include <boost/asio/post.hpp>
-#include <boost/asio/experimental/awaitable_operators.hpp>
-#include <boost/asio/redirect_error.hpp>
-#include <boost/asio/steady_timer.hpp>
-#include <boost/asio/this_coro.hpp>
-#include <boost/asio/use_awaitable.hpp>
-#include <boost/asio/write.hpp>
-#include <boost/system/error_code.hpp>
-#include <boost/system/errc.hpp>
-#include <spdlog/spdlog.h>
-
-#include <algorithm>
+#include <span>
 #include <array>
 #include <chrono>
-#include <cstdint>
-#include <optional>
-#include <span>
 #include <string>
-#include <string_view>
+#include <vector>
+#include <cstdint>
 #include <utility>
 #include <variant>
-#include <vector>
+#include <optional>
+#include <algorithm>
+#include <string_view>
+
+#include <spdlog/spdlog.h>
+#include <boost/asio/post.hpp>
+#include <boost/asio/write.hpp>
+#include <boost/system/errc.hpp>
+#include <boost/asio/co_spawn.hpp>
+#include <boost/asio/detached.hpp>
+#include <boost/asio/this_coro.hpp>
+#include <boost/asio/io_context.hpp>
+#include <boost/asio/steady_timer.hpp>
+#include <boost/system/error_code.hpp>
+#include <boost/asio/use_awaitable.hpp>
+#include <boost/asio/redirect_error.hpp>
+#include <boost/asio/experimental/awaitable_operators.hpp>
+
+#include "sniffer.hpp"
+#include "tcp_proxy.hpp"
+#include "udp_proxy.hpp"
+#include "transparent.hpp"
+#include "proxy_common.hpp"
+#include "vless_header.hpp"
+#include "vless_stream.hpp"
+#include "vision_stream.hpp"
+#include "reality_stream.hpp"
+#include "network_address.hpp"
+#include "socks5_protocol.hpp"
 
 namespace rv::tcp_proxy
 {

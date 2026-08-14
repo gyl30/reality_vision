@@ -1,21 +1,20 @@
-#include "proxy_common.hpp"
-
-#include "config.hpp"
-#include "reality_config.hpp"
-#include "tcp_byte_stream.hpp"
-
-#include <boost/asio/experimental/awaitable_operators.hpp>
-#include <boost/asio/redirect_error.hpp>
-#include <boost/asio/steady_timer.hpp>
-#include <boost/asio/this_coro.hpp>
-#include <boost/asio/use_awaitable.hpp>
-#include <boost/system/errc.hpp>
-#include <spdlog/spdlog.h>
-
-#include <chrono>
 #include <string>
+#include <chrono>
 #include <utility>
 #include <variant>
+
+#include <spdlog/spdlog.h>
+#include <boost/system/errc.hpp>
+#include <boost/asio/this_coro.hpp>
+#include <boost/asio/steady_timer.hpp>
+#include <boost/asio/use_awaitable.hpp>
+#include <boost/asio/redirect_error.hpp>
+#include <boost/asio/experimental/awaitable_operators.hpp>
+
+#include "config.hpp"
+#include "proxy_common.hpp"
+#include "reality_config.hpp"
+#include "tcp_byte_stream.hpp"
 
 namespace rv::proxy
 {
