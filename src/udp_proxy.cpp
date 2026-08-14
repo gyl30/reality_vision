@@ -25,7 +25,6 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <exception>
 #include <map>
 #include <memory>
 #include <optional>
@@ -264,12 +263,7 @@ boost::asio::awaitable<void> run_socks_flow(std::shared_ptr<socks_udp_state> sta
         spdlog::info("{} socks5 udp flow {}", flow->session_id, net::format_address_port(flow->remote_address, flow->remote_port));
 
         const auto executor = co_await boost::asio::this_coro::executor;
-        boost::asio::co_spawn(executor,
-                       run_socks_downlink(state, flow),
-                       [flow](std::exception_ptr)
-                       {
-                           close_socks_flow(*flow);
-                       });
+        boost::asio::co_spawn(executor, run_socks_downlink(state, flow), boost::asio::detached);
 
         for (;;)
         {
@@ -333,12 +327,7 @@ std::shared_ptr<socks_udp_flow> get_socks_flow(const std::shared_ptr<socks_udp_s
         .key = key,
     });
     state->flows.emplace(key, flow);
-    boost::asio::co_spawn(executor,
-                   run_socks_flow(state, flow, configuration, target),
-                   [flow](std::exception_ptr)
-                   {
-                       close_socks_flow(*flow);
-                   });
+    boost::asio::co_spawn(executor, run_socks_flow(state, flow, configuration, target), boost::asio::detached);
     return flow;
 }
 
@@ -467,19 +456,8 @@ class udp_tproxy_session final : public std::enable_shared_from_this<udp_tproxy_
 
     void startup()
     {
-        const auto self = shared_from_this();
-        boost::asio::co_spawn(reply_socket_.get_executor(),
-                       run(),
-                       [self](std::exception_ptr)
-                       {
-                           self->shutdown();
-                       });
-        boost::asio::co_spawn(reply_socket_.get_executor(),
-                       run_idle_timer(),
-                       [self](std::exception_ptr)
-                       {
-                           self->shutdown();
-                       });
+        boost::asio::co_spawn(reply_socket_.get_executor(), run(), boost::asio::detached);
+        boost::asio::co_spawn(reply_socket_.get_executor(), run_idle_timer(), boost::asio::detached);
     }
 
    private:
@@ -526,6 +504,8 @@ class udp_tproxy_session final : public std::enable_shared_from_this<udp_tproxy_
    private:
     boost::asio::awaitable<void> run()
     {
+        const auto self = shared_from_this();
+        static_cast<void>(self);
         boost::system::error_code ec;
         auto upstream = co_await connect_udp_upstream(configuration_, make_proxy_target(destination_), session_id_, ec);
         if (ec)
@@ -535,6 +515,7 @@ class udp_tproxy_session final : public std::enable_shared_from_this<udp_tproxy_
                          format_endpoint(client_),
                          format_endpoint(destination_),
                          ec.message());
+            shutdown();
             co_return;
         }
         if (stopping_)
@@ -546,13 +527,7 @@ class udp_tproxy_session final : public std::enable_shared_from_this<udp_tproxy_
         upstream_.emplace(std::move(*upstream));
         spdlog::info("{} transparent udp {} -> {}", session_id_, format_endpoint(client_), format_endpoint(destination_));
 
-        const auto self = shared_from_this();
-        boost::asio::co_spawn(reply_socket_.get_executor(),
-                       run_downlink(),
-                       [self](std::exception_ptr)
-                       {
-                           self->shutdown();
-                       });
+        boost::asio::co_spawn(reply_socket_.get_executor(), run_downlink(), boost::asio::detached);
 
         while (!stopping_)
         {
@@ -569,10 +544,13 @@ class udp_tproxy_session final : public std::enable_shared_from_this<udp_tproxy_
                 break;
             }
         }
+        shutdown();
     }
 
     boost::asio::awaitable<void> run_downlink()
     {
+        const auto self = shared_from_this();
+        static_cast<void>(self);
         for (;;)
         {
             boost::system::error_code ec;
@@ -607,6 +585,8 @@ class udp_tproxy_session final : public std::enable_shared_from_this<udp_tproxy_
 
     boost::asio::awaitable<void> run_idle_timer()
     {
+        const auto self = shared_from_this();
+        static_cast<void>(self);
         while (!stopping_)
         {
             idle_timer_.expires_after(kUdpFlowIdleTimeout);
@@ -622,6 +602,7 @@ class udp_tproxy_session final : public std::enable_shared_from_this<udp_tproxy_
             }
             if (ec)
             {
+                shutdown();
                 co_return;
             }
             shutdown();
@@ -754,40 +735,18 @@ udp_tproxy::udp_tproxy(udp::socket socket, app::config configuration, std::strin
 
 void udp_tproxy::startup()
 {
-    const auto self = shared_from_this();
-    boost::asio::co_spawn(socket_.get_executor(),
-                   receive_datagrams(),
-                   [self](std::exception_ptr, const boost::system::error_code& ec)
-                   {
-                       rv::proxy::log_service_error(self->service_id_, ec);
-                       self->shutdown();
-                       static_cast<boost::asio::io_context&>(self->socket_.get_executor().context()).stop();
-                   });
+    boost::asio::co_spawn(socket_.get_executor(), receive_datagrams(), boost::asio::detached);
 }
 
-void udp_tproxy::shutdown()
-{
-    const auto self = shared_from_this();
-    boost::asio::post(socket_.get_executor(),
-               [self]
-               {
-                   if (self->stopping_)
-                   {
-                       return;
-                   }
-                   self->stopping_ = true;
-                   boost::system::error_code ignored;
-                   self->socket_.close(ignored);
-               });
-}
-
-boost::asio::awaitable<boost::system::error_code> udp_tproxy::receive_datagrams()
+boost::asio::awaitable<void> udp_tproxy::receive_datagrams()
 {
     boost::system::error_code ec;
     const auto endpoint = socket_.local_endpoint(ec);
     if (ec)
     {
-        co_return ec;
+        rv::proxy::log_service_error(service_id_, ec);
+        static_cast<boost::asio::io_context&>(socket_.get_executor().context()).stop();
+        co_return;
     }
 
     spdlog::info("tproxy udp proxy listening on 0.0.0.0:{} ({})", endpoint.port(), service_id_);
@@ -799,7 +758,9 @@ boost::asio::awaitable<boost::system::error_code> udp_tproxy::receive_datagrams(
         co_await socket_.async_wait(udp::socket::wait_read, boost::asio::redirect_error(boost::asio::use_awaitable, ec));
         if (ec)
         {
-            co_return ec;
+            rv::proxy::log_service_error(service_id_, ec);
+            static_cast<boost::asio::io_context&>(socket_.get_executor().context()).stop();
+            co_return;
         }
 
         udp::endpoint client;
@@ -807,7 +768,9 @@ boost::asio::awaitable<boost::system::error_code> udp_tproxy::receive_datagrams(
         const auto count = transparent::receive_ipv4_original_datagram(socket_, buffer, client, destination, ec);
         if (ec)
         {
-            co_return ec;
+            rv::proxy::log_service_error(service_id_, ec);
+            static_cast<boost::asio::io_context&>(socket_.get_executor().context()).stop();
+            co_return;
         }
         if (!count || *count == 0)
         {
