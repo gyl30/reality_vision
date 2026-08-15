@@ -8,6 +8,7 @@
 - XTLS-Vision padding，以及收、发方向独立切换的 Direct splice；
 - 本地 SOCKS5 `CONNECT` / `UDP ASSOCIATE` 代理（支持无认证或用户名密码认证，以及域名、IPv4 和 IPv6）；
 - Linux IPv4 TCP REDIRECT，以及 TCP/UDP TPROXY 透明入站；
+- Linux TUN 入站：lwIP raw TCP/UDP 栈接收 IPv4/IPv6 数据包，并复用 REALITY/VLESS 出站；
 - IP 目标的轻量 destination sniffer（TLS SNI / HTTP Host）；
 - spdlog 会话日志；
 - 基于真实 Xray 进程的端到端互通测试。
@@ -56,6 +57,8 @@ X25519MLKEM768、ML-DSA 附加校验和 Xray 的 spider fallback。REALITY 身�
 SOCKS5 当前只监听本机回环地址；不支持 `BIND`，支持 `UDP ASSOCIATE` 但不支持 SOCKS5 UDP fragmentation (`FRAG != 0`)。
 透明入站当前支持 Linux IPv4 TCP REDIRECT、TCP TPROXY 和 UDP TPROXY；不实现通用 UDP REDIRECT。IPv6 transparent 和 DNS 专用劫持留到后续阶段。UDP/443 可按普通 UDP 转发，但当前不解析或 sniff QUIC。
 
+TUN 当前是 Linux-only 的最小实现。`--tun` 使用 `/dev/net/tun`，lwIP raw API 负责 TCP/UDP 分流；TUN 目标只能从 IP 包中得到 IP 地址，不做 DNS 劫持、域名恢复或路由规则安装。程序不会替系统配置 TUN 的地址、MTU、路由和 DNS，部署时需要由外部脚本完成，并排除 REALITY 服务端地址避免回环。TUN 与现有 listener 共存时必须使用 `--workers 1`。
+
 ## 目录与依赖关系
 
 ```text
@@ -69,6 +72,8 @@ src/
   socks5_protocol.*             SOCKS5 协议实现
   sniffer.*                     TLS SNI / HTTP Host 目标探测
   transparent.*                 Linux REDIRECT / TPROXY socket helper
+  tun_device.* / tun_inbound.*  Linux TUN 设备与 lwIP raw 入站
+  tun_lwip.* / tun_*_session.*  lwIP 地址转换及 TCP / UDP 会话
   udp_proxy.*                    SOCKS5 / TPROXY UDP session 与 relay
   tcp_byte_stream.*             TCP 字节流
   crypto.*                      BoringSSL 封装
@@ -86,6 +91,9 @@ vision_stream -> vless_stream -> reality_stream -> tcp_byte_stream -> Boost.Asio
 
 SOCKS5 CONNECT / REDIRECT / TPROXY TCP
     -> optional sniffer -> VLESS TCP -> Vision -> REALITY
+
+TUN IPv4 / IPv6 packet
+    -> lwIP raw TCP / UDP -> VLESS TCP / UDP -> Vision / REALITY
 
 UDP:
 SOCKS5 UDP ASSOCIATE / TPROXY UDP
@@ -110,7 +118,13 @@ UDP never enters vision_stream.
 - 提供 `spdlog::spdlog` 的 spdlog CMake package；
 - BoringSSL 安装生成的 `OpenSSLConfig.cmake`。
 
-工程不下载、不编译第三方依赖。直接使用本机已经安装的包：
+工程不在 CMake 中下载第三方依赖；除随仓库接入的 lwIP submodule 外，其他依赖直接使用本机已经安装的包：
+
+首次构建前初始化 Git submodule：
+
+```sh
+git submodule update --init --recursive
+```
 
 ```sh
 cmake -S . -B build \
@@ -201,6 +215,30 @@ SOCKS5 UDP header 中的目标地址/端口决定远端 VLESS UDP flow；同一 
 `uint16_be length + payload` 保持边界。SOCKS5 `FRAG != 0` 当前拒绝。UDP/443 与其他 UDP 使用相同的 VLESS UDP + REALITY 路径，不经过 Vision。
 
 单个 SOCKS5 UDP association 最多创建 256 个 flow；达到上限时丢弃需要创建新 flow 的 datagram，已有 flow 不受影响。
+
+## 作为 Linux TUN 入站运行
+
+`--tun` 会创建指定名称的 Linux TUN 设备，默认名称为 `rv-tun`、lwIP MTU 为 1500：
+
+```sh
+sudo ./build/reality_vision \
+  --server 127.0.0.1 --port 8443 \
+  --server_name apple.com \
+  --server_public_key 'uL4rG3uX_6B359RLXYFNTmSWnrBSLVv1PIG6NUWjMVk' \
+  --short_id 01234567 \
+  --uuid b831381d-6324-4d53-ad4f-8cda48b30811 \
+  --tun --tun_name rv-tun --tun_mtu 1500
+```
+
+进程需要访问 `/dev/net/tun` 的权限，通常需要 root 或 `CAP_NET_ADMIN`。设备创建后，还需要在另一个终端设置系统侧地址、链路、MTU 和路由；这些参数必须与部署拓扑匹配，且路由必须排除 REALITY 服务端地址。例如：
+
+```sh
+sudo ip addr add 198.18.0.1/15 dev rv-tun
+sudo ip link set dev rv-tun mtu 1500 up
+sudo ip route add default dev rv-tun
+```
+
+默认路由会把代理自身的 REALITY 连接也送回 TUN，生产配置必须使用策略路由或防火墙规则排除服务端地址。当前 TUN UDP 数据报沿用 VLESS UDP 单报文上限 8190 bytes，较大的 UDP 数据报会丢弃；同一客户端源 IP/端口同时访问多个 UDP 目标的 flow 拆分尚未实现；TCP 会按 lwIP 的接收窗口和发送窗口回压。
 
 ## 作为 Linux TCP / UDP 透明代理运行
 

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(reality_vision_cpp LANGUAGES CXX)
+project(reality_vision_cpp LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -15,6 +15,27 @@ find_package(Boost REQUIRED CONFIG COMPONENTS program_options system)
 find_package(OpenSSL REQUIRED CONFIG)
 find_package(spdlog REQUIRED)
 find_package(Threads REQUIRED)
+
+set(RV_LWIP_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third/lwip)
+file(
+  GLOB RV_LWIP_SOURCES
+  CONFIGURE_DEPENDS
+  ${RV_LWIP_DIR}/src/core/*.c
+  ${RV_LWIP_DIR}/src/core/ipv4/*.c
+  ${RV_LWIP_DIR}/src/core/ipv6/*.c
+  ${RV_LWIP_DIR}/src/api/err.c
+  ${RV_LWIP_DIR}/src/ports/lib/mem.c
+  src/lwip_port.c)
+
+add_library(rv_lwip STATIC ${RV_LWIP_SOURCES})
+target_include_directories(
+  rv_lwip SYSTEM
+  PUBLIC ${RV_LWIP_DIR}/src/include ${RV_LWIP_DIR}/src/ports/include)
+if(MSVC)
+  target_compile_options(rv_lwip PRIVATE /W0)
+else()
+  target_compile_options(rv_lwip PRIVATE -Wno-conversion -Wno-sign-conversion)
+endif()
 
 add_executable(
   reality_vision
@@ -36,6 +57,11 @@ add_executable(
   src/tcp_byte_stream.cpp
   src/tcp_proxy.cpp
   src/transparent.cpp
+  src/tun_device.cpp
+  src/tun_inbound.cpp
+  src/tun_lwip.cpp
+  src/tun_tcp_session.cpp
+  src/tun_udp_session.cpp
   src/udp_proxy.cpp
   src/vision_codec.cpp
   src/vision_stream.cpp
@@ -53,7 +79,8 @@ target_link_libraries(
           OpenSSL::SSL
           OpenSSL::Crypto
           spdlog::spdlog
-          Threads::Threads)
+          Threads::Threads
+          rv_lwip)
 
 if(MSVC)
   target_compile_options(reality_vision PRIVATE /W4 /permissive-)

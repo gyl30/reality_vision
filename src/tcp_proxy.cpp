@@ -26,9 +26,6 @@
 #include "udp_proxy.hpp"
 #include "transparent.hpp"
 #include "proxy_common.hpp"
-#include "vless_header.hpp"
-#include "vless_stream.hpp"
-#include "vision_stream.hpp"
 #include "reality_stream.hpp"
 #include "network_address.hpp"
 #include "socks5_protocol.hpp"
@@ -175,25 +172,6 @@ rv::proxy::target make_proxy_target(const tcp::endpoint& endpoint)
 
 std::string format_endpoint(const tcp::endpoint& endpoint) { return endpoint.address().to_string() + ":" + std::to_string(endpoint.port()); }
 
-boost::asio::awaitable<std::optional<rv::vision::vision_stream>> connect_vision(rv::reality::reality_stream reality,
-                                                                                const rv::app::config& configuration,
-                                                                                const rv::proxy::target& target,
-                                                                                const std::string& session_id,
-                                                                                boost::system::error_code& ec)
-{
-    rv::vless::client_config vless_configuration;
-    vless_configuration.user_id = configuration.vless_user_id;
-    vless_configuration.destination = target.destination;
-    vless_configuration.destination_port = target.port;
-    auto vless_stream = co_await rv::vless::vless_stream::connect(std::move(reality), std::move(vless_configuration), session_id, ec);
-    if (ec)
-    {
-        co_return std::nullopt;
-    }
-
-    co_return co_await rv::vision::vision_stream::connect(std::move(*vless_stream), configuration.vless_user_id, session_id, ec);
-}
-
 boost::asio::awaitable<std::optional<std::size_t>> read_some_until(tcp::socket& client_socket,
                                                                    std::span<std::uint8_t> output,
                                                                    const std::chrono::steady_clock::time_point deadline,
@@ -332,7 +310,7 @@ boost::asio::awaitable<void> run_socks_connect_session(tcp::socket& client_socke
         }
 
         apply_sniffed_destination(target, initial_data, session_id);
-        upstream = co_await connect_vision(std::move(*reality), configuration, target, session_id, ec);
+        upstream = co_await proxy::connect_vision(std::move(*reality), configuration, target, session_id, ec);
         if (ec)
         {
             spdlog::warn("{} upstream connection failed after socks5 success: {}", session_id, ec.message());
@@ -341,7 +319,7 @@ boost::asio::awaitable<void> run_socks_connect_session(tcp::socket& client_socke
     }
     else
     {
-        upstream = co_await connect_vision(std::move(*reality), configuration, target, session_id, ec);
+        upstream = co_await proxy::connect_vision(std::move(*reality), configuration, target, session_id, ec);
         if (ec)
         {
             const auto upstream_ec = ec;
@@ -447,7 +425,7 @@ boost::asio::awaitable<void> run_transparent_session(tcp::socket& client_socket,
 
     auto target = make_proxy_target(original_destination);
     apply_sniffed_destination(target, initial_data, session_id);
-    auto upstream = co_await connect_vision(std::move(*reality), configuration, target, session_id, ec);
+    auto upstream = co_await proxy::connect_vision(std::move(*reality), configuration, target, session_id, ec);
     if (ec)
     {
         spdlog::warn("{} upstream connection failed: {}", session_id, ec.message());

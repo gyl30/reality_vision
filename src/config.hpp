@@ -32,6 +32,9 @@ struct config
     std::uint16_t socks_listen_port = 0;
     std::uint16_t redirect_listen_port = 0;
     std::uint16_t tproxy_listen_port = 0;
+    bool tun_enabled = false;
+    std::string tun_name = "rv-tun";
+    std::uint16_t tun_mtu = 1500;
     std::optional<rv::socks5::credentials> socks_credentials;
 
     std::size_t worker_count = kDefaultWorkerCount;

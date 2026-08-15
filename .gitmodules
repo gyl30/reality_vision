@@ -1,0 +1,3 @@
+[submodule "third/lwip"]
+	path = third/lwip
+	url = https://github.com/heiher/lwip

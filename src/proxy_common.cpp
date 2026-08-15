@@ -14,6 +14,8 @@
 #include "proxy_common.hpp"
 #include "reality_config.hpp"
 #include "tcp_byte_stream.hpp"
+#include "vless_header.hpp"
+#include "vless_stream.hpp"
 
 namespace rv::proxy
 {
@@ -67,6 +69,44 @@ boost::asio::awaitable<std::optional<reality::reality_stream>> connect_reality(c
         co_return std::nullopt;
     }
     co_return std::get<0>(std::move(reality_outcome));
+}
+
+boost::asio::awaitable<std::optional<vision::vision_stream>> connect_vision(reality::reality_stream reality,
+                                                                            const app::config& configuration,
+                                                                            const target& destination,
+                                                                            const std::string& session_id,
+                                                                            boost::system::error_code& ec)
+{
+    vless::client_config vless_configuration;
+    vless_configuration.user_id = configuration.vless_user_id;
+    vless_configuration.destination = destination.destination;
+    vless_configuration.destination_port = destination.port;
+    auto vless_stream = co_await vless::vless_stream::connect(std::move(reality), std::move(vless_configuration), session_id, ec);
+    if (ec)
+    {
+        co_return std::nullopt;
+    }
+
+    co_return co_await vision::vision_stream::connect(std::move(*vless_stream), configuration.vless_user_id, session_id, ec);
+}
+
+boost::asio::awaitable<std::optional<vless::vless_udp_stream>> connect_udp(const app::config& configuration,
+                                                                           const target& destination,
+                                                                           const std::string& session_id,
+                                                                           boost::system::error_code& ec)
+{
+    auto reality_stream = co_await connect_reality(configuration, session_id, ec);
+    if (ec)
+    {
+        co_return std::nullopt;
+    }
+
+    vless::client_config vless_configuration;
+    vless_configuration.user_id = configuration.vless_user_id;
+    vless_configuration.destination = destination.destination;
+    vless_configuration.destination_port = destination.port;
+    co_return co_await vless::vless_udp_stream::connect(
+        std::move(*reality_stream), std::move(vless_configuration), session_id, ec);
 }
 
 }    // namespace rv::proxy

@@ -29,9 +29,7 @@
 #include "udp_proxy.hpp"
 #include "transparent.hpp"
 #include "proxy_common.hpp"
-#include "vless_header.hpp"
 #include "network_address.hpp"
-#include "vless_udp_stream.hpp"
 
 namespace rv::udp_proxy
 {
@@ -122,24 +120,6 @@ std::string socks_flow_key(const net::address& destination, const std::uint16_t 
 }
 
 std::string format_endpoint(const udp::endpoint& endpoint) { return endpoint.address().to_string() + ":" + std::to_string(endpoint.port()); }
-
-boost::asio::awaitable<std::optional<vless::vless_udp_stream>> connect_udp_upstream(const app::config& configuration,
-                                                                                    const proxy::target& target,
-                                                                                    const std::string& session_id,
-                                                                                    boost::system::error_code& ec)
-{
-    auto reality_stream = co_await proxy::connect_reality(configuration, session_id, ec);
-    if (ec)
-    {
-        co_return std::nullopt;
-    }
-
-    vless::client_config vless_configuration;
-    vless_configuration.user_id = configuration.vless_user_id;
-    vless_configuration.destination = target.destination;
-    vless_configuration.destination_port = target.port;
-    co_return co_await vless::vless_udp_stream::connect(std::move(*reality_stream), std::move(vless_configuration), session_id, ec);
-}
 
 struct socks_udp_flow
 {
@@ -246,7 +226,7 @@ boost::asio::awaitable<void> run_socks_flow(std::shared_ptr<socks_udp_state> sta
                                             proxy::target target)
 {
     boost::system::error_code ec;
-    auto upstream = co_await connect_udp_upstream(configuration, target, flow->session_id, ec);
+    auto upstream = co_await proxy::connect_udp(configuration, target, flow->session_id, ec);
     if (ec)
     {
         spdlog::warn("{} socks5 udp upstream connection failed for {}: {}",
@@ -505,7 +485,7 @@ class udp_tproxy_session final : public std::enable_shared_from_this<udp_tproxy_
         const auto self = shared_from_this();
         static_cast<void>(self);
         boost::system::error_code ec;
-        auto upstream = co_await connect_udp_upstream(configuration_, make_proxy_target(destination_), session_id_, ec);
+        auto upstream = co_await proxy::connect_udp(configuration_, make_proxy_target(destination_), session_id_, ec);
         if (ec)
         {
             spdlog::warn("{} tproxy udp upstream connection failed for {} -> {}: {}",

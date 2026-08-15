@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "config.hpp"
+#include "tun_inbound.hpp"
 
 namespace boost::asio
 {
@@ -31,6 +32,7 @@ class service
     config configuration_;
     std::vector<std::shared_ptr<boost::asio::io_context>> contexts_;
     std::vector<std::shared_ptr<proxy_service>> proxy_services_;
+    std::shared_ptr<tun::tun_inbound> tun_inbound_;
     std::vector<std::thread> workers_;
     std::atomic_bool stopping_{false};
 };

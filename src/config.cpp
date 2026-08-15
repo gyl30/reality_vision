@@ -23,9 +23,20 @@ bool validate_listen_and_server_ports(const config& configuration)
         std::cerr << "--port must be between 1 and 65535\n";
         return false;
     }
-    if (configuration.socks_listen_port == 0 && configuration.redirect_listen_port == 0 && configuration.tproxy_listen_port == 0)
+    if (configuration.socks_listen_port == 0 && configuration.redirect_listen_port == 0 && configuration.tproxy_listen_port == 0 &&
+        !configuration.tun_enabled)
     {
-        std::cerr << "at least one of --socks_port, --redirect_port, or --tproxy_port must be configured\n";
+        std::cerr << "at least one of --socks_port, --redirect_port, --tproxy_port, or --tun must be configured\n";
+        return false;
+    }
+    if (configuration.tun_enabled && configuration.worker_count != 1)
+    {
+        std::cerr << "--tun requires --workers 1\n";
+        return false;
+    }
+    if (configuration.tun_enabled && configuration.tun_mtu < 576)
+    {
+        std::cerr << "--tun_mtu must be between 576 and 65535\n";
         return false;
     }
     return true;
@@ -139,6 +150,9 @@ std::expected<config, config_exit_code> parse_config(const int argc, char* argv[
         "socks_port", boost::program_options::value<std::uint16_t>(&configuration.socks_listen_port), "socks5 listen port")(
         "redirect_port", boost::program_options::value<std::uint16_t>(&configuration.redirect_listen_port), "TCP REDIRECT listen port")(
         "tproxy_port", boost::program_options::value<std::uint16_t>(&configuration.tproxy_listen_port), "TCP TPROXY listen port")(
+        "tun", "enable Linux TUN inbound")(
+        "tun_name", boost::program_options::value<std::string>(&configuration.tun_name)->default_value(configuration.tun_name), "TUN device name")(
+        "tun_mtu", boost::program_options::value<std::uint16_t>(&configuration.tun_mtu)->default_value(configuration.tun_mtu), "TUN device MTU")(
         "socks_username", boost::program_options::value<std::string>(&socks_username), "socks5 username")(
         "socks_password", boost::program_options::value<std::string>(&socks_password), "socks5 password")(
         "workers", boost::program_options::value<std::size_t>(&configuration.worker_count)->default_value(kDefaultWorkerCount), "number of io_context workers");
@@ -170,6 +184,7 @@ std::expected<config, config_exit_code> parse_config(const int argc, char* argv[
         std::cerr << "--workers must be greater than zero\n";
         return std::unexpected(config_exit_code::kFailure);
     }
+    configuration.tun_enabled = options.contains("tun");
     if (!validate_listen_and_server_ports(configuration) ||
         !parse_socks_credentials(options, std::move(socks_username), std::move(socks_password), configuration) ||
         !decode_reality_public_key(server_public_key, configuration) || !decode_reality_short_id(short_id, configuration) ||

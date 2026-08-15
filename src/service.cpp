@@ -130,6 +130,17 @@ void service::startup()
             proxy_services_.push_back(std::make_shared<udp_proxy::udp_tproxy>(std::move(socket), configuration_, udp_service_id));
         }
     }
+
+    if (configuration_.tun_enabled)
+    {
+        boost::system::error_code ec;
+        tun_inbound_ = std::make_shared<tun::tun_inbound>(*contexts_.front(), configuration_);
+        if (!tun_inbound_->start(ec))
+        {
+            spdlog::error("tun listener creation failed: {}", ec.message());
+            return;
+        }
+    }
     for (const auto& proxy_service : proxy_services_)
     {
         proxy_service->startup();
@@ -155,6 +166,10 @@ void service::shutdown()
     if (stopping_.exchange(true, std::memory_order_relaxed))
     {
         return;
+    }
+    if (tun_inbound_)
+    {
+        tun_inbound_->stop();
     }
     for (const auto& context : contexts_)
     {
