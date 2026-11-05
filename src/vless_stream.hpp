@@ -3,6 +3,7 @@
 
 #include <span>
 #include <string>
+#include <vector>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -35,8 +36,14 @@ class vless_stream
     void shutdown() noexcept;
 
    private:
-    vless_stream(reality::reality_stream reality, std::string session_id);
+    vless_stream(reality::reality_stream reality, std::vector<std::uint8_t> pending_request, std::string session_id);
+
+    [[nodiscard]] std::span<const std::uint8_t> take_request_with(std::span<const std::uint8_t> input);
+    void log_request_sent() const;
+
     reality::reality_stream reality_;
+    // 与 Xray 一致，请求头和首个载荷合并到同一次 TLS 写入，避免单独的小 record 暴露 VLESS 头长度。
+    std::vector<std::uint8_t> pending_request_;
     bool response_header_pending_{true};
     std::string session_id_;
 };

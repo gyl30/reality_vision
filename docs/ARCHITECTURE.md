@@ -34,8 +34,8 @@ iptables/nftables、fwmark 与 policy routing 保持在程序外部。通用 UDP
 
 1. `tcp_byte_stream::connect()` 解析地址并建立 TCP；
 2. `reality_stream::connect()` 完成 REALITY/TLS 1.3 handshake；
-3. `vless_stream::connect()` 发送 VLESS request header；
-4. `vision_stream::connect()` 发送带 UUID 的初始 padding frame；
+3. `vless_stream::connect()` 编码 VLESS request header，暂存到首次写入；
+4. `vision_stream::connect()` 发送带 UUID 的初始 padding frame，与 request header 合并为同一个 TLS record；
 5. 返回 SOCKS success，再进入双向 relay。
 
 IP 目标为了让客户端先产生 ClientHello/HTTP request，会在第 2 步后返回 SOCKS success，
@@ -53,7 +53,7 @@ SOCKS5 入站协商及上游 TCP 建连与 REALITY 握手均限制为 60 秒。
 | `crypto::aead` | 私有 PImpl | 封装 BoringSSL `EVP_AEAD_CTX`，不向其他模块暴露 BoringSSL 类型 |
 | `reality::record_key` | AEAD、12-byte IV、sequence | TLS 1.3 单方向 record protection |
 | `reality::reality_stream` | RX/TX mode、receive/send key、两个 byte_queue | TLS application records 与 raw TCP 之间切换 |
-| `vless::vless_stream` | response header pending flag | VLESS TCP request/response header 与 stream body |
+| `vless::vless_stream` | pending request header、response header pending flag | VLESS TCP request/response header 与 stream body |
 | `vless::vless_udp_stream` | response header pending flag | VLESS UDP request header，以及 `uint16 length + datagram` body framing；不包含 Vision |
 | `vision::server_hello_tracker` | bounded buffer、record length、result | 跨读取片段识别内层 TLS 1.3 ServerHello |
 | `vision::vision_stream` | receive phase、frame counters、padding/direct flags | 仅 TCP 路径的 Vision 编解码与两个方向 Direct 决策 |

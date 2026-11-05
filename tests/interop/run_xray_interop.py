@@ -205,6 +205,91 @@ def negotiate_socks5_authentication(
         raise RuntimeError("SOCKS5 username and password authentication failed")
 
 
+class RecordingRelay:
+    def __init__(self, upstream_port: int) -> None:
+        self.upstream_port = upstream_port
+        self.client_bytes = bytearray()
+        self.listener = socket.create_server(("127.0.0.1", 0))
+        self.port = int(self.listener.getsockname()[1])
+        self.thread = threading.Thread(target=self.serve, daemon=True)
+        self.thread.start()
+
+    def serve(self) -> None:
+        downstream, _ = self.listener.accept()
+        upstream = socket.create_connection(("127.0.0.1", self.upstream_port))
+
+        def pump(source: socket.socket, target: socket.socket, record: bytearray | None) -> None:
+            while data := source.recv(65536):
+                if record is not None:
+                    record.extend(data)
+                target.sendall(data)
+            target.shutdown(socket.SHUT_WR)
+
+        reverse = threading.Thread(target=pump, args=(upstream, downstream, None), daemon=True)
+        reverse.start()
+        pump(downstream, upstream, self.client_bytes)
+        reverse.join(timeout=5)
+        downstream.close()
+        upstream.close()
+
+    def close(self) -> None:
+        self.listener.close()
+        self.thread.join(timeout=5)
+
+
+def client_application_record_sizes(stream: bytes) -> list[int]:
+    sizes = []
+    offset = 0
+    while offset + 5 <= len(stream):
+        length = int.from_bytes(stream[offset + 3 : offset + 5], "big")
+        if stream[offset] == 0x17:
+            sizes.append(length)
+        offset += 5 + length
+    return sizes
+
+
+def test_vless_header_shares_first_padding_record(
+    client: Path,
+    public_key: str,
+    xray_port: int,
+    echo_port: int,
+    work_dir: Path,
+) -> None:
+    log_path = work_dir / "vless-header-record.log"
+    relay = RecordingRelay(xray_port)
+    process: subprocess.Popen[bytes] | None = None
+    try:
+        with reserve_listener() as socks_reservation:
+            socks_port = int(socks_reservation.getsockname()[1])
+        with log_path.open("wb") as log:
+            process = subprocess.Popen(
+                [
+                    str(client), "--server", "127.0.0.1", "--port", str(relay.port),
+                    "--server_name", SERVER_NAME, "--server_public_key", public_key,
+                    "--short_id", SHORT_ID, "--uuid", USER_ID, "--socks_port", str(socks_port),
+                ],
+                stdout=log,
+                stderr=subprocess.STDOUT,
+            )
+            wait_for_text(log_path, "socks5 tcp proxy listening", process)
+            socks5_echo_roundtrip(
+                socks_port,
+                echo_port,
+                b"xray-reality-vless-header-record",
+                username=None,
+                password=None,
+            )
+            wait_for_text(log_path, "socks_0_1 socks5 tcp session completed", process)
+    finally:
+        stop_process(process)
+        relay.close()
+
+    # 第一个 application_data record 是 REALITY Finished，第二个必须同时携带 VLESS 头与长 padding 首帧。
+    sizes = client_application_record_sizes(bytes(relay.client_bytes))
+    if len(sizes) < 2 or sizes[1] < 900:
+        raise RuntimeError(f"VLESS request header is not hidden by the first Vision padding record: {sizes[:4]}")
+
+
 def open_socks5_connection(
     proxy_port: int,
     target_host: str,
@@ -1037,6 +1122,13 @@ def main() -> int:
                         stderr=subprocess.STDOUT,
                     )
                     wait_for_listener(xray_port, xray_process)
+                    test_vless_header_shares_first_padding_record(
+                        args.client,
+                        public_key,
+                        xray_port,
+                        echo_port,
+                        work_dir,
+                    )
 
                     with (
                         vision_socks_log_path.open("wb") as vision_socks_log,
