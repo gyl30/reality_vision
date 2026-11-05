@@ -69,14 +69,15 @@ tun_tcp_session::tun_tcp_session(boost::asio::any_io_executor executor,
 
 boost::asio::awaitable<void> tun_tcp_session::start()
 {
-    co_await run();
-    close_client(false);
+    // 只有双向正常结束才发 FIN；上游连接失败或中继出错时发 RST，与真实 TCP 连接的失败语义一致。
+    const bool completed = co_await run();
+    close_client(!completed);
     notify_closed();
 }
 
 void tun_tcp_session::stop() { close_client(true); }
 
-boost::asio::awaitable<void> tun_tcp_session::run()
+boost::asio::awaitable<bool> tun_tcp_session::run()
 {
     using namespace boost::asio::experimental::awaitable_operators;    // NOLINT
 
@@ -84,13 +85,13 @@ boost::asio::awaitable<void> tun_tcp_session::run()
     auto reality = co_await proxy::connect_reality(configuration_, session_id_, ec);
     if (ec || !reality || stopped_.load(std::memory_order_relaxed))
     {
-        co_return;
+        co_return false;
     }
 
     upstream_ = co_await proxy::connect_vision(std::move(*reality), configuration_, target_, session_id_, ec);
     if (ec || !upstream_ || stopped_.load(std::memory_order_relaxed))
     {
-        co_return;
+        co_return false;
     }
 
     boost::system::error_code client_ec;
@@ -104,6 +105,7 @@ boost::asio::awaitable<void> tun_tcp_session::run()
     {
         spdlog::debug("{} TUN TCP upstream relay stopped: {}", session_id_, upstream_ec.message());
     }
+    co_return !client_ec && !upstream_ec;
 }
 
 boost::asio::awaitable<void> tun_tcp_session::client_to_upstream(vision::vision_stream& upstream,

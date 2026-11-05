@@ -96,6 +96,18 @@ def run_client_checks() -> int:
     return 0
 
 
+def run_reset_check() -> int:
+    # 上游不可用时 lwIP 已完成三次握手，应用必须收到 RST，而不是看似正常结束的 FIN。
+    # 不发送数据：lwIP 关闭仍有未读数据的连接时本身就会发 RST，服务端先发言的协议（SSH、SMTP）才会暴露问题。
+    with socket.create_connection((TARGET_V4, TCP_ECHO_PORT), timeout=10) as connection:
+        try:
+            data = connection.recv(1)
+        except ConnectionResetError:
+            print("tun reset check passed", flush=True)
+            return 0
+    raise RuntimeError(f"expected connection reset, received {data!r}")
+
+
 def launch(namespace: str, command: list[str], log_path: Path, processes: list, log_files: list) -> subprocess.Popen[bytes]:
     log_file = log_path.open("wb")
     log_files.append(log_file)
@@ -219,6 +231,9 @@ def run_test(xray: Path, client: Path, work_dir: Path) -> int:
         if proxy_process.poll() is not None:
             raise RuntimeError(f"reality_vision exited\n{interop.tail(proxy_log_path)}")
 
+        interop.stop_process(xray_process)
+        run_client(proxy_namespace, script, "check-reset", work_dir / "tun-check-reset.log")
+
         # TUN 设备被删除后读取失败，进程必须退出而不是静默丢弃全部流量。
         run_checked(["ip", "-n", proxy_namespace, "link", "delete", TUN_NAME])
         try:
@@ -234,7 +249,7 @@ def run_test(xray: Path, client: Path, work_dir: Path) -> int:
         for log_file in log_files:
             log_file.close()
 
-    print("TUN TCP IPv4/IPv6, UDP multi-destination, and device removal tests passed")
+    print("TUN TCP IPv4/IPv6, UDP multi-destination, upstream reset, and device removal tests passed")
     return 0
 
 
@@ -247,6 +262,7 @@ def main() -> int:
     run_parser.add_argument("--work-dir", type=Path, required=True)
     subcommands.add_parser("echo")
     subcommands.add_parser("check")
+    subcommands.add_parser("check-reset")
     probe_parser = subcommands.add_parser("probe")
     probe_parser.add_argument("--host", required=True)
     probe_parser.add_argument("--port", type=int, required=True)
@@ -262,6 +278,8 @@ def main() -> int:
         return run_echo_servers()
     if args.command == "check":
         return run_client_checks()
+    if args.command == "check-reset":
+        return run_reset_check()
     with socket.create_connection((args.host, args.port), timeout=0.5):
         return 0
 

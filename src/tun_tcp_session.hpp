@@ -39,7 +39,7 @@ class tun_tcp_session : public std::enable_shared_from_this<tun_tcp_session>
     static err_t on_poll(void* argument, tcp_pcb* pcb);
 
    private:
-    [[nodiscard]] boost::asio::awaitable<void> run();
+    [[nodiscard]] boost::asio::awaitable<bool> run();
     [[nodiscard]] boost::asio::awaitable<void> client_to_upstream(vision::vision_stream& upstream,
                                                                   boost::system::error_code& ec);
     [[nodiscard]] boost::asio::awaitable<void> upstream_to_client(vision::vision_stream& upstream,
