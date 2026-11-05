@@ -115,10 +115,9 @@ UDP never enters vision_stream.
 - CMake 3.24+；
 - C++23 编译器；
 - 提供 `Boost::headers`、`Boost::system` 与 `Boost::program_options` 的 Boost CMake package；
-- 提供 `spdlog::spdlog` 的 spdlog CMake package；
-- BoringSSL 安装生成的 `OpenSSLConfig.cmake`。
+- 提供 `spdlog::spdlog` 的 spdlog CMake package。
 
-工程不在 CMake 中下载第三方依赖；除随仓库接入的 lwIP submodule 外，其他依赖直接使用本机已经安装的包：
+BoringSSL 与 lwIP 以 Git submodule 固定版本源码随工程构建；CMake 不下载依赖，Boost 与 spdlog 直接使用本机已经安装的包。
 
 首次构建前初始化 Git submodule：
 
@@ -127,9 +126,7 @@ git submodule update --init --recursive
 ```
 
 ```sh
-cmake -S . -B build \
-  -DOpenSSL_DIR=/path/to/boringssl/lib/cmake/OpenSSL \
-  -DCMAKE_BUILD_TYPE=Debug
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
 cmake --build build -j12
 ctest --test-dir build --output-on-failure
 ```
@@ -138,19 +135,16 @@ CMake 只创建一个 `reality_vision` executable，所有实现源文件直接�
 
 - `Boost::headers`；
 - `spdlog::spdlog`；
-- `OpenSSL::SSL`；
-- `OpenSSL::Crypto`；
+- BoringSSL `crypto`（submodule `third/boringssl`）；
 - `Threads::Threads`；
 - `Boost::program_options`；
 - `Boost::system`。
 
-`OpenSSL_DIR` 必须指向 BoringSSL 安装生成的 package；普通 OpenSSL 不提供实现所用的
-`EVP_AEAD` 等接口。
+工程只链接 BoringSSL 的 libcrypto；普通 OpenSSL 不提供实现所用的 `EVP_AEAD` 等接口。
 
 主要 CMake 开关：
 
 - `RV_BUILD_TESTS=ON|OFF`；
-- `OpenSSL_DIR=/path/to/boringssl/lib/cmake/OpenSSL`；
 - `RV_XRAY_EXECUTABLE=/path/to/xray`：启用真实 Xray 互通测试。
 - `RV_ENABLE_PRIVILEGED_TESTS=ON|OFF`：注册需要 root、network namespace 和 netfilter 的 REDIRECT/TPROXY 互通测试。
 

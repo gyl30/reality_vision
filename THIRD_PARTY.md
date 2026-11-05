@@ -12,4 +12,6 @@ This project interoperates with and was developed by studying the wire behavior 
 
 Exact tested compatibility revisions are recorded in `docs/COMPATIBILITY.md`. Third-party source
 is kept in Git submodules where the build requires source integration. The lwIP submodule is
-fixed to commit `07dbf162c718cc78ddedb9e67c6ebd17065eaf13` and is built as `rv_lwip`.
+fixed to commit `07dbf162c718cc78ddedb9e67c6ebd17065eaf13` and is built as `rv_lwip`. The BoringSSL
+submodule is fixed to release `0.20261020.0` (`d3bf4795ad5b79d646cddf2fec687da5b9b502db`); only its
+`crypto` library is built and linked.

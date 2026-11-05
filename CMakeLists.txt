@@ -12,9 +12,12 @@ option(RV_ENABLE_PRIVILEGED_TESTS "Register Linux network namespace tests that r
 set(RV_XRAY_EXECUTABLE "" CACHE FILEPATH "Path to the Xray executable for interop tests")
 
 find_package(Boost REQUIRED CONFIG COMPONENTS program_options system)
-find_package(OpenSSL REQUIRED CONFIG)
 find_package(spdlog REQUIRED)
 find_package(Threads REQUIRED)
+
+# BoringSSL 以 submodule 固定版本源码构建；只链接 libcrypto，不注册其测试。
+set(BUILD_TESTING OFF)
+add_subdirectory(third/boringssl EXCLUDE_FROM_ALL)
 
 set(RV_LWIP_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third/lwip)
 file(
@@ -76,8 +79,7 @@ target_link_libraries(
   PRIVATE Boost::headers
           Boost::program_options
           Boost::system
-          OpenSSL::SSL
-          OpenSSL::Crypto
+          crypto
           spdlog::spdlog
           Threads::Threads
           rv_lwip)

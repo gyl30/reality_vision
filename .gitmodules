@@ -1,3 +1,6 @@
 [submodule "third/lwip"]
 	path = third/lwip
 	url = https://github.com/heiher/lwip
+[submodule "third/boringssl"]
+	path = third/boringssl
+	url = https://boringssl.googlesource.com/boringssl

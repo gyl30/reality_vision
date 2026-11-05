@@ -7,11 +7,11 @@
 | Xray-core | `5ca6f4b7d4dc20a881d4330e498892697627ec0c` | REALITY、VLESS、Vision 互通基线 |
 | uTLS | `aa6edf4b11af` | `HelloFirefox_120` 序列化 profile |
 | XTLS/REALITY Go | `9234c772ba8f` | 服务端 REALITY 行为参考 |
-| BoringSSL | `619e6bc3deda4e0d2fe4ad3fc439ae4fc1e00caf` | 已验证的密码学与 X.509 版本 |
+| BoringSSL | `0.20261020.0`（`d3bf4795ad5b79d646cddf2fec687da5b9b502db`） | submodule 固定的密码学与 X.509 版本 |
 | spdlog | `1.15.3` | 已验证的日志库版本 |
 | Boost | `1.86.0` | 已验证的 Asio/System/ProgramOptions 版本 |
 
-调用方负责安装这些依赖并保证 BoringSSL 与兼容基线一致；CMake 不下载或编译第三方库。
+BoringSSL 与 lwIP 由 Git submodule 固定版本并随工程源码构建；Boost 与 spdlog 由调用方安装。CMake 不下载第三方依赖。
 
 ## Firefox 120 profile
 
@@ -70,8 +70,7 @@ association 生命周期关闭上游 flow，不依赖 transparent/netfilter 权�
 
 ```sh
 cmake -S . -B build \
-  -DRV_XRAY_EXECUTABLE=/absolute/path/to/xray \
-  -DOpenSSL_DIR=/absolute/path/to/boringssl/lib/cmake/OpenSSL
+  -DRV_XRAY_EXECUTABLE=/absolute/path/to/xray
 cmake --build build
 ctest --test-dir build --output-on-failure
 ```
