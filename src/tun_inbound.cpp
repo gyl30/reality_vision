@@ -199,6 +199,8 @@ boost::asio::awaitable<void> tun_inbound::read_loop()
         if (ec)
         {
             spdlog::error("TUN {} read wait failed: {}", device_.name(), ec.message());
+            // TUN 不可读后所有流量都会被丢弃，与 listener 的致命错误一致，停止服务。
+            static_cast<boost::asio::io_context&>(tun_stream_.get_executor().context()).stop();
             co_return;
         }
 
@@ -213,6 +215,8 @@ boost::asio::awaitable<void> tun_inbound::read_loop()
             if (ec)
             {
                 spdlog::error("TUN {} read failed: {}", device_.name(), ec.message());
+                // TUN 不可读后所有流量都会被丢弃，与 listener 的致命错误一致，停止服务。
+                static_cast<boost::asio::io_context&>(tun_stream_.get_executor().context()).stop();
                 co_return;
             }
             if (count <= 0)

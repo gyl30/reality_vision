@@ -218,6 +218,13 @@ def run_test(xray: Path, client: Path, work_dir: Path) -> int:
         run_client(proxy_namespace, script, "check", work_dir / "tun-check.log")
         if proxy_process.poll() is not None:
             raise RuntimeError(f"reality_vision exited\n{interop.tail(proxy_log_path)}")
+
+        # TUN 设备被删除后读取失败，进程必须退出而不是静默丢弃全部流量。
+        run_checked(["ip", "-n", proxy_namespace, "link", "delete", TUN_NAME])
+        try:
+            proxy_process.wait(timeout=5)
+        except subprocess.TimeoutExpired as error:
+            raise RuntimeError("reality_vision kept running after the TUN device was removed") from error
     except Exception:
         print(interop.tail(proxy_log_path), file=sys.stderr)
         raise
@@ -227,7 +234,7 @@ def run_test(xray: Path, client: Path, work_dir: Path) -> int:
         for log_file in log_files:
             log_file.close()
 
-    print("TUN TCP IPv4/IPv6 and UDP multi-destination tests passed")
+    print("TUN TCP IPv4/IPv6, UDP multi-destination, and device removal tests passed")
     return 0
 
 
