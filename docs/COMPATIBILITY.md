@@ -4,9 +4,9 @@
 
 | 项目 | revision | 用途 |
 |---|---|---|
-| Xray-core | `5ca6f4b7d4dc20a881d4330e498892697627ec0c` | REALITY、VLESS、Vision 互通基线 |
+| Xray-core | `a4a3dff5b20c2faae567b742c172c7b95e75c083`（v26.10.31） | REALITY、VLESS、Vision 互通基线 |
 | uTLS | `aa6edf4b11af` | `HelloFirefox_148` 序列化 profile |
-| XTLS/REALITY Go | `9234c772ba8f` | 服务端 REALITY 行为参考 |
+| XTLS/REALITY Go | `83f621788ca8` | 服务端 REALITY 行为参考 |
 | BoringSSL | `0.20261020.0`（`d3bf4795ad5b79d646cddf2fec687da5b9b502db`） | submodule 固定的密码学与 X.509 版本 |
 | spdlog | `1.15.3` | 已验证的日志库版本 |
 | Boost | `1.86.0` | 已验证的 Asio/System/ProgramOptions 版本 |
@@ -108,7 +108,7 @@ ctest --test-dir build --output-on-failure
 
 TCP REDIRECT/TPROXY 得到 IP 目标后复用 destination sniffer；SNI/HTTP Host 命中时 VLESS 改用域名，否则保持原 IP。UDP 不 sniff，
 直接使用 SOCKS5 UDP header 或 TPROXY original destination；VLESS UDP 使用 command `0x02`、empty flow 和 2-byte datagram length，
-不会创建 Vision stream。零长度 UDP datagram 当前不转发。固定 Xray 基线（v26.7.28）的标准 VLESS UDP writer 使用 8192-byte
+不会创建 Vision stream。零长度 UDP datagram 当前不转发。固定 Xray 基线（v26.10.31）的标准 VLESS UDP writer 使用 8192-byte
 buffer，并跳过 `length + 2 > 8192` 的 datagram，因此发送端拒绝超过 8190 bytes 的 payload，保证双向边界一致。
 真实 transparent UDP 测试需要 root/netfilter/capability，
 因此不放入默认 CTest；启用 `RV_ENABLE_PRIVILEGED_TESTS` 后，独立 network namespace 测试会覆盖 TCP REDIRECT、TCP/UDP TPROXY、

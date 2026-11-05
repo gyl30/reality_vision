@@ -21,8 +21,8 @@ enum class client_hello_profile
 struct client_version
 {
     std::uint8_t major{26};
-    std::uint8_t minor{7};
-    std::uint8_t patch{28};
+    std::uint8_t minor{10};
+    std::uint8_t patch{31};
 };
 
 struct client_config

@@ -24,7 +24,7 @@
 
 已经以自动化端到端测试验证：
 
-- Xray-core `5ca6f4b7d4dc20a881d4330e498892697627ec0c`（v26.7.28）；
+- Xray-core `a4a3dff5b20c2faae567b742c172c7b95e75c083`（v26.10.31）；
 - REALITY + VLESS + XTLS-Vision 普通 padding 帧双向传输；
 - 内层 OpenSSL TLS 1.3 会话触发 Vision `command=2`；
 - 外层 REALITY 的 TX/RX 分别从 TLS record mode 切换到 raw mode；
