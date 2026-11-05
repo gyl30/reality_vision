@@ -57,7 +57,7 @@ ML-DSA 附加校验和 Xray 的 spider fallback。REALITY 身份校验失败时
 SOCKS5 当前只监听本机回环地址；不支持 `BIND`，支持 `UDP ASSOCIATE` 但不支持 SOCKS5 UDP fragmentation (`FRAG != 0`)。
 透明入站当前支持 Linux IPv4 TCP REDIRECT、TCP TPROXY 和 UDP TPROXY；不实现通用 UDP REDIRECT。IPv6 transparent 和 DNS 专用劫持留到后续阶段。UDP/443 可按普通 UDP 转发，但当前不解析或 sniff QUIC。
 
-TUN 当前是 Linux-only 的最小实现。`--tun` 使用 `/dev/net/tun`，lwIP raw API 负责 TCP/UDP 分流；TUN TCP 与 REDIRECT/TPROXY 一样，会在 200ms 内从 TLS SNI 或 HTTP Host 恢复域名，未命中时使用 IP；不做 DNS 劫持或路由规则安装。程序不会替系统配置 TUN 的地址、MTU、路由和 DNS，部署时需要由外部脚本完成，并通过 `--mark` 策略路由或路由排除 REALITY 服务端地址避免回环。TUN 与现有 listener 共存时必须使用 `--workers 1`。
+TUN 当前是 Linux-only 的最小实现。`--tun` 使用 `/dev/net/tun`，lwIP raw API 负责 TCP/UDP 分流；TUN TCP 与 REDIRECT/TPROXY 一样，会在 200ms 内从 TLS SNI 或 HTTP Host 恢复域名，未命中时使用 IP；不做 DNS 劫持或路由规则安装。程序会把 TUN 网卡 MTU 设为 `--tun_mtu`，但不会替系统配置 TUN 的地址、路由和 DNS，部署时需要由外部脚本完成，并通过 `--mark` 策略路由或路由排除 REALITY 服务端地址避免回环。TUN 与现有 listener 共存时必须使用 `--workers 1`。
 
 ## 目录与依赖关系
 
@@ -214,7 +214,7 @@ association 的首个 datagram 建立一条 `REALITY -> Vision -> XUDP` 连接�
 
 ## 作为 Linux TUN 入站运行
 
-`--tun` 会创建指定名称的 Linux TUN 设备，默认名称为 `rv-tun`、lwIP MTU 为 1500：
+`--tun` 会创建指定名称的 Linux TUN 设备，默认名称为 `rv-tun`，并把网卡与 lwIP 的 MTU 都设为 `--tun_mtu`（默认 8500，与 hev-socks5-tunnel 相同）：
 
 ```sh
 sudo ./build/reality_vision \
@@ -223,16 +223,16 @@ sudo ./build/reality_vision \
   --server_public_key 'uL4rG3uX_6B359RLXYFNTmSWnrBSLVv1PIG6NUWjMVk' \
   --short_id 01234567 \
   --uuid b831381d-6324-4d53-ad4f-8cda48b30811 \
-  --tun --tun_name rv-tun --tun_mtu 1500 --mark 1
+  --tun --tun_name rv-tun --mark 1
 ```
 
 进程需要访问 `/dev/net/tun` 的权限，通常需要 root 或 `CAP_NET_ADMIN`；`--mark` 设置出站 REALITY 连接的 `SO_MARK`，
-同样需要 `CAP_NET_ADMIN`。设备创建后，还需要在另一个终端设置系统侧地址、链路、MTU 和路由；这些参数必须与部署拓扑匹配。
+同样需要 `CAP_NET_ADMIN`。设备创建后，还需要在另一个终端设置系统侧地址、链路和路由；这些参数必须与部署拓扑匹配。
 下面的策略路由把未打标记的流量送入 TUN，带 `--mark 1` 的 REALITY 连接仍走主路由表：
 
 ```sh
 sudo ip addr add 198.18.0.1/15 dev rv-tun
-sudo ip link set dev rv-tun mtu 1500 up
+sudo ip link set dev rv-tun up
 sudo ip route add default dev rv-tun table 100
 sudo ip rule add not fwmark 1 lookup 100
 ```
@@ -240,7 +240,7 @@ sudo ip rule add not fwmark 1 lookup 100
 不使用 `--mark` 时，路由必须单独排除 REALITY 服务端地址。`--server` 为域名时只在启动时用系统解析器解析一次，之后所有出站连接
 都使用这次解析得到的地址，因此路由切到 TUN 后不会再发出服务端域名的 DNS 查询；启动时解析失败会直接退出，服务端 IP 变化后需要重启。
 
-默认路由会把代理自身的 REALITY 连接也送回 TUN，生产配置必须使用策略路由或防火墙规则排除服务端地址。TUN UDP 同一客户端源 IP/端口访问的所有目标共用一条 XUDP 连接（空闲 120 秒回收），单包上限 7526 bytes；lwIP 最多重组 4 个 IP 分片，MTU 1500 时超过约 5.9 KB 的 UDP 数据报会在重组阶段丢弃；TCP 会按 lwIP 的接收窗口和发送窗口回压。
+默认路由会把代理自身的 REALITY 连接也送回 TUN，生产配置必须使用策略路由或防火墙规则排除服务端地址。TUN UDP 同一客户端源 IP/端口访问的所有目标共用一条 XUDP 连接（空闲 120 秒回收），单包上限 7526 bytes。默认 MTU 8500 下这些数据报无需 IP 分片；lwIP 最多重组 4 个 IP 分片，若改小 `--tun_mtu`（例如 1500），超过约 5.9 KB 的 UDP 数据报会在重组阶段丢弃；TCP 会按 lwIP 的接收窗口和发送窗口回压。
 
 ## 作为 Linux TCP / UDP 透明代理运行
 

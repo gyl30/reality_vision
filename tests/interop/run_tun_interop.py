@@ -113,6 +113,10 @@ def run_client_checks() -> int:
             udp_exchange(sock, host, UDP_ECHO_PORTS[0], b"tun-udp-first-destination")
             udp_exchange(sock, host, UDP_ECHO_PORTS[1], b"tun-udp-second-destination")
             udp_exchange(sock, host, UDP_ECHO_PORTS[0], b"tun-udp-first-again")
+            # 默认 TUN MTU 8500 下 XUDP 上限 7526 bytes 的数据报无需 IP 分片；超限数据报被丢弃，不影响后续收发。
+            udp_exchange(sock, host, UDP_ECHO_PORTS[1], bytes(index % 251 for index in range(7526)))
+            sock.sendto(b"x" * 7527, (host, UDP_ECHO_PORTS[0]))
+            udp_exchange(sock, host, UDP_ECHO_PORTS[0], b"tun-udp-after-oversized")
     print("tun client checks passed", flush=True)
     return 0
 
@@ -249,6 +253,11 @@ def run_test(xray: Path, client: Path, work_dir: Path) -> int:
             log_files,
         )
         interop.wait_for_text(proxy_log_path, f"TUN inbound {TUN_NAME} started", proxy_process)
+        link = subprocess.run(
+            ["ip", "-n", proxy_namespace, "link", "show", TUN_NAME], check=True, capture_output=True, text=True
+        ).stdout
+        if " mtu 8500 " not in link:
+            raise RuntimeError(f"TUN device MTU was not set to the default 8500: {link}")
         # --server 只在启动时解析：之后改写解析结果（相当于全局 TUN 下解析器已不可用或会回环）不得影响新连接。
         hosts_path.write_text(hosts_text + f"{UNREACHABLE_SERVER_ADDRESS} {SERVER_HOST}\n", encoding="utf-8")
         run_checked(["ip", "-n", proxy_namespace, "address", "add", "10.50.0.1/24", "dev", TUN_NAME])
@@ -287,7 +296,7 @@ def run_test(xray: Path, client: Path, work_dir: Path) -> int:
         for log_file in log_files:
             log_file.close()
 
-    print("TUN global routing with SO_MARK, TCP IPv4/IPv6, Host sniffing and idle timeout, UDP multi-destination, upstream reset, and device removal tests passed")
+    print("TUN global routing with SO_MARK, TCP IPv4/IPv6, Host sniffing and idle timeout, UDP multi-destination and 7526-byte datagrams at MTU 8500, upstream reset, and device removal tests passed")
     return 0
 
 

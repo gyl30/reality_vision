@@ -40,7 +40,8 @@ struct config
     std::uint16_t tproxy_listen_port = 0;
     bool tun_enabled = false;
     std::string tun_name = "rv-tun";
-    std::uint16_t tun_mtu = 1500;
+    // 与 hev-socks5-tunnel 一致：lwIP TCP_MSS 为 8191，XUDP 上限 7526 bytes 的数据报在该 MTU 下无需 IP 分片。
+    std::uint16_t tun_mtu = 8500;
     std::optional<rv::socks5::credentials> socks_credentials;
     // 出站 REALITY 连接的 SO_MARK，0 表示不设置；用于全局透明代理/TUN 的策略路由绕行。
     std::uint32_t outbound_mark = 0;

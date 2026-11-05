@@ -6,6 +6,7 @@
 #include <linux/if_tun.h>
 #include <net/if.h>
 #include <sys/ioctl.h>
+#include <sys/socket.h>
 
 #include <boost/system/errc.hpp>
 
@@ -18,11 +19,31 @@ namespace
 
 boost::system::error_code errno_error() { return {errno, boost::system::system_category()}; }
 
+bool set_interface_mtu(const char* name, const std::uint16_t mtu, boost::system::error_code& ec)
+{
+    const int control = ::socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+    if (control < 0)
+    {
+        ec = errno_error();
+        return false;
+    }
+    ifreq request{};
+    std::strncpy(request.ifr_name, name, IFNAMSIZ - 1);
+    request.ifr_mtu = mtu;
+    const bool ok = ::ioctl(control, SIOCSIFMTU, &request) == 0;
+    if (!ok)
+    {
+        ec = errno_error();
+    }
+    ::close(control);
+    return ok;
+}
+
 }    // namespace
 
 tun_device::~tun_device() { close(); }
 
-bool tun_device::open(const std::string& requested_name, boost::system::error_code& ec)
+bool tun_device::open(const std::string& requested_name, const std::uint16_t mtu, boost::system::error_code& ec)
 {
     close();
 
@@ -43,6 +64,12 @@ bool tun_device::open(const std::string& requested_name, boost::system::error_co
     if (::ioctl(fd, TUNSETIFF, &request) != 0)
     {
         ec = errno_error();
+        ::close(fd);
+        return false;
+    }
+
+    if (!set_interface_mtu(request.ifr_name, mtu, ec))
+    {
         ::close(fd);
         return false;
     }

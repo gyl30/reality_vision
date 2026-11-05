@@ -27,7 +27,7 @@ tun_inbound::tun_inbound(boost::asio::io_context& context, const app::config& co
 
 bool tun_inbound::start(boost::system::error_code& ec)
 {
-    if (!device_.open(configuration_.tun_name, ec))
+    if (!device_.open(configuration_.tun_name, configuration_.tun_mtu, ec))
     {
         return false;
     }

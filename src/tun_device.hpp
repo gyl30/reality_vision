@@ -19,7 +19,8 @@ class tun_device
     tun_device(const tun_device&) = delete;
     tun_device& operator=(const tun_device&) = delete;
 
-    [[nodiscard]] bool open(const std::string& requested_name, boost::system::error_code& ec);
+    // 打开设备并设置网卡 MTU，使内核与 lwIP 使用同一个 MTU。
+    [[nodiscard]] bool open(const std::string& requested_name, std::uint16_t mtu, boost::system::error_code& ec);
     void close() noexcept;
 
     [[nodiscard]] std::ptrdiff_t read_packet(std::uint8_t* data,
