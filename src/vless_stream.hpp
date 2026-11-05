@@ -20,10 +20,8 @@ namespace rv::vless
 class vless_stream
 {
    public:
-    [[nodiscard]] static boost::asio::awaitable<std::optional<vless_stream>> connect(reality::reality_stream reality,
-                                                                                     client_config configuration,
-                                                                                     std::string session_id,
-                                                                                     boost::system::error_code& ec);
+    // 请求头不单独写出，与首个载荷合并发送。
+    [[nodiscard]] static vless_stream connect(reality::reality_stream reality, std::vector<std::uint8_t> request, std::string session_id);
 
     [[nodiscard]] boost::asio::awaitable<std::size_t> read(std::span<std::uint8_t> output, boost::system::error_code& ec);
     [[nodiscard]] boost::asio::awaitable<void> write(std::span<const std::uint8_t> input, boost::system::error_code& ec);

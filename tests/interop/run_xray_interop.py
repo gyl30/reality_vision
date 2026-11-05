@@ -649,15 +649,19 @@ def exchange_socks5_udp_datagram(
     target_host: str,
     target_port: int,
     payload: bytes,
+    resolved_host: str | None = None,
 ) -> None:
-    address = encode_socks5_address(target_host)
+    # 回包头使用 XUDP 下行帧中的来源地址。域名目标由 Xray 决定回报原域名
+    # （会话首个目标）还是解析后的 IP（之后的 Keep 帧目标）。
     relay.sendto(
         make_socks5_udp_request(target_host, target_port, payload),
         relay_endpoint,
     )
     response, _ = relay.recvfrom(65535)
-    header = b"\x00\x00\x00" + address + target_port.to_bytes(2, "big")
-    if not response.startswith(header):
+    port = target_port.to_bytes(2, "big")
+    headers = [b"\x00\x00\x00" + encode_socks5_address(host) + port for host in (target_host, resolved_host) if host]
+    header = next((header for header in headers if response.startswith(header)), None)
+    if header is None:
         raise RuntimeError(f"invalid SOCKS5 UDP response: {response.hex()}")
     if response[len(header) :] != payload:
         raise RuntimeError("SOCKS5 UDP echo response mismatch")
@@ -728,12 +732,14 @@ def socks5_udp_datagrams_share_flow(
     target_port: int,
     client_log_path: Path,
 ) -> None:
-    marker = "vless udp request header sent"
+    marker = "xudp session opened"
     initial_count = count_text(client_log_path, marker)
     payloads = (
         b"a",
         bytes(range(256)),
         bytes((index * 37) % 256 for index in range(4097)),
+        # Xray XUDP 客户端上限：length + 666 <= 8192。
+        bytes((index * 11) % 256 for index in range(7526)),
     )
     control, relay, relay_endpoint = open_socks5_udp_association(proxy_port)
     try:
@@ -746,6 +752,9 @@ def socks5_udp_datagrams_share_flow(
                 target_port,
                 payload,
             )
+        # 超限数据报被丢弃，不中断同一 XUDP 连接。
+        relay.sendto(make_socks5_udp_request("127.0.0.1", target_port, b"x" * 7527), relay_endpoint)
+        exchange_socks5_udp_datagram(relay, relay_endpoint, "127.0.0.1", target_port, b"after-oversized")
         flow_count = count_text(client_log_path, marker) - initial_count
         if flow_count != 1:
             raise RuntimeError(
@@ -761,7 +770,7 @@ def socks5_udp_empty_payload_is_ignored(
     target_port: int,
     client_log_path: Path,
 ) -> None:
-    marker = "vless udp request header sent"
+    marker = "xudp session opened"
     initial_count = count_text(client_log_path, marker)
     control, relay, relay_endpoint = open_socks5_udp_association(proxy_port)
     try:
@@ -789,31 +798,26 @@ def socks5_udp_empty_payload_is_ignored(
         control.close()
 
 
-def socks5_udp_address_types_use_distinct_flows(
+def socks5_udp_destinations_share_xudp(
     proxy_port: int,
     target_port: int,
-    xray_log_path: Path,
-    xray_process: subprocess.Popen[bytes],
+    ipv6_target_port: int,
+    client_log_path: Path,
 ) -> None:
-    marker = f"received request for udp:127.0.0.1:{target_port}"
-    initial_count = count_text(xray_log_path, marker)
+    marker = "xudp session opened"
+    initial_count = count_text(client_log_path, marker)
     control, relay, relay_endpoint = open_socks5_udp_association(proxy_port)
     try:
-        relay.sendto(
-            make_socks5_udp_domain_request(target_port, b"udp-domain-flow"),
-            relay_endpoint,
+        relay.settimeout(15)
+        # 同一 association 访问域名、IPv4 与 IPv6 目标，全部经同一条 XUDP 连接逐包携带目的地址。
+        exchange_socks5_udp_datagram(relay, relay_endpoint, "127.0.0.1", target_port, b"udp-ipv4-destination")
+        exchange_socks5_udp_datagram(relay, relay_endpoint, "::1", ipv6_target_port, b"udp-ipv6-destination")
+        exchange_socks5_udp_datagram(
+            relay, relay_endpoint, "localhost", target_port, b"udp-domain-destination", resolved_host="127.0.0.1"
         )
-        wait_for_text_count(
-            xray_log_path, marker, initial_count + 1, xray_process
-        )
-
-        relay.sendto(
-            make_socks5_udp_request("127.0.0.1", target_port, b"udp-ipv4-flow"),
-            relay_endpoint,
-        )
-        wait_for_text_count(
-            xray_log_path, marker, initial_count + 2, xray_process
-        )
+        connection_count = count_text(client_log_path, marker) - initial_count
+        if connection_count != 1:
+            raise RuntimeError(f"SOCKS5 UDP destinations used {connection_count} XUDP connections")
     finally:
         relay.close()
         control.close()
@@ -1369,7 +1373,7 @@ def main() -> int:
                         )
                         wait_for_text(
                             vision_no_auth_socks_log_path,
-                            "socks_0_4_udp_1 vless udp request header sent",
+                            "socks_0_4_xudp_1 xudp session opened",
                             vision_no_auth_socks_process,
                         )
                         wait_for_text(
@@ -1478,7 +1482,7 @@ def main() -> int:
                         )
                         wait_for_text(
                             vision_socks_log_path,
-                            "socks_0_7_udp_1 vless udp request header sent",
+                            "socks_0_7_xudp_1 xudp session opened",
                             vision_socks_process,
                         )
                         wait_for_text(
@@ -1487,11 +1491,11 @@ def main() -> int:
                             vision_socks_process,
                         )
 
-                        socks5_udp_address_types_use_distinct_flows(
+                        socks5_udp_destinations_share_xudp(
                             vision_socks_port,
                             udp_echo_port,
-                            xray_log_path,
-                            xray_process,
+                            ipv6_udp_echo_port,
+                            vision_socks_log_path,
                         )
                         wait_for_text(
                             vision_socks_log_path,
@@ -1585,25 +1589,24 @@ def main() -> int:
                             marker for marker in forbidden if marker in socks_output
                         ]
                         udp_markers = (
-                            "socks_0_6_udp_1 vless udp request header sent",
+                            "socks_0_6_xudp_1 xudp session opened",
                             "socks_0_6 socks5 udp association completed",
-                            "socks_0_7_udp_1 vless udp request header sent",
+                            "socks_0_7_xudp_1 xudp session opened",
                             "socks_0_7 socks5 udp association completed",
-                            "socks_0_8_udp_1 vless udp request header sent",
-                            "socks_0_8_udp_2 vless udp request header sent",
+                            "socks_0_8_xudp_1 xudp session opened",
                             "socks_0_8 socks5 udp association completed",
-                            "socks_0_9_udp_1 vless udp request header sent",
+                            "socks_0_9_xudp_1 xudp session opened",
                             "socks_0_9 socks5 udp association completed",
-                            "socks_0_10_udp_1 vless udp request header sent",
+                            "socks_0_10_xudp_1 xudp session opened",
                             "socks_0_10 socks5 udp association completed",
-                            "socks_0_11_udp_1 vless udp request header sent",
+                            "socks_0_11_xudp_1 xudp session opened",
                             "socks_0_11 socks5 udp association completed",
                         )
                         missing_udp = [marker for marker in udp_markers if marker not in socks_output]
                         udp_vision_markers = [
-                            line
-                            for line in socks_output.splitlines()
-                            if "_udp_" in line and "vision" in line.lower()
+                            marker
+                            for marker in ("socks_0_6_xudp_1 initial empty vision padding frame sent",)
+                            if marker not in socks_output
                         ]
                         if (
                             missing_direct
@@ -1653,7 +1656,7 @@ def main() -> int:
             ipv6_udp_echo_thread.join(timeout=2)
 
     print(
-        "Xray REALITY, VLESS Vision, VLESS UDP including IPv6, UDP/443, empty-payload handling, flow reuse, and address-type flow isolation, "
+        "Xray REALITY, VLESS Vision, XUDP including IPv6, UDP/443, empty-payload handling, XUDP connection reuse across destinations, "
         "SOCKS5 IPv6 and TCP half-close, no-authentication and username/password authentication, "
         "UDP ASSOCIATE with both authentication modes, destination sniffing, "
         "TLS 1.2 fallback, and TLS 1.3 Direct tests passed"

@@ -13,6 +13,7 @@
 #include "network_address.hpp"
 #include "vision_stream.hpp"
 #include "vless_udp_stream.hpp"
+#include "xudp_stream.hpp"
 
 namespace rv::app
 {
@@ -41,6 +42,11 @@ struct target
 // 在 last_activity 之后持续 timeout 没有更新时返回；调用方用 || 与中继组合以取消空闲连接。
 [[nodiscard]] boost::asio::awaitable<void> wait_until_idle(const std::chrono::steady_clock::time_point& last_activity,
                                                            std::chrono::seconds timeout);
+
+[[nodiscard]] boost::asio::awaitable<std::optional<xudp::xudp_stream>> connect_xudp(const app::config& configuration,
+                                                                                      const xudp::global_id& id,
+                                                                                      const std::string& session_id,
+                                                                                      boost::system::error_code& ec);
 
 [[nodiscard]] boost::asio::awaitable<std::optional<vless::vless_udp_stream>> connect_udp(const app::config& configuration,
                                                                                           const target& destination,

@@ -601,6 +601,15 @@ void test_vless_header()
     expected_tcp.insert(expected_tcp.end(), kDomain.begin(), kDomain.end());
     expect(!ec && request == expected_tcp, "VLESS TCP Vision header mismatch");
 
+    // 与 Xray vision 账户的 UDP 请求一致：command=Mux 且不带目标地址，保留 Vision flow。
+    const auto xudp_request = rv::vless::encode_xudp_request(config.user_id);
+    std::vector<std::uint8_t> expected_xudp{0x00};
+    expected_xudp.insert(expected_xudp.end(), config.user_id.begin(), config.user_id.end());
+    expected_xudp.insert(expected_xudp.end(), kVisionPrefix.begin(), kVisionPrefix.end());
+    expected_xudp.insert(expected_xudp.end(), kVisionFlow.begin(), kVisionFlow.end());
+    expected_xudp.push_back(0x03);
+    expect(xudp_request == expected_xudp, "VLESS XUDP header mismatch");
+
     config.destination_port = 53;
     const auto udp_request = rv::vless::encode_udp_request(config, ec);
     std::vector<std::uint8_t> expected_udp{0x00};

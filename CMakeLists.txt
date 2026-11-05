@@ -71,7 +71,8 @@ add_executable(
   src/vless_header.cpp
   src/vless_stream.cpp
   src/vless_udp_stream.cpp
-  src/xudp_codec.cpp)
+  src/xudp_codec.cpp
+  src/xudp_stream.cpp)
 
 target_compile_definitions(reality_vision PRIVATE BOOST_ASIO_NO_DEPRECATED)
 target_include_directories(reality_vision PRIVATE src)

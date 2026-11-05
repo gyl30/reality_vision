@@ -11,18 +11,9 @@
 namespace rv::vless
 {
 
-boost::asio::awaitable<std::optional<vless_stream>> vless_stream::connect(reality::reality_stream reality,
-                                                                          client_config configuration,
-                                                                          std::string session_id,
-                                                                          boost::system::error_code& ec)
+vless_stream vless_stream::connect(reality::reality_stream reality, std::vector<std::uint8_t> request, std::string session_id)
 {
-    auto request = encode_tcp_request(configuration, ec);
-    if (ec)
-    {
-        co_return std::nullopt;
-    }
-
-    co_return vless_stream(std::move(reality), std::move(request), std::move(session_id));
+    return vless_stream(std::move(reality), std::move(request), std::move(session_id));
 }
 
 vless_stream::vless_stream(reality::reality_stream reality, std::vector<std::uint8_t> pending_request, std::string session_id)
@@ -42,7 +33,7 @@ std::span<const std::uint8_t> vless_stream::take_request_with(const std::span<co
 
 void vless_stream::log_request_sent() const
 {
-    spdlog::info("{} vless tcp request header sent", session_id_);
+    spdlog::info("{} vless request header sent", session_id_);
 }
 
 boost::asio::awaitable<std::size_t> vless_stream::read(std::span<std::uint8_t> output, boost::system::error_code& ec)

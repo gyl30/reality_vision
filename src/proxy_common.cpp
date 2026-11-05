@@ -106,13 +106,35 @@ boost::asio::awaitable<std::optional<vision::vision_stream>> connect_vision(real
     vless_configuration.user_id = configuration.vless_user_id;
     vless_configuration.destination = destination.destination;
     vless_configuration.destination_port = destination.port;
-    auto vless_stream = co_await vless::vless_stream::connect(std::move(reality), std::move(vless_configuration), session_id, ec);
+    auto request = vless::encode_tcp_request(vless_configuration, ec);
+    if (ec)
+    {
+        co_return std::nullopt;
+    }
+    auto vless_stream = vless::vless_stream::connect(std::move(reality), std::move(request), session_id);
+    co_return co_await vision::vision_stream::connect(std::move(vless_stream), configuration.vless_user_id, session_id, ec);
+}
+
+boost::asio::awaitable<std::optional<xudp::xudp_stream>> connect_xudp(const app::config& configuration,
+                                                                       const xudp::global_id& id,
+                                                                       const std::string& session_id,
+                                                                       boost::system::error_code& ec)
+{
+    auto reality = co_await connect_reality(configuration, session_id, ec);
     if (ec)
     {
         co_return std::nullopt;
     }
 
-    co_return co_await vision::vision_stream::connect(std::move(*vless_stream), configuration.vless_user_id, session_id, ec);
+    auto request = vless::encode_xudp_request(configuration.vless_user_id);
+    // 与 Xray vision 账户一致，XUDP 也走 Vision flow；XUDP 帧不会被识别为 TLS，因此只做 padding。
+    auto vless_stream = vless::vless_stream::connect(std::move(*reality), std::move(request), session_id);
+    auto vision = co_await vision::vision_stream::connect(std::move(vless_stream), configuration.vless_user_id, session_id, ec);
+    if (ec)
+    {
+        co_return std::nullopt;
+    }
+    co_return xudp::xudp_stream(std::move(*vision), id, session_id);
 }
 
 boost::asio::awaitable<std::optional<vless::vless_udp_stream>> connect_udp(const app::config& configuration,

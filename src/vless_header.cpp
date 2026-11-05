@@ -17,6 +17,7 @@ namespace
 constexpr std::uint8_t kVersion = 0x00;
 constexpr std::uint8_t kTcpCommand = 0x01;
 constexpr std::uint8_t kUdpCommand = 0x02;
+constexpr std::uint8_t kMuxCommand = 0x03;
 constexpr std::uint8_t kIpv4AddressType = 0x01;
 constexpr std::uint8_t kDomainAddressType = 0x02;
 constexpr std::uint8_t kIpv6AddressType = 0x03;
@@ -105,6 +106,18 @@ std::vector<std::uint8_t> encode_request(const client_config& configuration, con
 std::vector<std::uint8_t> encode_tcp_request(const client_config& configuration, boost::system::error_code& ec)
 {
     return encode_request(configuration, kTcpCommand, ec);
+}
+
+std::vector<std::uint8_t> encode_xudp_request(const std::array<std::uint8_t, kUserIdSize>& user_id)
+{
+    // Xray EncodeRequestHeader 对 Mux 命令不写目标地址，Mux.Cool 帧紧随请求头。
+    std::vector<std::uint8_t> output;
+    output.reserve(kRequestReserveSize);
+    output.push_back(kVersion);
+    output.insert(output.end(), user_id.begin(), user_id.end());
+    append_vision_flow_addon(output);
+    output.push_back(kMuxCommand);
+    return output;
 }
 
 std::vector<std::uint8_t> encode_udp_request(const client_config& configuration, boost::system::error_code& ec)
