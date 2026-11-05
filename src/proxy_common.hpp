@@ -12,7 +12,6 @@
 #include "reality_stream.hpp"
 #include "network_address.hpp"
 #include "vision_stream.hpp"
-#include "vless_udp_stream.hpp"
 #include "xudp_stream.hpp"
 
 namespace rv::app
@@ -47,11 +46,6 @@ struct target
                                                                                       const xudp::global_id& id,
                                                                                       const std::string& session_id,
                                                                                       boost::system::error_code& ec);
-
-[[nodiscard]] boost::asio::awaitable<std::optional<vless::vless_udp_stream>> connect_udp(const app::config& configuration,
-                                                                                          const target& destination,
-                                                                                          const std::string& session_id,
-                                                                                          boost::system::error_code& ec);
 
 }    // namespace rv::proxy
 

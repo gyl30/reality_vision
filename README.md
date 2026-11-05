@@ -4,7 +4,7 @@
 
 - Boost.Asio `tcp_byte_stream`；
 - REALITY 客户端握手与受限 TLS 1.3 record layer；
-- VLESS TCP request（固定 `xtls-rprx-vision` addon）与 VLESS UDP datagram framing（空 flow，不经过 Vision）；
+- VLESS TCP request 与 Xray XUDP（UDP over Mux.Cool），两者都使用固定 `xtls-rprx-vision` flow；
 - XTLS-Vision padding，以及收、发方向独立切换的 Direct splice；
 - 本地 SOCKS5 `CONNECT` / `UDP ASSOCIATE` 代理（支持无认证或用户名密码认证，以及域名、IPv4 和 IPv6）；
 - Linux IPv4 TCP REDIRECT，以及 TCP/UDP TPROXY 透明入站；
@@ -42,8 +42,8 @@
 - `TLS_AES_256_GCM_SHA384`；
 - `TLS_CHACHA20_POLY1305_SHA256`；
 - REALITY Ed25519 leaf certificate、HMAC-SHA512、CertificateVerify 和 Finished 校验；
-- VLESS TCP 使用固定 `xtls-rprx-vision`；VLESS UDP 使用 command `0x02`、空 flow 和 2-byte big-endian datagram length；
-- SOCKS5 `CONNECT` / `UDP ASSOCIATE` 与 RFC 1929 用户名密码认证；UDP association 可按目标复用独立 VLESS UDP flow；
+- VLESS TCP 使用固定 `xtls-rprx-vision`；UDP 与 Xray vision 账户一致使用 XUDP（command `0x03` Mux，逐包携带目的/来源地址，单包上限 7526 bytes）；
+- SOCKS5 `CONNECT` / `UDP ASSOCIATE` 与 RFC 1929 用户名密码认证；一个 UDP association 的所有目标共用一条 XUDP 连接；
 - Vision 对内层 TLS 1.3 `0x1301..0x1304` 的 Direct 判定；
 - 非 TLS TCP 和内层 TLS 1.2 通过 Vision `command=1` 回退并继续透明传输；
 - IPv4、IPv6 和 domain 类型的 VLESS 目标地址；
@@ -67,7 +67,7 @@ src/
   main.cpp                      程序入口和连接运行流程
   base64.* / hex.*              配置文本解码
   reality_*                     REALITY 协议实现
-  vless_*                       VLESS TCP / UDP 协议实现
+  vless_* / xudp_*              VLESS 请求与 XUDP 帧实现
   vision_*                      XTLS-Vision 实现
   socks5_protocol.*             SOCKS5 协议实现
   sniffer.*                     TLS SNI / HTTP Host 目标探测
@@ -93,13 +93,13 @@ SOCKS5 CONNECT / REDIRECT / TPROXY TCP
     -> optional sniffer -> VLESS TCP -> Vision -> REALITY
 
 TUN IPv4 / IPv6 packet
-    -> lwIP raw TCP / UDP -> VLESS TCP / UDP -> Vision / REALITY
+    -> lwIP raw TCP / UDP -> VLESS TCP / XUDP -> Vision / REALITY
 
 UDP:
 SOCKS5 UDP ASSOCIATE / TPROXY UDP
-    -> UDP session -> VLESS UDP (empty flow) -> REALITY -> TCP transport
+    -> UDP session（每个客户端源地址）-> XUDP -> Vision -> REALITY -> TCP transport
 
-UDP never enters vision_stream.
+XUDP frames never trigger Vision Direct; UDP only uses Vision padding.
 
 所有 .cpp 最终直接编入 reality_vision 可执行文件，不生成中间静态库。
 ```
@@ -150,11 +150,11 @@ CMake 只创建一个 `reality_vision` executable，所有实现源文件直接�
 
 协议自测已经编入同一个二进制，也可以直接运行 `./build/reality_vision --self_test`。
 Xray 互通测试覆盖 SOCKS5 非 TLS、TCP half-close 后继续接收回程数据、TLS 1.2 fallback、TLS 1.3 Direct、IP 目标 TLS SNI sniff、Vision framing，
-并验证 SOCKS5 IPv6 TCP echo、正确/错误密码、`UDP ASSOCIATE -> VLESS UDP -> UDP echo`、SOCKS5 UDP 地址类型 flow 隔离以及 UDP/443 request；还需要 Python 3 和系统的 OpenSSL 命令行工具。
+并验证 SOCKS5 IPv6 TCP echo、正确/错误密码、`UDP ASSOCIATE -> XUDP -> UDP echo`、7526/7527 bytes 边界、多个目标共用一条 XUDP 连接以及 UDP/443 request；还需要 Python 3 和系统的 OpenSSL 命令行工具。
 特权测试额外在隔离 network namespace 中配置真实 TCP REDIRECT 与 TCP/UDP TPROXY；启用后使用
 `sudo ctest --test-dir build -R rv_transparent_interop --output-on-failure` 单独运行。
 `rv_tun_interop` 总是通过 `unshare -Urnm` 进入新的 user/net/mount namespace，宿主允许非特权 user namespace 时无需 root；
-它在 TUN 上验证 IPv4/IPv6 TCP，以及同一 UDP 源端口访问多个目标时各自的回包来源。
+它在 TUN 上验证 IPv4/IPv6 TCP，以及同一 UDP 源端口访问多个目标时共用一条 XUDP 连接、回包来自各自的目标。
 
 ## 作为 SOCKS5 TCP / UDP 代理运行
 
@@ -208,11 +208,9 @@ curl --proxy socks5h://test_user:test_password@127.0.0.1:1080 \
 TCP half-close 传播，另一方向继续排空后再释放连接。
 
 `UDP ASSOCIATE` 使用同一个 `--socks_port`：TCP 控制连接建立 association，服务端返回一个回环 UDP relay endpoint。
-SOCKS5 UDP header 中的目标地址/端口决定远端 VLESS UDP flow；同一 association 对同一地址类型、目标地址和端口复用 flow，不同目标各自建立
-`reality_stream -> vless_udp_stream`。SOCKS5 UDP flow 与 TPROXY UDP flow 都在 120 秒无活动后回收。UDP flow 的 VLESS addon 长度为 0，不创建 `vision_stream`，datagram 在 VLESS body 中按
-`uint16_be length + payload` 保持边界。SOCKS5 `FRAG != 0` 当前拒绝。UDP/443 与其他 UDP 使用相同的 VLESS UDP + REALITY 路径，不经过 Vision。
-
-单个 SOCKS5 UDP association 最多创建 256 个 flow；达到上限时丢弃需要创建新 flow 的 datagram，已有 flow 不受影响。
+association 的首个 datagram 建立一条 `REALITY -> Vision -> XUDP` 连接，此后 SOCKS5 UDP header 中的目标地址/端口逐包写入 XUDP 帧，
+发往任意目标都复用这条连接；回包的 SOCKS5 header 使用服务端回报的来源地址。上游连接 120 秒无活动后关闭，下一个 datagram 重新建立。
+超过 7526 bytes 的 datagram 被丢弃。SOCKS5 `FRAG != 0` 当前拒绝。UDP/443 与其他 UDP 使用相同的 XUDP + REALITY 路径。
 
 ## 作为 Linux TUN 入站运行
 
@@ -242,7 +240,7 @@ sudo ip rule add not fwmark 1 lookup 100
 不使用 `--mark` 时，路由必须单独排除 REALITY 服务端地址。`--server` 为域名时，服务端地址的 DNS 查询仍由系统解析器发出，
 同样需要绕开 TUN。
 
-默认路由会把代理自身的 REALITY 连接也送回 TUN，生产配置必须使用策略路由或防火墙规则排除服务端地址。当前 TUN UDP 数据报沿用 VLESS UDP 单报文上限 8190 bytes，较大的 UDP 数据报会丢弃；同一客户端源 IP/端口访问的每个 UDP 目标各使用一条 VLESS UDP flow（每个源最多 256 个，空闲 120 秒回收）；TCP 会按 lwIP 的接收窗口和发送窗口回压。
+默认路由会把代理自身的 REALITY 连接也送回 TUN，生产配置必须使用策略路由或防火墙规则排除服务端地址。TUN UDP 同一客户端源 IP/端口访问的所有目标共用一条 XUDP 连接（空闲 120 秒回收），单包上限 7526 bytes；lwIP 最多重组 4 个 IP 分片，MTU 1500 时超过约 5.9 KB 的 UDP 数据报会在重组阶段丢弃；TCP 会按 lwIP 的接收窗口和发送窗口回压。
 
 ## 作为 Linux TCP / UDP 透明代理运行
 
@@ -307,12 +305,12 @@ iptables -t mangle -A PREROUTING -p udp --dport 53 \
 TCP transparent session 仍按原流程运行：恢复原始 IP:port，建立 REALITY，最多缓存客户端首个 16 KiB / 200 ms 做
 TLS SNI / HTTP Host 探测；若得到域名，则 VLESS 使用该域名和原端口，否则使用原始 IP，随后进入现有 Vision 路径。
 
-UDP TPROXY 不做 sniff，也不经过 Vision。listener 用 `recvmsg()` 读取 client endpoint 与 `IP_ORIGDSTADDR`，按
-`(client endpoint, original destination)` 复用 UDP flow；每条 flow 建立 `REALITY -> VLESS UDP`，下行使用一个
-绑定到 original destination 的透明 UDP socket，把回包以原目标 IP:port 作为源地址送回客户端。空闲 flow 当前在 120 秒后回收。
+UDP TPROXY 不做 sniff。listener 用 `recvmsg()` 读取 client endpoint 与 `IP_ORIGDSTADDR`，每个 client endpoint 一条
+`REALITY -> Vision -> XUDP` 连接，原目标逐包写入 XUDP 帧；下行按服务端回报的来源地址创建绑定该地址的透明 UDP socket
+（每个会话最多 256 个），把回包以原目标 IP:port 作为源地址送回客户端。空闲会话在 120 秒后回收。
 
-UDP/443 与其他 UDP 一样可以进入 TPROXY 并通过 VLESS UDP + REALITY 转发；当前只保持 datagram 边界，不解析 QUIC Initial、
-不恢复 QUIC SNI，也不创建 Vision stream。若部署上希望浏览器/HTTP3 回落 TCP，仍可在系统规则层 REJECT UDP/443。
+UDP/443 与其他 UDP 一样可以进入 TPROXY 并通过 XUDP + REALITY 转发；当前只保持 datagram 边界，不解析 QUIC Initial，
+也不恢复 QUIC SNI。若部署上希望浏览器/HTTP3 回落 TCP，仍可在系统规则层 REJECT UDP/443。
 程序本身不管理 iptables/nftables、policy routing 或 DNS 劫持。Docker bridge 的 UDP TPROXY 还可能受到
 `br_netfilter` 路径影响，和 TCP TPROXY 一样应由部署环境验证；本机/路由场景不依赖 Docker bridge。
 

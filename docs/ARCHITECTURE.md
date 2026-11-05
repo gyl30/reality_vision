@@ -2,7 +2,7 @@
 
 ## 1. 所有权与调用方向
 
-TCP 与 UDP 在 VLESS 层之前明确分叉；UDP 不进入 Vision：
+TCP 与 UDP 在 VLESS request 层分叉：TCP 使用 command `0x01`，UDP 使用 Xray XUDP（command `0x03` Mux），两者都经过 Vision：
 
 ```mermaid
 flowchart TD
@@ -13,13 +13,13 @@ flowchart TD
     E --> F["tcp_byte_stream"]
     F --> G["tcp::socket"]
 
-    U["SOCKS5 UDP ASSOCIATE / TPROXY UDP"] --> V["UDP session"]
-    V --> W["vless_udp_stream"]
-    W --> R["reality_stream"]
+    U["SOCKS5 UDP ASSOCIATE / TPROXY UDP / TUN UDP"] --> V["UDP session（每个客户端源地址）"]
+    V --> W["xudp_stream"]
+    W --> C
 ```
 
 TCP stream 没有后台 reader，也没有通用 packet dispatcher。上层调用 `read(output)` 时，下层才读取足够的数据来产生结果，
-写入同理。UDP 入口按 datagram 驱动；每条 UDP flow 内部仍保持一个 VLESS uplink writer 和一个 downlink reader。
+写入同理。UDP 入口按 datagram 驱动；每个 UDP 会话内部保持一个 XUDP uplink writer 和一个 downlink reader。
 
 SOCKS5 服务负责监听、认证协商以及解析 `CONNECT` / `UDP ASSOCIATE`。认证未配置时选择无认证，配置凭据时选择 RFC 1929
 用户名密码认证。TCP CONNECT 的 IP 目标可以由 `sniffer` 从首包 TLS SNI / HTTP Host 恢复域名；UDP ASSOCIATE 不 sniff，
@@ -54,9 +54,9 @@ SOCKS5 入站协商及上游 TCP 建连与 REALITY 握手均限制为 60 秒。
 | `reality::record_key` | AEAD、12-byte IV、sequence | TLS 1.3 单方向 record protection |
 | `reality::reality_stream` | RX/TX mode、receive/send key、两个 byte_queue | TLS application records 与 raw TCP 之间切换 |
 | `vless::vless_stream` | pending request header、response header pending flag | VLESS TCP request/response header 与 stream body |
-| `vless::vless_udp_stream` | response header pending flag | VLESS UDP request header，以及 `uint16 length + datagram` body framing；不包含 Vision |
+| `xudp::xudp_stream` | GlobalID、首个目的地址 | 在 `vision_stream` 上编码 XUDP New/Keep 帧（逐包目的地址），解析下行 Keep 帧的来源地址 |
 | `vision::server_hello_tracker` | bounded buffer、record length、result | 跨读取片段识别内层 TLS 1.3 ServerHello |
-| `vision::vision_stream` | receive phase、frame counters、padding/direct flags | 仅 TCP 路径的 Vision 编解码与两个方向 Direct 决策 |
+| `vision::vision_stream` | receive phase、frame counters、padding/direct flags | TCP 与 XUDP 共用的 Vision 编解码；Direct 决策只会在内层 TLS 上触发 |
 | `socks5::request` | command + address variant + port | 表示 SOCKS5 CONNECT / UDP ASSOCIATE 请求，不包含远端协议状态 |
 | `socks5::udp_datagram` | destination + port + payload span | 解析/构造 RFC 1928 UDP relay datagram；当前只接受 `FRAG=0` |
 | `socks5::credentials` | username + password | 可选的本地代理认证配置，不写入日志 |
@@ -67,7 +67,7 @@ SOCKS5 入站协商及上游 TCP 建连与 REALITY 握手均限制为 60 秒。
 配置均为不拥有运行时资源的 typed value：
 
 - `reality::client_config`：SNI、REALITY public key、short ID、client version、指纹枚举；
-- `vless::client_config`：UUID、目标地址和端口；TCP encoder 写入 Vision addon，UDP encoder 写空 addon；
+- `vless::client_config`：UUID、目标地址和端口；TCP 与 XUDP encoder 都写入 Vision addon，XUDP 的 Mux 命令不带目标地址；
 - 日志上下文使用连接 ID 字符串；spdlog pattern 不输出方括号。
 
 配置解析、Base64/UUID 文本转换和业务路由位于可执行程序边缘；协议类只接收已经验证过
@@ -121,19 +121,22 @@ record”，raw 后缀也仍留在 socket receive buffer 中。Vision 完整消�
 TX 先把包含 `command=2` 的完整 Vision frame 作为最后一个外层 TLS application record
 写完，之后才把 send mode 改为 raw。这避免 command 自身被提前按 raw 发送。
 
-## 5. VLESS TCP、VLESS UDP 与 Vision
+## 5. VLESS TCP、XUDP 与 Vision
 
-两种 VLESS request 共用 version `0`、16-byte UUID、big-endian port 和 IPv4/domain/IPv6 target，但 command/addon 不同：
+两种 VLESS request 共用 version `0`、16-byte UUID 和 `xtls-rprx-vision` addon，与 Xray vision 账户的出站一致：
 
-| 路径 | addon | command | body |
-|---|---|---:|---|
-| TCP | `xtls-rprx-vision` | `0x01` | byte stream，交给 `vision_stream` |
-| UDP | empty | `0x02` | 每个 datagram 为 `uint16_be length + payload` |
+| 路径 | command | 目标 | body |
+|---|---:|---|---|
+| TCP | `0x01` | big-endian port + IPv4/domain/IPv6 | byte stream |
+| UDP | `0x03` (Mux) | 无（Xray 内部记为 `v1.mux.cool`） | XUDP 帧 |
 
-TCP 和 UDP response header 都延迟到首次下行 `read()` / `read_datagram()` 时消费，因此发送方向不需要等待 response header。
-UDP 不创建 `vision_stream`，不发送 Vision padding，不执行 command 0/1/2，也没有 TLS tracker 或 Direct switch。
+XUDP 帧为 Mux.Cool 格式，会话 ID 固定为 0：首包是 New 帧（network UDP、端口在前的目的地址、8-byte GlobalID），
+之后每包是携带各自目的地址的 Keep 帧；下行 Keep 帧携带回包来源地址，KeepAlive 丢弃，End 或其他状态视为流结束。
+GlobalID 由进程随机密钥对客户端源地址做 HMAC-SHA256 取前 8 字节，Xray 服务端据此在重连后复用出站 UDP 映射。
+response header 延迟到首次下行读取时消费，因此发送方向不需要等待 response header。XUDP 帧不会被识别为内层 TLS，
+因此 UDP 只发送 Vision padding，不会进入 Direct。
 
-Vision 只属于 TCP 路径。首帧含 16-byte UUID，后续帧使用 5-byte header：
+Vision 首帧含 16-byte UUID，后续帧使用 5-byte header：
 
 | 字段 | 长度 | 说明 |
 |---|---:|---|
@@ -156,17 +159,16 @@ REALITY raw。接收方向只在对端 Direct frame 的 content 与 padding 都�
 TCP listener service 接受连接后创建对应 session 并调用 `startup()`，不保存 session，也不接收 session 结束通知。session 的异步任务
 持有自身，任务结束后在所属 `io_context` 中关闭资源并释放。
 
-SOCKS5 UDP association 的生命周期由 SOCKS TCP control connection 决定。association 内按 SOCKS UDP 地址类型、目标地址和端口建立 flow；每条
-flow 复用一个 `vless_udp_stream`，listener 将 datagram 投递到容量 16 的 flow channel，独立 uplink worker 在建连后串行写入，
-downlink 协程串行读取。channel 满时仅丢弃该 flow 的新 datagram，不阻塞其他 flow。地址类型属于 flow 身份的一部分，
-因此文本相同的 domain 与 IPv4/IPv6 地址不会错误复用同一 flow。control connection 关闭时 association 的 UDP socket 和全部上游 flow 一起关闭；
-120 秒无活动 flow 也由 30 秒 cleanup timer 回收。
+SOCKS5 UDP association 的生命周期由 SOCKS TCP control connection 决定。association 首个 datagram 建立一条 `xudp_stream`，
+之后发往任何目标的 datagram 都经这条连接逐包携带目的地址；listener 将 datagram 投递到容量 16 的 channel，独立 uplink worker
+在建连后串行写入，downlink 协程串行读取并用下行帧的来源地址构造 SOCKS5 回包头。channel 满时丢弃新 datagram。
+control connection 关闭时 association 的 UDP socket 和上游连接一起关闭；120 秒无活动时上游连接关闭，下一个 datagram 重新建立。
 
-TPROXY UDP 按 `(client endpoint, original destination)` 建立 flow。每条 flow 额外拥有一个 `IP_TRANSPARENT` reply socket，
-绑定 original destination，使下行 datagram 返回客户端时仍以原目标 IP:port 为源；原目标端口低于 1024 时运行进程还需要
-`CAP_NET_BIND_SERVICE`。每个 worker 的独立 `io_context(1)` 下 flow 路由索引、uplink 和 downlink 顺序执行；TPROXY listener
-仅通过弱引用索引投递 datagram，不拥有 flow，也不接收 flow 结束通知。每条 flow 自己维护空闲计时器，120 秒无活动后自行回收。
-UDP/443 与其他 UDP 使用相同 flow；当前不解析 QUIC，也不做 QUIC SNI sniff。
+TPROXY UDP 与 TUN UDP 都按客户端源地址建立会话，每个会话一条 `xudp_stream`，原目标逐包写入 XUDP 帧。TPROXY 会话按下行帧的
+来源地址各创建一个 `IP_TRANSPARENT` reply socket（每个会话最多 256 个），使回包以该来源 IP:port 返回客户端（full-cone）；
+来源端口低于 1024 时运行进程还需要 `CAP_NET_BIND_SERVICE`。TUN 会话用 `udp_sendfrom` 以来源地址发回。每个 worker 的独立
+`io_context(1)` 下会话索引、uplink 和 downlink 顺序执行；TPROXY listener 仅通过弱引用索引投递 datagram。会话 120 秒无活动后自行回收。
+UDP/443 与其他 UDP 使用相同路径；当前不解析 QUIC，也不做 QUIC SNI sniff。
 
 单个 SOCKS5 UDP association 最多创建 256 个 flow；达到上限时新 UDP flow 的首包直接丢弃。
 
@@ -193,5 +195,5 @@ stream 不在内部排队或检测同方向并发。调用方必须保证同一�
 `error_code`。调用方必须在每次同步解析或 `co_await` 后立即检查 `ec`。
 
 所有可变长度输入都有显式上限：TLS plaintext 16 KiB、TLS ciphertext 上限、handshake 1 MiB、Vision/Xray frame
-8192 bytes、内部 byte_queue 上限；UDP datagram payload 按 Xray 的 8192-byte writer buffer 限制为 8190 bytes。身份校验、AEAD tag、
+8192 bytes、内部 byte_queue 上限；UDP datagram payload 按 Xray XUDP 客户端的 `length + 666 <= 8192` 限制为 7526 bytes。身份校验、AEAD tag、
 Finished 或 CertificateVerify 失败均 fail closed。

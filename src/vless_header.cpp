@@ -16,12 +16,10 @@ namespace
 
 constexpr std::uint8_t kVersion = 0x00;
 constexpr std::uint8_t kTcpCommand = 0x01;
-constexpr std::uint8_t kUdpCommand = 0x02;
 constexpr std::uint8_t kMuxCommand = 0x03;
 constexpr std::uint8_t kIpv4AddressType = 0x01;
 constexpr std::uint8_t kDomainAddressType = 0x02;
 constexpr std::uint8_t kIpv6AddressType = 0x03;
-constexpr std::uint8_t kNoAddonLength = 0x00;
 constexpr std::uint8_t kFlowFieldTag = 0x0a;
 constexpr std::size_t kMaximumDomainLength = std::numeric_limits<std::uint8_t>::max();
 constexpr std::size_t kRequestReserveSize = 64;
@@ -70,7 +68,9 @@ void append_destination(const client_config& configuration, std::vector<std::uin
         configuration.destination);
 }
 
-std::vector<std::uint8_t> encode_request(const client_config& configuration, const std::uint8_t command, boost::system::error_code& ec)
+}    // namespace
+
+std::vector<std::uint8_t> encode_tcp_request(const client_config& configuration, boost::system::error_code& ec)
 {
     if (configuration.destination_port == 0)
     {
@@ -83,29 +83,14 @@ std::vector<std::uint8_t> encode_request(const client_config& configuration, con
     output.push_back(kVersion);
     output.insert(output.end(), configuration.user_id.begin(), configuration.user_id.end());
 
-    if (command == kTcpCommand)
-    {
-        append_vision_flow_addon(output);
-    }
-    else
-    {
-        output.push_back(kNoAddonLength);
-    }
-
-    output.push_back(command);
+    append_vision_flow_addon(output);
+    output.push_back(kTcpCommand);
     append_destination(configuration, output, ec);
     if (ec)
     {
         return {};
     }
     return output;
-}
-
-}    // namespace
-
-std::vector<std::uint8_t> encode_tcp_request(const client_config& configuration, boost::system::error_code& ec)
-{
-    return encode_request(configuration, kTcpCommand, ec);
 }
 
 std::vector<std::uint8_t> encode_xudp_request(const std::array<std::uint8_t, kUserIdSize>& user_id)
@@ -118,11 +103,6 @@ std::vector<std::uint8_t> encode_xudp_request(const std::array<std::uint8_t, kUs
     append_vision_flow_addon(output);
     output.push_back(kMuxCommand);
     return output;
-}
-
-std::vector<std::uint8_t> encode_udp_request(const client_config& configuration, boost::system::error_code& ec)
-{
-    return encode_request(configuration, kUdpCommand, ec);
 }
 
 }    // namespace rv::vless

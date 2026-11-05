@@ -70,7 +70,6 @@ add_executable(
   src/vision_stream.cpp
   src/vless_header.cpp
   src/vless_stream.cpp
-  src/vless_udp_stream.cpp
   src/xudp_codec.cpp
   src/xudp_stream.cpp)
 

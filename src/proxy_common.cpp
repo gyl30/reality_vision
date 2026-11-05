@@ -137,23 +137,4 @@ boost::asio::awaitable<std::optional<xudp::xudp_stream>> connect_xudp(const app:
     co_return xudp::xudp_stream(std::move(*vision), id, session_id);
 }
 
-boost::asio::awaitable<std::optional<vless::vless_udp_stream>> connect_udp(const app::config& configuration,
-                                                                           const target& destination,
-                                                                           const std::string& session_id,
-                                                                           boost::system::error_code& ec)
-{
-    auto reality_stream = co_await connect_reality(configuration, session_id, ec);
-    if (ec)
-    {
-        co_return std::nullopt;
-    }
-
-    vless::client_config vless_configuration;
-    vless_configuration.user_id = configuration.vless_user_id;
-    vless_configuration.destination = destination.destination;
-    vless_configuration.destination_port = destination.port;
-    co_return co_await vless::vless_udp_stream::connect(
-        std::move(*reality_stream), std::move(vless_configuration), session_id, ec);
-}
-
 }    // namespace rv::proxy

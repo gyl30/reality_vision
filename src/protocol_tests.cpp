@@ -611,16 +611,8 @@ void test_vless_header()
     expect(xudp_request == expected_xudp, "VLESS XUDP header mismatch");
 
     config.destination_port = 53;
-    const auto udp_request = rv::vless::encode_udp_request(config, ec);
-    std::vector<std::uint8_t> expected_udp{0x00};
-    expected_udp.insert(expected_udp.end(), config.user_id.begin(), config.user_id.end());
-    constexpr std::array<std::uint8_t, 6> kUdpDestinationPrefix{0x00, 0x02, 0x00, 0x35, 0x02, 0x0b};
-    expected_udp.insert(expected_udp.end(), kUdpDestinationPrefix.begin(), kUdpDestinationPrefix.end());
-    expected_udp.insert(expected_udp.end(), kDomain.begin(), kDomain.end());
-    expect(!ec && udp_request == expected_udp, "VLESS UDP header mismatch");
-
     config.destination = rv::net::ipv4_address{{192, 0, 2, 1}};
-    const auto ipv4_request = rv::vless::encode_udp_request(config, ec);
+    const auto ipv4_request = rv::vless::encode_tcp_request(config, ec);
     expect(!ec, "VLESS IPv4 encoding failed");
     constexpr std::array<std::uint8_t, 7> kExpectedIpv4Suffix{0x00, 0x35, 0x01, 192, 0, 2, 1};
     expect(ipv4_request.size() >= kExpectedIpv4Suffix.size() &&
@@ -629,7 +621,7 @@ void test_vless_header()
 
     config.destination = rv::net::ipv6_address{{0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}};
     config.destination_port = 443;
-    const auto ipv6_request = rv::vless::encode_udp_request(config, ec);
+    const auto ipv6_request = rv::vless::encode_tcp_request(config, ec);
     expect(!ec, "VLESS IPv6 encoding failed");
     constexpr std::array<std::uint8_t, 19> kExpectedIpv6Suffix{0x01, 0xbb, 0x03, 0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
     expect(ipv6_request.size() >= kExpectedIpv6Suffix.size() &&

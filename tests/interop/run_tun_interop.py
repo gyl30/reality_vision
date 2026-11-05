@@ -256,6 +256,10 @@ def run_test(xray: Path, client: Path, work_dir: Path) -> int:
         run_client(proxy_namespace, script, "check", work_dir / "tun-check.log")
         if f"sniffed destination {SNIFF_DOMAIN}:{TCP_ECHO_PORT}" not in interop.tail(proxy_log_path, 200000):
             raise RuntimeError("TUN TCP did not sniff the HTTP Host")
+        # 每个客户端源地址（IPv4、IPv6 各一个 socket）的所有目标共用一条 XUDP 连接。
+        xudp_sessions = interop.count_text(proxy_log_path, "xudp session opened")
+        if xudp_sessions != 2:
+            raise RuntimeError(f"TUN UDP opened {xudp_sessions} XUDP connections, expected 2")
         if proxy_process.poll() is not None:
             raise RuntimeError(f"reality_vision exited\n{interop.tail(proxy_log_path)}")
 
