@@ -279,7 +279,9 @@ boost::asio::awaitable<void> reality_stream::shutdown_send(boost::system::error_
 
 void reality_stream::switch_receive_to_raw(boost::system::error_code& ec)
 {
-    if (receive_mode_ != receive_mode::kTls || !plaintext_buffer_.empty() || !post_handshake_buffer_.empty())
+    // Direct frame 之后同一 record 内剩余的明文仍属于对端数据流，read() 会先交付它再读取 raw TCP，
+    // 与 Xray 接收端合并 TLS input 缓冲的顺序一致。
+    if (receive_mode_ != receive_mode::kTls || !post_handshake_buffer_.empty())
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::operation_not_permitted);
         return;

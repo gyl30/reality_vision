@@ -115,7 +115,8 @@ stateDiagram-v2
 RX 每次只读取 5-byte TLS record header，再读取该 header 声明的 payload，绝不预取下一
 record。即使一个 TCP segment 同时包含“最后一个外层 TLS record + 第一段 raw 内层 TLS
 record”，raw 后缀也仍留在 socket receive buffer 中。Vision 完整消费 Direct frame 后再
-调用 `switch_receive_to_raw()`，下一次读取才会拿到该后缀。
+调用 `switch_receive_to_raw()`，下一次读取才会拿到该后缀。若 Direct frame 所在 record 内还有剩余明文，
+切换后的读取先交付这部分明文，再读取 raw TCP。
 
 TX 先把包含 `command=2` 的完整 Vision frame 作为最后一个外层 TLS application record
 写完，之后才把 send mode 改为 raw。这避免 command 自身被提前按 raw 发送。
