@@ -119,18 +119,20 @@ def run_udp_client(
         wait_for_path(empty_checked)
 
         udp_roundtrip(sock, host, primary_port, b"transparent-udp-roundtrip")
+        # Xray XUDP 客户端上限：length + 666 <= 8192。
         udp_roundtrip(
-            sock, host, primary_port, bytes(range(256)) * 31 + bytes(range(254))
+            sock, host, primary_port, bytes(range(256)) * 29 + bytes(range(102))
         )
         udp_roundtrip(sock, host, 53, b"transparent-privileged-port")
 
         flow_ready.write_text("ready", encoding="utf-8")
         wait_for_path(continue_flow)
-        sock.sendto(b"blocked-new-flow", (host, blocked_port))
+        # 新的 REALITY 连接已被阻断；同一客户端的新目标仍经已有 XUDP 连接收发，回包来源为该目标。
+        udp_roundtrip(sock, host, blocked_port, b"new-destination-reuses-xudp")
         udp_roundtrip(sock, host, primary_port, b"existing-flow-remains-responsive")
 
         sock.settimeout(1)
-        sock.sendto(b"x" * 8191, (host, primary_port))
+        sock.sendto(b"x" * 7527, (host, primary_port))
         try:
             response, source = sock.recvfrom(65535)
         except TimeoutError:

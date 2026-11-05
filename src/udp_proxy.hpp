@@ -40,14 +40,12 @@ class udp_tproxy final : public app::proxy_service
 
    private:
     boost::asio::awaitable<void> receive_datagrams();
-    std::shared_ptr<udp_tproxy_session> get_session(const boost::asio::ip::udp::endpoint& client,
-                                                    const boost::asio::ip::udp::endpoint& destination,
-                                                    boost::system::error_code& ec);
+    std::shared_ptr<udp_tproxy_session> get_session(const boost::asio::ip::udp::endpoint& client);
 
     boost::asio::ip::udp::socket socket_;
     app::config configuration_;
     std::string service_id_;
-    std::map<std::string, std::weak_ptr<udp_tproxy_session>> sessions_;
+    std::map<boost::asio::ip::udp::endpoint, std::weak_ptr<udp_tproxy_session>> sessions_;
     std::uint64_t next_session_number_{1};
 };
 
