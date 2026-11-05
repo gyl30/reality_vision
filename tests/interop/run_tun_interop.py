@@ -26,6 +26,7 @@ import run_xray_interop as interop  # noqa: E402
 
 NAMESPACE_MARKER = "RV_TUN_INTEROP_NAMESPACE"
 TUN_NAME = "rv-tun"
+SNIFF_DOMAIN = "tun-sniff.test"
 OUTBOUND_MARK = 1
 PROXY_VETH_ADDRESS = "10.30.0.1"
 SERVER_VETH_ADDRESS = "10.30.0.2"
@@ -75,6 +76,16 @@ def tcp_roundtrip(host: str, payload: bytes) -> None:
         raise RuntimeError(f"TUN TCP echo mismatch for {host}")
 
 
+def http_host_roundtrip() -> None:
+    # 目标是 IP；代理应从 HTTP Host 恢复域名，由 Xray 通过 /etc/hosts 解析回同一 echo 服务。
+    request = f"GET / HTTP/1.1\r\nHost: {SNIFF_DOMAIN}\r\n\r\n".encode()
+    with socket.create_connection((TARGET_V4, TCP_ECHO_PORT), timeout=5) as connection:
+        connection.sendall(request)
+        response = interop.recv_exact(connection, len(request))
+    if response != request:
+        raise RuntimeError("TUN sniffed HTTP request echo mismatch")
+
+
 def udp_exchange(sock: socket.socket, host: str, port: int, payload: bytes) -> None:
     sock.sendto(payload, (host, port))
     response, source = sock.recvfrom(65535)
@@ -85,6 +96,7 @@ def udp_exchange(sock: socket.socket, host: str, port: int, payload: bytes) -> N
 def run_client_checks() -> int:
     tcp_roundtrip(TARGET_V4, b"tun-tcp-ipv4")
     tcp_roundtrip(TARGET_V6, b"tun-tcp-ipv6")
+    http_host_roundtrip()
 
     for family, host in ((socket.AF_INET, TARGET_V4), (socket.AF_INET6, TARGET_V6)):
         with socket.socket(family, socket.SOCK_DGRAM) as sock:
@@ -157,6 +169,11 @@ def run_test(xray: Path, client: Path, work_dir: Path) -> int:
     client = client.resolve()
     work_dir = work_dir.resolve()
     work_dir.mkdir(parents=True, exist_ok=True)
+
+    hosts_path = work_dir / "tun-hosts"
+    hosts_path.write_text(f"127.0.0.1 localhost\n{TARGET_V4} {SNIFF_DOMAIN}\n", encoding="utf-8")
+    # 私有 mount namespace 中覆盖 /etc/hosts，供 Xray freedom 解析嗅探得到的域名。
+    run_checked(["mount", "--bind", str(hosts_path), "/etc/hosts"])
 
     proxy_namespace = "rvtunp"
     server_namespace = "rvtunx"
@@ -231,6 +248,8 @@ def run_test(xray: Path, client: Path, work_dir: Path) -> int:
             run_checked(["ip", family, "-n", proxy_namespace, "rule", "add", "not", "fwmark", str(OUTBOUND_MARK), "lookup", "100"])
 
         run_client(proxy_namespace, script, "check", work_dir / "tun-check.log")
+        if f"sniffed destination {SNIFF_DOMAIN}:{TCP_ECHO_PORT}" not in interop.tail(proxy_log_path, 200000):
+            raise RuntimeError("TUN TCP did not sniff the HTTP Host")
         if proxy_process.poll() is not None:
             raise RuntimeError(f"reality_vision exited\n{interop.tail(proxy_log_path)}")
 
@@ -252,7 +271,7 @@ def run_test(xray: Path, client: Path, work_dir: Path) -> int:
         for log_file in log_files:
             log_file.close()
 
-    print("TUN global routing with SO_MARK, TCP IPv4/IPv6, UDP multi-destination, upstream reset, and device removal tests passed")
+    print("TUN global routing with SO_MARK, TCP IPv4/IPv6 and Host sniffing, UDP multi-destination, upstream reset, and device removal tests passed")
     return 0
 
 

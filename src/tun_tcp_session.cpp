@@ -12,6 +12,7 @@
 #include <boost/asio/use_awaitable.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
 
+#include "sniffer.hpp"
 #include "proxy_common.hpp"
 #include "tun_tcp_session.hpp"
 
@@ -21,6 +22,8 @@ namespace
 {
 
 constexpr std::size_t kRelayBufferSize = 16UL * 1024U;
+constexpr std::size_t kSniffLimit = 16UL * 1024U;
+constexpr auto kSniffTimeout = std::chrono::milliseconds(200);
 
 proxy::target make_proxy_target(const ip_addr_t& address, const std::uint16_t port)
 {
@@ -88,6 +91,7 @@ boost::asio::awaitable<bool> tun_tcp_session::run()
         co_return false;
     }
 
+    co_await sniff_destination();
     upstream_ = co_await proxy::connect_vision(std::move(*reality), configuration_, target_, session_id_, ec);
     if (ec || !upstream_ || stopped_.load(std::memory_order_relaxed))
     {
@@ -214,6 +218,32 @@ boost::asio::awaitable<void> tun_tcp_session::upstream_to_client(vision::vision_
             }
             offset += chunk;
         }
+    }
+}
+
+// 与 REDIRECT/TPROXY 一致：限时从 TLS SNI 或 HTTP Host 恢复域名。数据留在 pending_ 中，之后原样转发。
+boost::asio::awaitable<void> tun_tcp_session::sniff_destination()
+{
+    const auto deadline = std::chrono::steady_clock::now() + kSniffTimeout;
+    for (;;)
+    {
+        const auto bytes = pbuf_to_vector(pending_);
+        const auto sniffed = sniff::inspect_destination(bytes);
+        if (sniffed.state == sniff::status::kFound)
+        {
+            target_.destination = net::domain_address{sniffed.domain};
+            spdlog::info("{} sniffed destination {}:{}", session_id_, sniffed.domain, target_.port);
+            co_return;
+        }
+        if (sniffed.state == sniff::status::kNoMatch || bytes.size() >= kSniffLimit || peer_eof_ ||
+            stopped_.load(std::memory_order_relaxed) || std::chrono::steady_clock::now() >= deadline)
+        {
+            co_return;
+        }
+
+        client_wait_timer_.expires_at(deadline);
+        boost::system::error_code ec;
+        co_await client_wait_timer_.async_wait(boost::asio::redirect_error(boost::asio::use_awaitable, ec));
     }
 }
 

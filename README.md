@@ -57,7 +57,7 @@ ML-DSA 附加校验和 Xray 的 spider fallback。REALITY 身份校验失败时
 SOCKS5 当前只监听本机回环地址；不支持 `BIND`，支持 `UDP ASSOCIATE` 但不支持 SOCKS5 UDP fragmentation (`FRAG != 0`)。
 透明入站当前支持 Linux IPv4 TCP REDIRECT、TCP TPROXY 和 UDP TPROXY；不实现通用 UDP REDIRECT。IPv6 transparent 和 DNS 专用劫持留到后续阶段。UDP/443 可按普通 UDP 转发，但当前不解析或 sniff QUIC。
 
-TUN 当前是 Linux-only 的最小实现。`--tun` 使用 `/dev/net/tun`，lwIP raw API 负责 TCP/UDP 分流；TUN 目标只能从 IP 包中得到 IP 地址，不做 DNS 劫持、域名恢复或路由规则安装。程序不会替系统配置 TUN 的地址、MTU、路由和 DNS，部署时需要由外部脚本完成，并通过 `--mark` 策略路由或路由排除 REALITY 服务端地址避免回环。TUN 与现有 listener 共存时必须使用 `--workers 1`。
+TUN 当前是 Linux-only 的最小实现。`--tun` 使用 `/dev/net/tun`，lwIP raw API 负责 TCP/UDP 分流；TUN TCP 与 REDIRECT/TPROXY 一样，会在 200ms 内从 TLS SNI 或 HTTP Host 恢复域名，未命中时使用 IP；不做 DNS 劫持或路由规则安装。程序不会替系统配置 TUN 的地址、MTU、路由和 DNS，部署时需要由外部脚本完成，并通过 `--mark` 策略路由或路由排除 REALITY 服务端地址避免回环。TUN 与现有 listener 共存时必须使用 `--workers 1`。
 
 ## 目录与依赖关系
 

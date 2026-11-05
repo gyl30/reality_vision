@@ -44,6 +44,7 @@ class tun_tcp_session : public std::enable_shared_from_this<tun_tcp_session>
                                                                   boost::system::error_code& ec);
     [[nodiscard]] boost::asio::awaitable<void> upstream_to_client(vision::vision_stream& upstream,
                                                                   boost::system::error_code& ec);
+    [[nodiscard]] boost::asio::awaitable<void> sniff_destination();
     [[nodiscard]] boost::asio::awaitable<void> wait_client_event();
     [[nodiscard]] boost::asio::awaitable<void> wait_send_event();
     void signal_client_event();
