@@ -22,13 +22,13 @@ constexpr std::uint16_t kExtensionExtendedMasterSecret = 0x0017;
 constexpr std::uint16_t kExtensionRenegotiationInfo = 0xff01;
 constexpr std::uint16_t kExtensionSupportedGroups = 0x000a;
 constexpr std::uint16_t kExtensionEcPointFormats = 0x000b;
-constexpr std::uint16_t kExtensionSessionTicket = 0x0023;
 constexpr std::uint16_t kExtensionAlpn = 0x0010;
 constexpr std::uint16_t kExtensionStatusRequest = 0x0005;
 constexpr std::uint16_t kExtensionDelegatedCredentials = 0x0022;
 constexpr std::uint16_t kExtensionSignatureAlgorithms = 0x000d;
-constexpr std::uint16_t kExtensionPskKeyExchangeModes = 0x002d;
 constexpr std::uint16_t kExtensionRecordSizeLimit = 0x001c;
+constexpr std::uint16_t kExtensionSignedCertificateTimestamp = 0x0012;
+constexpr std::uint16_t kExtensionCompressCertificate = 0x001b;
 constexpr std::uint16_t kExtensionEncryptedClientHello = 0xfe0d;
 
 constexpr std::uint16_t kNamedGroupSecp384r1 = 0x0018;
@@ -114,16 +114,25 @@ std::vector<std::uint8_t> alpn_extension()
     return output;
 }
 
-std::vector<std::uint8_t> key_share_extension(const std::array<std::uint8_t, tls::kX25519KeyShareSize>& x25519_public,
+void append_key_share(const std::uint16_t group, const std::span<const std::uint8_t> share, std::vector<std::uint8_t>& output)
+{
+    core::append_be16(output, group);
+    core::append_be16(output, static_cast<std::uint16_t>(share.size()));
+    output.insert(output.end(), share.begin(), share.end());
+}
+
+// 与 uTLS ReuseHybridAndClassicalKeyShares 一致：hybrid share 与独立 X25519 share 复用同一把 X25519 密钥。
+std::vector<std::uint8_t> key_share_extension(const std::array<std::uint8_t, crypto::kMlkem768PublicKeySize>& mlkem768_public,
+                                              const std::array<std::uint8_t, tls::kX25519KeyShareSize>& x25519_public,
                                               const std::array<std::uint8_t, crypto::kP256PublicKeySize>& p256_public)
 {
+    std::vector<std::uint8_t> hybrid_share(mlkem768_public.begin(), mlkem768_public.end());
+    hybrid_share.insert(hybrid_share.end(), x25519_public.begin(), x25519_public.end());
+
     std::vector<std::uint8_t> shares;
-    core::append_be16(shares, tls::kNamedGroupX25519);
-    core::append_be16(shares, static_cast<std::uint16_t>(x25519_public.size()));
-    shares.insert(shares.end(), x25519_public.begin(), x25519_public.end());
-    core::append_be16(shares, tls::kNamedGroupSecp256r1);
-    core::append_be16(shares, static_cast<std::uint16_t>(p256_public.size()));
-    shares.insert(shares.end(), p256_public.begin(), p256_public.end());
+    append_key_share(tls::kNamedGroupX25519Mlkem768, hybrid_share, shares);
+    append_key_share(tls::kNamedGroupX25519, x25519_public, shares);
+    append_key_share(tls::kNamedGroupSecp256r1, p256_public, shares);
 
     std::vector<std::uint8_t> output;
     core::append_be16(output, static_cast<std::uint16_t>(shares.size()));
@@ -164,6 +173,7 @@ void push_u16_list_extension(std::vector<std::uint8_t>& extensions,
 }
 
 void push_key_share_extension(std::vector<std::uint8_t>& extensions,
+                              const std::array<std::uint8_t, crypto::kMlkem768PublicKeySize>& mlkem768_public,
                               const std::array<std::uint8_t, tls::kX25519KeyShareSize>& x25519_public,
                               boost::system::error_code& ec)
 {
@@ -176,7 +186,7 @@ void push_key_share_extension(std::vector<std::uint8_t>& extensions,
     {
         return;
     }
-    const auto data = key_share_extension(x25519_public, p256_public);
+    const auto data = key_share_extension(mlkem768_public, x25519_public, p256_public);
     push_extension(extensions, tls::kExtensionKeyShare, data, ec);
 }
 
@@ -224,9 +234,13 @@ void push_grease_ech_extension(std::vector<std::uint8_t>& extensions, boost::sys
     push_extension(extensions, kExtensionEncryptedClientHello, data, ec);
 }
 
-std::vector<std::uint8_t> firefox_120_extensions(const client_config& configuration,
-                                                 const std::array<std::uint8_t, tls::kX25519KeyShareSize>& x25519_public,
-                                                 boost::system::error_code& ec)
+struct client_key_shares
+{
+    std::array<std::uint8_t, crypto::kMlkem768PublicKeySize> mlkem768_public{};
+    std::array<std::uint8_t, tls::kX25519KeyShareSize> x25519_public{};
+};
+
+std::vector<std::uint8_t> firefox_148_extensions(const client_config& configuration, const client_key_shares& key_shares, boost::system::error_code& ec)
 {
     std::vector<std::uint8_t> extensions;
 
@@ -236,7 +250,8 @@ std::vector<std::uint8_t> firefox_120_extensions(const client_config& configurat
     constexpr std::array<std::uint8_t, 1> kRenegotiationInfo{0};
     push_extension(extensions, kExtensionRenegotiationInfo, kRenegotiationInfo, ec);
 
-    constexpr std::array<std::uint16_t, 6> kSupportedGroups{
+    constexpr std::array<std::uint16_t, 7> kSupportedGroups{
+        tls::kNamedGroupX25519Mlkem768,
         tls::kNamedGroupX25519,
         tls::kNamedGroupSecp256r1,
         kNamedGroupSecp384r1,
@@ -248,7 +263,6 @@ std::vector<std::uint8_t> firefox_120_extensions(const client_config& configurat
 
     constexpr std::array<std::uint8_t, 2> kEcPointFormats{1, 0};
     push_extension(extensions, kExtensionEcPointFormats, kEcPointFormats, ec);
-    push_extension(extensions, kExtensionSessionTicket, {}, ec);
 
     const auto alpn = alpn_extension();
     push_extension(extensions, kExtensionAlpn, alpn, ec);
@@ -259,7 +273,8 @@ std::vector<std::uint8_t> firefox_120_extensions(const client_config& configurat
     constexpr std::array<std::uint16_t, 4> kDelegatedCredentialAlgorithms{0x0403, 0x0503, 0x0603, 0x0203};
     push_u16_list_extension(extensions, kExtensionDelegatedCredentials, kDelegatedCredentialAlgorithms, ec);
 
-    push_key_share_extension(extensions, x25519_public, ec);
+    push_extension(extensions, kExtensionSignedCertificateTimestamp, {}, ec);
+    push_key_share_extension(extensions, key_shares.mlkem768_public, key_shares.x25519_public, ec);
 
     constexpr std::array<std::uint8_t, 5> kSupportedVersions{4, 0x03, 0x04, 0x03, 0x03};
     push_extension(extensions, tls::kExtensionSupportedVersions, kSupportedVersions, ec);
@@ -268,11 +283,12 @@ std::vector<std::uint8_t> firefox_120_extensions(const client_config& configurat
         0x0403, 0x0503, 0x0603, 0x0804, 0x0805, 0x0806, 0x0401, 0x0501, 0x0601, 0x0203, 0x0201};
     push_u16_list_extension(extensions, kExtensionSignatureAlgorithms, kSignatureAlgorithms, ec);
 
-    constexpr std::array<std::uint8_t, 2> kPskKeyExchangeModes{1, 1};
-    push_extension(extensions, kExtensionPskKeyExchangeModes, kPskKeyExchangeModes, ec);
-
     constexpr std::array<std::uint8_t, 2> kRecordSizeLimit{0x40, 0x01};
     push_extension(extensions, kExtensionRecordSizeLimit, kRecordSizeLimit, ec);
+
+    // 只声明 zlib、brotli、zstd；REALITY 服务端基于 Go TLS，不会发送 CompressedCertificate。
+    constexpr std::array<std::uint8_t, 7> kCompressCertificateAlgorithms{6, 0x00, 0x01, 0x00, 0x02, 0x00, 0x03};
+    push_extension(extensions, kExtensionCompressCertificate, kCompressCertificateAlgorithms, ec);
 
     push_grease_ech_extension(extensions, ec);
     if (ec)
@@ -282,17 +298,17 @@ std::vector<std::uint8_t> firefox_120_extensions(const client_config& configurat
     return extensions;
 }
 
-std::vector<std::uint8_t> build_firefox_120_handshake(const client_config& configuration,
+std::vector<std::uint8_t> build_firefox_148_handshake(const client_config& configuration,
                                                       const std::array<std::uint8_t, tls::kRandomSize>& random,
                                                       const std::array<std::uint8_t, kRealitySessionIdSize>& session_id,
-                                                      const std::array<std::uint8_t, tls::kX25519KeyShareSize>& x25519_public_key,
+                                                      const client_key_shares& key_shares,
                                                       boost::system::error_code& ec)
 {
     constexpr std::array<std::uint16_t, 17> kCipherSuites{
         0x1301, 0x1303, 0x1302, 0xc02b, 0xc02f, 0xcca9, 0xcca8, 0xc02c, 0xc030, 0xc00a, 0xc009, 0xc013, 0xc014, 0x009c, 0x009d, 0x002f, 0x0035};
 
     std::vector<std::uint8_t> body;
-    body.reserve(768);
+    body.reserve(2048);
     core::append_be16(body, tls::kLegacyVersion);
     body.insert(body.end(), random.begin(), random.end());
     body.push_back(static_cast<std::uint8_t>(session_id.size()));
@@ -305,7 +321,7 @@ std::vector<std::uint8_t> build_firefox_120_handshake(const client_config& confi
     body.push_back(1);
     body.push_back(tls::kNullCompressionMethod);
 
-    const auto extensions = firefox_120_extensions(configuration, x25519_public_key, ec);
+    const auto extensions = firefox_148_extensions(configuration, key_shares, ec);
     if (ec)
     {
         return {};
@@ -429,6 +445,7 @@ void authenticate_client_hello(client_hello_material& material,
 void cleanse_client_hello_secrets(client_hello_material& material) noexcept
 {
     crypto::cleanse(material.x25519_private_key);
+    crypto::cleanse(material.mlkem768_seed);
     crypto::cleanse(material.reality_auth_key);
 }
 
@@ -436,7 +453,7 @@ std::optional<client_hello_material> build_client_hello(const client_config& con
                                                         boost::system::error_code& ec,
                                                         const std::chrono::system_clock::time_point now)
 {
-    if (configuration.profile != client_hello_profile::kFirefox120)
+    if (configuration.profile != client_hello_profile::kFirefox148)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::operation_not_supported);
         return std::nullopt;
@@ -449,10 +466,16 @@ std::optional<client_hello_material> build_client_hello(const client_config& con
         return std::nullopt;
     }
 
-    auto key_pair = crypto::make_x25519_key_pair();
-    material.x25519_private_key = key_pair.private_key;
-    crypto::cleanse(key_pair.private_key);
-    material.handshake_bytes = build_firefox_120_handshake(configuration, material.client_random, material.session_id, key_pair.public_key, ec);
+    client_key_shares key_shares;
+    auto x25519_key_pair = crypto::make_x25519_key_pair();
+    material.x25519_private_key = x25519_key_pair.private_key;
+    key_shares.x25519_public = x25519_key_pair.public_key;
+    crypto::cleanse(x25519_key_pair.private_key);
+    auto mlkem768_key_pair = crypto::make_mlkem768_key_pair();
+    material.mlkem768_seed = mlkem768_key_pair.seed;
+    key_shares.mlkem768_public = mlkem768_key_pair.public_key;
+    crypto::cleanse(mlkem768_key_pair.seed);
+    material.handshake_bytes = build_firefox_148_handshake(configuration, material.client_random, material.session_id, key_shares, ec);
     if (ec)
     {
         cleanse_client_hello_secrets(material);

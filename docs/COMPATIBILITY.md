@@ -5,7 +5,7 @@
 | 项目 | revision | 用途 |
 |---|---|---|
 | Xray-core | `5ca6f4b7d4dc20a881d4330e498892697627ec0c` | REALITY、VLESS、Vision 互通基线 |
-| uTLS | `aa6edf4b11af` | `HelloFirefox_120` 序列化 profile |
+| uTLS | `aa6edf4b11af` | `HelloFirefox_148` 序列化 profile |
 | XTLS/REALITY Go | `9234c772ba8f` | 服务端 REALITY 行为参考 |
 | BoringSSL | `0.20261020.0`（`d3bf4795ad5b79d646cddf2fec687da5b9b502db`） | submodule 固定的密码学与 X.509 版本 |
 | spdlog | `1.15.3` | 已验证的日志库版本 |
@@ -13,35 +13,41 @@
 
 BoringSSL 与 lwIP 由 Git submodule 固定版本并随工程源码构建；Boost 与 spdlog 由调用方安装。CMake 不下载第三方依赖。
 
-## Firefox 120 profile
+## Firefox 148 profile
 
-当前 profile 固定以下 TLS 1.3 cipher preference：
+当前 profile 对应 uTLS `HelloFirefox_148`，也是 Xray `fingerprint: firefox` 的当前取值。TLS 1.3 cipher preference 固定为：
 
 1. `TLS_AES_128_GCM_SHA256`；
 2. `TLS_CHACHA20_POLY1305_SHA256`；
 3. `TLS_AES_256_GCM_SHA384`。
 
-同时保留 Firefox 120 的 TLS 1.2 cipher list，以保持 ClientHello 外形。扩展顺序为：
+同时保留 Firefox 的 TLS 1.2 cipher list，以保持 ClientHello 外形。扩展顺序为：
 
 1. SNI；
 2. extended master secret；
 3. renegotiation info；
-4. supported groups；
+4. supported groups（`X25519MLKEM768`、`X25519`、P-256、P-384、P-521、ffdhe2048、ffdhe3072）；
 5. EC point formats；
-6. session ticket；
-7. ALPN；
-8. status request；
-9. delegated credentials；
+6. ALPN；
+7. status request；
+8. delegated credentials；
+9. signed certificate timestamp；
 10. key share；
 11. supported versions；
 12. signature algorithms；
-13. PSK key exchange modes；
-14. record size limit；
+13. record size limit；
+14. compress certificate（zlib、brotli、zstd）；
 15. GREASE ECH。
 
-KeyShare 包含 X25519 与 P-256 public share。REALITY key agreement 当前只保存 X25519
-private key；如果服务端选择 P-256 或发送 HelloRetryRequest，连接会通过
-`boost::system::errc::operation_not_supported` 失败。
+KeyShare 依次包含 `X25519MLKEM768`（1184-byte ML-KEM-768 encapsulation key ‖ X25519 public key）、
+X25519 与 P-256 public share；两处 X25519 复用同一把密钥，与 uTLS `ReuseHybridAndClassicalKeyShares` 一致。
+新版 REALITY 服务端要求 `X25519MLKEM768` 出现在独立 X25519 之前，并用该 X25519 公钥完成 REALITY 认证。
+
+REALITY 服务端沿用 dest 站点 ServerHello 选择的 group：选择 `X25519MLKEM768` 时 server share 为
+1088-byte ML-KEM 密文 ‖ X25519 public key，共享密钥为 ML-KEM shared secret ‖ X25519 shared secret；
+选择 X25519 时只做 X25519。服务端选择 P-256 或发送 HelloRetryRequest 时，连接通过
+`boost::system::errc::operation_not_supported` 失败。compress certificate 只用于指纹外形：REALITY 服务端基于 Go TLS，
+不会发送 CompressedCertificate。
 
 GREASE ECH 保持 uTLS profile 的字段形状和 239-byte ciphertext 长度。它只用于指纹外形，
 不是一次真实 ECH 尝试。
@@ -51,7 +57,10 @@ REALITY `shortId` 与 Xray 固定基线保持一致：允许 0～8 字节，命�
 
 ## Xray 互通测试覆盖
 
-`tests/interop/run_xray_interop.py` 启动固定 Xray binary，并执行以下互通检查：
+`tests/interop/run_xray_interop.py` 启动固定 Xray binary，并执行以下互通检查。REALITY dest 使用同一 Xray 进程中的 Go TLS
+inbound：新版 REALITY 自身的 EncryptedExtensions 总会 ack SNI，dest 也必须 ack，否则握手长度不一致；
+默认 dest 优先协商 `X25519MLKEM768`，另一个 dest 只允许 X25519，两条密钥交换路径都会断言。
+
 
 1. SOCKS5 domain CONNECT → REALITY + VLESS + Vision → 普通 TCP echo server，必须以 `command=1` 回退；
 2. SOCKS5 domain CONNECT → 内层 TLS 1.2 server，必须以 `command=1` 回退且不得增加 Xray splice；

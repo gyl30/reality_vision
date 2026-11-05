@@ -30,14 +30,14 @@
 - 外层 REALITY 的 TX/RX 分别从 TLS record mode 切换到 raw mode；
 - splice 后的完整 HTTP 响应。
 
-固定 ClientHello profile 来自 uTLS `HelloFirefox_120`，参考提交为
+固定 ClientHello profile 来自 uTLS `HelloFirefox_148`（Xray `fingerprint: firefox` 的当前取值），参考提交为
 `aa6edf4b11af`。当前不是泛化的指纹引擎；profile 被明确建模成
-`client_hello_profile::firefox_120`，方便以后增加更多实现。
+`client_hello_profile::kFirefox148`，方便以后增加更多实现。
 
 ## 支持范围
 
 - REALITY client；
-- TLS 1.3、X25519；
+- TLS 1.3、X25519MLKEM768 与 X25519（服务端选择，REALITY 沿用 dest 站点的选择）；
 - `TLS_AES_128_GCM_SHA256`；
 - `TLS_AES_256_GCM_SHA384`；
 - `TLS_CHACHA20_POLY1305_SHA256`；
@@ -51,7 +51,7 @@
 - Linux IPv4 TCP REDIRECT 使用 `SO_ORIGINAL_DST` 恢复 NAT 前目标；TPROXY TCP/UDP 使用 `IP_TRANSPARENT`，UDP 通过 `IP_RECVORIGDSTADDR` 获取每个 datagram 的原目标。
 
 当前有意不支持：HelloRetryRequest、0-RTT、session resumption、KeyUpdate、
-X25519MLKEM768、ML-DSA 附加校验和 Xray 的 spider fallback。REALITY 身份校验失败时
+ML-DSA 附加校验和 Xray 的 spider fallback。REALITY 身份校验失败时
 会直接失败，不会把连接当作普通网站 TLS 会话继续使用。
 
 SOCKS5 当前只监听本机回环地址；不支持 `BIND`，支持 `UDP ASSOCIATE` 但不支持 SOCKS5 UDP fragmentation (`FRAG != 0`)。

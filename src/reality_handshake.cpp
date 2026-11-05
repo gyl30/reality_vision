@@ -71,6 +71,8 @@ struct parsed_server_hello
     std::vector<std::uint8_t> session_id;
     cipher_suite suite{cipher_suite::kUnknown};
     std::array<std::uint8_t, tls::kX25519KeyShareSize> x25519_key_share{};
+    // 仅当服务端选择 X25519MLKEM768 时存在。
+    std::optional<std::array<std::uint8_t, crypto::kMlkem768CiphertextSize>> mlkem768_ciphertext;
 };
 
 boost::asio::awaitable<tls_record> read_tls_record(net::tcp_byte_stream& stream, boost::system::error_code& ec)
@@ -250,6 +252,14 @@ void parse_server_key_share(const std::span<const std::uint8_t> extension_data, 
     if (group == tls::kNamedGroupSecp256r1 && share->size() == crypto::kP256PublicKeySize)
     {
         ec = boost::system::errc::make_error_code(boost::system::errc::operation_not_supported);
+        return;
+    }
+    if (group == tls::kNamedGroupX25519Mlkem768 && share->size() == crypto::kMlkem768CiphertextSize + tls::kX25519KeyShareSize)
+    {
+        // X25519MLKEM768 的 server share 为 ML-KEM 密文在前、X25519 公钥在后。
+        auto& ciphertext = server_hello.mlkem768_ciphertext.emplace();
+        std::copy_n(share->begin(), ciphertext.size(), ciphertext.begin());
+        std::copy(share->begin() + static_cast<std::ptrdiff_t>(ciphertext.size()), share->end(), server_hello.x25519_key_share.begin());
         return;
     }
     if (group != tls::kNamedGroupX25519 || share->size() != server_hello.x25519_key_share.size())
@@ -681,7 +691,7 @@ boost::asio::awaitable<std::optional<client_hello_material>> send_client_hello(n
         co_return std::nullopt;
     }
 
-    spdlog::info("{} reality client hello sent firefox 120 profile", session_id);
+    spdlog::info("{} reality client hello sent firefox 148 profile", session_id);
     co_return client_hello;
 }
 
@@ -716,6 +726,7 @@ boost::asio::awaitable<std::optional<parsed_server_hello>> receive_server_hello(
     }
 
     transcript.insert(transcript.end(), message.raw.begin(), message.raw.end());
+    spdlog::info("{} reality key exchange {}", session_id, server_hello.mlkem768_ciphertext ? "X25519MLKEM768" : "X25519");
     co_return server_hello;
 }
 
@@ -724,15 +735,38 @@ std::optional<handshake_secrets> derive_client_handshake_secrets(client_hello_ma
                                                                  const std::span<const std::uint8_t> transcript,
                                                                  boost::system::error_code& ec)
 {
-    auto shared_secret = crypto::x25519(client_hello.x25519_private_key, server_hello.x25519_key_share, ec);
+    auto x25519_secret = crypto::x25519(client_hello.x25519_private_key, server_hello.x25519_key_share, ec);
     crypto::cleanse(client_hello.x25519_private_key);
     if (ec)
     {
+        crypto::cleanse(client_hello.mlkem768_seed);
+        return std::nullopt;
+    }
+    if (!server_hello.mlkem768_ciphertext)
+    {
+        crypto::cleanse(client_hello.mlkem768_seed);
+        auto secrets = derive_handshake_secrets(server_hello.suite, x25519_secret, transcript, ec);
+        crypto::cleanse(x25519_secret);
+        return secrets;
+    }
+
+    auto mlkem768_secret = crypto::mlkem768_decapsulate(client_hello.mlkem768_seed, *server_hello.mlkem768_ciphertext, ec);
+    crypto::cleanse(client_hello.mlkem768_seed);
+    if (ec)
+    {
+        crypto::cleanse(x25519_secret);
         return std::nullopt;
     }
 
-    auto secrets = derive_handshake_secrets(server_hello.suite, shared_secret, transcript, ec);
-    crypto::cleanse(shared_secret);
+    // X25519MLKEM768 的共享密钥为 ML-KEM 在前、X25519 在后。
+    std::array<std::uint8_t, crypto::kMlkemSharedSecretSize + crypto::kX25519KeySize> hybrid_secret{};
+    std::copy(mlkem768_secret.begin(), mlkem768_secret.end(), hybrid_secret.begin());
+    std::copy(x25519_secret.begin(), x25519_secret.end(), hybrid_secret.begin() + static_cast<std::ptrdiff_t>(mlkem768_secret.size()));
+    crypto::cleanse(mlkem768_secret);
+    crypto::cleanse(x25519_secret);
+
+    auto secrets = derive_handshake_secrets(server_hello.suite, hybrid_secret, transcript, ec);
+    crypto::cleanse(hybrid_secret);
     return secrets;
 }
 

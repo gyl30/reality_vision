@@ -495,7 +495,7 @@ void test_client_hello()
     expect(extensions_length == wire.size() - position, "ClientHello extensions length mismatch");
 
     constexpr std::array<std::uint16_t, 15> kExpectedExtensionTypes{
-        0x0000, 0x0017, 0xff01, 0x000a, 0x000b, 0x0023, 0x0010, 0x0005, 0x0022, 0x0033, 0x002b, 0x000d, 0x002d, 0x001c, 0xfe0d};
+        0x0000, 0x0017, 0xff01, 0x000a, 0x000b, 0x0010, 0x0005, 0x0022, 0x0012, 0x0033, 0x002b, 0x000d, 0x001c, 0x001b, 0xfe0d};
     std::array<std::span<const std::uint8_t>, kExpectedExtensionTypes.size()> extension_data{};
     for (std::size_t index = 0; index != kExpectedExtensionTypes.size(); ++index)
     {
@@ -516,30 +516,38 @@ void test_client_hello()
                std::equal(config.server_name.begin(), config.server_name.end(), sni.begin() + 5),
            "ClientHello SNI mismatch");
 
-    constexpr std::array<std::uint8_t, 14> kExpectedGroups{0x00, 0x0c, 0x00, 0x1d, 0x00, 0x17, 0x00, 0x18, 0x00, 0x19, 0x01, 0x00, 0x01, 0x01};
+    constexpr std::array<std::uint8_t, 16> kExpectedGroups{
+        0x00, 0x0e, 0x11, 0xec, 0x00, 0x1d, 0x00, 0x17, 0x00, 0x18, 0x00, 0x19, 0x01, 0x00, 0x01, 0x01};
     expect_bytes(extension_data[3], kExpectedGroups, "ClientHello supported groups mismatch");
 
     constexpr std::array<std::uint8_t, 14> kExpectedAlpn{0x00, 0x0c, 0x02, 'h', '2', 0x08, 'h', 't', 't', 'p', '/', '1', '.', '1'};
-    expect_bytes(extension_data[6], kExpectedAlpn, "ClientHello ALPN mismatch");
+    expect_bytes(extension_data[5], kExpectedAlpn, "ClientHello ALPN mismatch");
 
-    expect(extension_data[1].empty() && extension_data[5].empty(), "ClientHello empty extension mismatch");
+    expect(extension_data[1].empty() && extension_data[8].empty(), "ClientHello empty extension mismatch");
     constexpr std::array<std::uint8_t, 1> kExpectedRenegotiation{0x00};
     expect_bytes(extension_data[2], kExpectedRenegotiation, "ClientHello renegotiation extension mismatch");
     constexpr std::array<std::uint8_t, 2> kExpectedPointFormats{0x01, 0x00};
     expect_bytes(extension_data[4], kExpectedPointFormats, "ClientHello point formats mismatch");
     constexpr std::array<std::uint8_t, 5> kExpectedStatusRequest{0x01, 0x00, 0x00, 0x00, 0x00};
-    expect_bytes(extension_data[7], kExpectedStatusRequest, "ClientHello status request mismatch");
+    expect_bytes(extension_data[6], kExpectedStatusRequest, "ClientHello status request mismatch");
     constexpr std::array<std::uint8_t, 10> kExpectedDelegatedCredentials{0x00, 0x08, 0x04, 0x03, 0x05, 0x03, 0x06, 0x03, 0x02, 0x03};
-    expect_bytes(extension_data[8], kExpectedDelegatedCredentials, "ClientHello delegated credentials mismatch");
+    expect_bytes(extension_data[7], kExpectedDelegatedCredentials, "ClientHello delegated credentials mismatch");
 
+    // 与 uTLS ReuseHybridAndClassicalKeyShares 一致：X25519MLKEM768 在前，且与独立 X25519 share 复用同一把 X25519 密钥。
     const auto key_share = extension_data[9];
-    expect(key_share.size() == 107 && read_test_u16(key_share, 0, "ClientHello key share list missing") == 105,
+    expect(key_share.size() == 1327 && read_test_u16(key_share, 0, "ClientHello key share list missing") == 1325,
            "ClientHello key share length mismatch");
-    expect(read_test_u16(key_share, 2, "ClientHello X25519 group missing") == 0x001d &&
-               read_test_u16(key_share, 4, "ClientHello X25519 length missing") == 32,
+    expect(read_test_u16(key_share, 2, "ClientHello hybrid group missing") == 0x11ec &&
+               read_test_u16(key_share, 4, "ClientHello hybrid length missing") == 1216,
+           "ClientHello X25519MLKEM768 key share mismatch");
+    const auto hybrid_x25519 = test_subspan(key_share, 6 + 1184, 32, "ClientHello hybrid X25519 missing");
+    expect(read_test_u16(key_share, 1222, "ClientHello X25519 group missing") == 0x001d &&
+               read_test_u16(key_share, 1224, "ClientHello X25519 length missing") == 32,
            "ClientHello X25519 key share mismatch");
-    expect(read_test_u16(key_share, 38, "ClientHello P-256 group missing") == 0x0017 &&
-               read_test_u16(key_share, 40, "ClientHello P-256 length missing") == 65 && key_share[42] == 0x04,
+    const auto x25519 = test_subspan(key_share, 1226, 32, "ClientHello X25519 public key missing");
+    expect(std::equal(hybrid_x25519.begin(), hybrid_x25519.end(), x25519.begin()), "ClientHello hybrid X25519 key is not reused");
+    expect(read_test_u16(key_share, 1258, "ClientHello P-256 group missing") == 0x0017 &&
+               read_test_u16(key_share, 1260, "ClientHello P-256 length missing") == 65 && key_share[1262] == 0x04,
            "ClientHello P-256 key share mismatch");
 
     constexpr std::array<std::uint8_t, 5> kExpectedVersions{0x04, 0x03, 0x04, 0x03, 0x03};
@@ -549,11 +557,11 @@ void test_client_hello()
                                                                0x08, 0x06, 0x04, 0x01, 0x05, 0x01, 0x06, 0x01, 0x02, 0x03, 0x02, 0x01};
     expect_bytes(extension_data[11], kExpectedSignatures, "ClientHello signature algorithms mismatch");
 
-    constexpr std::array<std::uint8_t, 2> kExpectedPskModes{0x01, 0x01};
-    expect_bytes(extension_data[12], kExpectedPskModes, "ClientHello PSK mode mismatch");
-
     constexpr std::array<std::uint8_t, 2> kExpectedRecordSizeLimit{0x40, 0x01};
-    expect_bytes(extension_data[13], kExpectedRecordSizeLimit, "ClientHello record size limit mismatch");
+    expect_bytes(extension_data[12], kExpectedRecordSizeLimit, "ClientHello record size limit mismatch");
+
+    constexpr std::array<std::uint8_t, 7> kExpectedCompressCertificate{0x06, 0x00, 0x01, 0x00, 0x02, 0x00, 0x03};
+    expect_bytes(extension_data[13], kExpectedCompressCertificate, "ClientHello compress certificate mismatch");
 
     const auto ech = extension_data[14];
     expect(ech.size() == 281 && ech[0] == 0x00, "ClientHello ECH size mismatch");
@@ -566,6 +574,7 @@ void test_client_hello()
 
     rv::reality::cleanse_client_hello_secrets(*hello);
     expect(std::all_of(hello->x25519_private_key.begin(), hello->x25519_private_key.end(), [](const auto byte) { return byte == 0; }) &&
+               std::all_of(hello->mlkem768_seed.begin(), hello->mlkem768_seed.end(), [](const auto byte) { return byte == 0; }) &&
                std::all_of(hello->reality_auth_key.begin(), hello->reality_auth_key.end(), [](const auto byte) { return byte == 0; }),
            "ClientHello secret cleanup failed");
 }

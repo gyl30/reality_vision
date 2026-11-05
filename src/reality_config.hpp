@@ -15,7 +15,7 @@ inline constexpr std::size_t kShortIdSize = 8;
 
 enum class client_hello_profile
 {
-    kFirefox120,
+    kFirefox148,
 };
 
 struct client_version
@@ -31,7 +31,7 @@ struct client_config
     std::array<std::uint8_t, crypto::kX25519KeySize> server_public_key{};
     std::array<std::uint8_t, kShortIdSize> short_id{};
     client_version version{};
-    client_hello_profile profile{client_hello_profile::kFirefox120};
+    client_hello_profile profile{client_hello_profile::kFirefox148};
 };
 
 }    // namespace rv::reality

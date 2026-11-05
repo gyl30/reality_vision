@@ -78,12 +78,12 @@ SOCKS5 入站协商及上游 TCP 建连与 REALITY 握手均限制为 60 秒。
 
 `perform_client_handshake()` 明确实现 TLS 1.3 client handshake，而不是调用 `SSL*`：
 
-1. 构造 Firefox 120 ClientHello，并把 Session ID 区域清零；
+1. 构造 Firefox 148 ClientHello（含 X25519MLKEM768、X25519、P-256 key share），并把 Session ID 区域清零；
 2. X25519(client ephemeral, REALITY server static public key)；
 3. 使用 ClientHello random 前 20 bytes 为 salt、`REALITY` 为 info 做 HKDF-SHA256；
 4. AES-256-GCM 加密 version、timestamp、short ID，并写回 Session ID；
-5. 发送 ClientHello，解析 ServerHello 的 cipher、X25519 share 和 Session ID echo；
-6. 派生 handshake traffic secrets；
+5. 发送 ClientHello，解析 ServerHello 的 cipher、X25519 或 X25519MLKEM768 share 和 Session ID echo；
+6. 计算 X25519（或 ML-KEM-768 decapsulation ‖ X25519）共享密钥并派生 handshake traffic secrets；
 7. 解密并验证 EncryptedExtensions、Certificate、CertificateVerify、Finished；
 8. 在包含 server Finished 的 transcript 上派生 application traffic keys；
 9. 发送 client Finished，并将 application RX/TX `record_key` 交给 `reality_stream`。

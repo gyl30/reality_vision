@@ -45,6 +45,7 @@ inline constexpr std::uint16_t kExtensionServerName = 0x0000;
 inline constexpr std::uint16_t kExtensionSupportedVersions = 0x002b;
 inline constexpr std::uint16_t kExtensionKeyShare = 0x0033;
 inline constexpr std::uint16_t kNamedGroupX25519 = 0x001d;
+inline constexpr std::uint16_t kNamedGroupX25519Mlkem768 = 0x11ec;
 inline constexpr std::uint16_t kNamedGroupSecp256r1 = 0x0017;
 inline constexpr std::uint8_t kNullCompressionMethod = 0;
 

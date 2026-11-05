@@ -248,15 +248,13 @@ def client_application_record_sizes(stream: bytes) -> list[int]:
     return sizes
 
 
-def test_vless_header_shares_first_padding_record(
+def run_single_echo_client(
     client: Path,
     public_key: str,
-    xray_port: int,
+    server_port: int,
     echo_port: int,
-    work_dir: Path,
-) -> None:
-    log_path = work_dir / "vless-header-record.log"
-    relay = RecordingRelay(xray_port)
+    log_path: Path,
+) -> str:
     process: subprocess.Popen[bytes] | None = None
     try:
         with reserve_listener() as socks_reservation:
@@ -264,7 +262,7 @@ def test_vless_header_shares_first_padding_record(
         with log_path.open("wb") as log:
             process = subprocess.Popen(
                 [
-                    str(client), "--server", "127.0.0.1", "--port", str(relay.port),
+                    str(client), "--server", "127.0.0.1", "--port", str(server_port),
                     "--server_name", SERVER_NAME, "--server_public_key", public_key,
                     "--short_id", SHORT_ID, "--uuid", USER_ID, "--socks_port", str(socks_port),
                 ],
@@ -275,19 +273,49 @@ def test_vless_header_shares_first_padding_record(
             socks5_echo_roundtrip(
                 socks_port,
                 echo_port,
-                b"xray-reality-vless-header-record",
+                b"xray-reality-single-client",
                 username=None,
                 password=None,
             )
             wait_for_text(log_path, "socks_0_1 socks5 tcp session completed", process)
     finally:
         stop_process(process)
+    return tail(log_path)
+
+
+def test_vless_header_shares_first_padding_record(
+    client: Path,
+    public_key: str,
+    xray_port: int,
+    echo_port: int,
+    work_dir: Path,
+) -> None:
+    relay = RecordingRelay(xray_port)
+    try:
+        output = run_single_echo_client(client, public_key, relay.port, echo_port, work_dir / "vless-header-record.log")
+    finally:
         relay.close()
+
+    # 默认 decoy 与现代站点一样优先协商 X25519MLKEM768，REALITY 会沿用 decoy 选择的 group。
+    if "socks_0_1 reality key exchange X25519MLKEM768" not in output:
+        raise RuntimeError("REALITY did not negotiate X25519MLKEM768:\n" + output)
 
     # 第一个 application_data record 是 REALITY Finished，第二个必须同时携带 VLESS 头与长 padding 首帧。
     sizes = client_application_record_sizes(bytes(relay.client_bytes))
     if len(sizes) < 2 or sizes[1] < 900:
         raise RuntimeError(f"VLESS request header is not hidden by the first Vision padding record: {sizes[:4]}")
+
+
+def test_x25519_key_exchange(
+    client: Path,
+    public_key: str,
+    xray_port: int,
+    echo_port: int,
+    work_dir: Path,
+) -> None:
+    output = run_single_echo_client(client, public_key, xray_port, echo_port, work_dir / "x25519-key-exchange.log")
+    if "socks_0_1 reality key exchange X25519\n" not in output:
+        raise RuntimeError("REALITY did not fall back to X25519:\n" + output)
 
 
 def open_socks5_connection(
@@ -766,6 +794,52 @@ def tail(path: Path, limit: int = 12000) -> str:
     return data[-limit:].decode("utf-8", errors="replace")
 
 
+def make_reality_inbound(port: int, decoy_port: int, private_key: str) -> dict:
+    return {
+        "listen": "127.0.0.1",
+        "port": port,
+        "protocol": "vless",
+        "settings": {
+            "clients": [
+                {"id": USER_ID, "flow": "xtls-rprx-vision"},
+            ],
+            "decryption": "none",
+        },
+        "streamSettings": {
+            "network": "tcp",
+            "security": "reality",
+            "realitySettings": {
+                "dest": f"127.0.0.1:{decoy_port}",
+                "serverNames": [SERVER_NAME],
+                "privateKey": private_key,
+                "shortIds": [SHORT_ID],
+            },
+        },
+    }
+
+
+def make_tls_decoy_inbound(
+    port: int,
+    cert_path: Path,
+    key_path: Path,
+    curves: list[str] | None,
+) -> dict:
+    tls_settings: dict = {
+        "certificates": [
+            {"certificateFile": str(cert_path), "keyFile": str(key_path)},
+        ],
+        "minVersion": "1.3",
+    }
+    if curves is not None:
+        tls_settings["curvePreferences"] = curves
+    return {
+        "listen": "127.0.0.1",
+        "port": port,
+        "protocol": "http",
+        "streamSettings": {"network": "tcp", "security": "tls", "tlsSettings": tls_settings},
+    }
+
+
 def generate_x25519_key_pair(xray: Path) -> tuple[str, str]:
     output = subprocess.check_output([str(xray), "x25519"], text=True)
     private_match = re.search(r"^PrivateKey:\s*(\S+)\s*$", output, re.MULTILINE)
@@ -874,7 +948,6 @@ def main() -> int:
     cert_path = work_dir / "decoy.crt"
     config_path = work_dir / "xray.json"
     xray_log_path = work_dir / "xray.log"
-    decoy_log_path = work_dir / "decoy.log"
     inner_tls_log_path = work_dir / "inner-tls.log"
     inner_tls12_log_path = work_dir / "inner-tls12.log"
     vision_socks_log_path = work_dir / "vision-socks.log"
@@ -963,6 +1036,8 @@ def main() -> int:
         UdpEchoServer(("127.0.0.1", 0), UdpEchoHandler) as udp_echo_server,
         Ipv6UdpEchoServer(("::1", 0), UdpEchoHandler) as ipv6_udp_echo_server,
         reserve_listener() as decoy_reservation,
+        reserve_listener() as x25519_decoy_reservation,
+        reserve_listener() as xray_x25519_reservation,
         reserve_listener() as inner_tls_reservation,
         reserve_listener() as inner_tls12_reservation,
         reserve_listener() as xray_reservation,
@@ -970,6 +1045,8 @@ def main() -> int:
         reserve_listener() as vision_no_auth_socks_reservation,
     ):
         decoy_port = int(decoy_reservation.getsockname()[1])
+        x25519_decoy_port = int(x25519_decoy_reservation.getsockname()[1])
+        xray_x25519_port = int(xray_x25519_reservation.getsockname()[1])
         inner_tls_port = int(inner_tls_reservation.getsockname()[1])
         inner_tls12_port = int(inner_tls12_reservation.getsockname()[1])
         xray_port = int(xray_reservation.getsockname()[1])
@@ -1012,27 +1089,11 @@ def main() -> int:
         config = {
             "log": {"loglevel": "debug"},
             "inbounds": [
-                {
-                    "listen": "127.0.0.1",
-                    "port": xray_port,
-                    "protocol": "vless",
-                    "settings": {
-                        "clients": [
-                            {"id": USER_ID, "flow": "xtls-rprx-vision"},
-                        ],
-                        "decryption": "none",
-                    },
-                    "streamSettings": {
-                        "network": "tcp",
-                        "security": "reality",
-                        "realitySettings": {
-                            "dest": f"127.0.0.1:{decoy_port}",
-                            "serverNames": [SERVER_NAME],
-                            "privateKey": private_key,
-                            "shortIds": [SHORT_ID],
-                        },
-                    },
-                }
+                make_reality_inbound(xray_port, decoy_port, private_key),
+                make_reality_inbound(xray_x25519_port, x25519_decoy_port, private_key),
+                # REALITY 镜像 decoy 的握手外形；Go TLS decoy 会 ack SNI，默认优先 X25519MLKEM768，与现代站点一致。
+                make_tls_decoy_inbound(decoy_port, cert_path, key_path, None),
+                make_tls_decoy_inbound(x25519_decoy_port, cert_path, key_path, ["X25519"]),
             ],
             "outbounds": [
                 {
@@ -1043,7 +1104,6 @@ def main() -> int:
         }
         config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
 
-        decoy_process: subprocess.Popen[bytes] | None = None
         inner_tls_process: subprocess.Popen[bytes] | None = None
         inner_tls12_process: subprocess.Popen[bytes] | None = None
         xray_process: subprocess.Popen[bytes] | None = None
@@ -1051,31 +1111,9 @@ def main() -> int:
         vision_no_auth_socks_process: subprocess.Popen[bytes] | None = None
         try:
             with (
-                decoy_log_path.open("wb") as decoy_log,
                 inner_tls_log_path.open("wb") as inner_tls_log,
                 inner_tls12_log_path.open("wb") as inner_tls12_log,
             ):
-                decoy_reservation.close()
-                decoy_process = subprocess.Popen(
-                    [
-                        str(args.xray.parent / "openssl")
-                        if (args.xray.parent / "openssl").exists()
-                        else "openssl",
-                        "s_server",
-                        "-accept",
-                        f"127.0.0.1:{decoy_port}",
-                        "-cert",
-                        str(cert_path),
-                        "-key",
-                        str(key_path),
-                        "-www",
-                        "-tls1_3",
-                    ],
-                    stdout=decoy_log,
-                    stderr=subprocess.STDOUT,
-                )
-                wait_for_listener(decoy_port, decoy_process)
-
                 inner_tls_reservation.close()
                 inner_tls_process = subprocess.Popen(
                     [
@@ -1116,16 +1154,27 @@ def main() -> int:
 
                 with xray_log_path.open("wb") as xray_log:
                     xray_reservation.close()
+                    xray_x25519_reservation.close()
+                    decoy_reservation.close()
+                    x25519_decoy_reservation.close()
                     xray_process = subprocess.Popen(
                         [str(args.xray), "run", "-config", str(config_path)],
                         stdout=xray_log,
                         stderr=subprocess.STDOUT,
                     )
-                    wait_for_listener(xray_port, xray_process)
+                    for port in (xray_port, xray_x25519_port, decoy_port, x25519_decoy_port):
+                        wait_for_listener(port, xray_process)
                     test_vless_header_shares_first_padding_record(
                         args.client,
                         public_key,
                         xray_port,
+                        echo_port,
+                        work_dir,
+                    )
+                    test_x25519_key_exchange(
+                        args.client,
+                        public_key,
+                        xray_x25519_port,
                         echo_port,
                         work_dir,
                     )
@@ -1479,7 +1528,6 @@ def main() -> int:
             stop_process(xray_process)
             stop_process(inner_tls12_process)
             stop_process(inner_tls_process)
-            stop_process(decoy_process)
             echo_server.shutdown()
             echo_thread.join(timeout=2)
             ipv6_echo_server.shutdown()

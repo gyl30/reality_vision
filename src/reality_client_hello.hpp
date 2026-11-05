@@ -25,6 +25,7 @@ struct client_hello_material
     std::array<std::uint8_t, tls::kRandomSize> client_random{};
     std::array<std::uint8_t, kRealitySessionIdSize> session_id{};
     std::array<std::uint8_t, crypto::kX25519KeySize> x25519_private_key{};
+    std::array<std::uint8_t, crypto::kMlkem768SeedSize> mlkem768_seed{};
     std::array<std::uint8_t, crypto::kAes256GcmKeySize> reality_auth_key{};
 };
 
