@@ -907,6 +907,13 @@ void test_vision_tls_trackers()
     expect(!fragmented_tracker.direct_supported(), "Vision server tracker decided on a partial ServerHello");
     fragmented_tracker.observe(std::span(fragmented_server_hello).subspan(12));
     expect(fragmented_tracker.direct_supported(), "Vision server tracker missed a fragmented ServerHello");
+
+    rv::vision::server_hello_tracker large_tail_tracker;
+    large_tail_tracker.observe(std::span(fragmented_server_hello).first(10));
+    std::vector<std::uint8_t> server_hello_tail(fragmented_server_hello.begin() + 10, fragmented_server_hello.end());
+    server_hello_tail.resize(server_hello_tail.size() + rv::tls::kMaximumPlaintextSize, 0x17);
+    large_tail_tracker.observe(server_hello_tail);
+    expect(large_tail_tracker.direct_supported(), "Vision server tracker gave up on a ServerHello followed by a large input");
 }
 
 void test_socks5_request_decode()

@@ -363,17 +363,14 @@ client_tls_observation client_tls_record_tracker::observe(const std::span<const 
 
 void server_hello_tracker::observe(std::span<const std::uint8_t> input)
 {
-    if (done_ || input.empty())
+    // 每次只追加缓冲剩余容量；evaluate 之后缓冲要么完成判定，要么腾出空间，循环总能推进。
+    while (!done_ && !input.empty())
     {
-        return;
+        const auto count = std::min(input.size(), kMaximumServerHelloRecordSize - buffer_.size());
+        buffer_.insert(buffer_.end(), input.begin(), input.begin() + static_cast<std::ptrdiff_t>(count));
+        input = input.subspan(count);
+        evaluate_server_hello();
     }
-    if (input.size() > kMaximumServerHelloRecordSize - buffer_.size())
-    {
-        done_ = true;
-        return;
-    }
-    buffer_.insert(buffer_.end(), input.begin(), input.end());
-    evaluate_server_hello();
 }
 
 bool server_hello_tracker::prepare_server_hello_record()
