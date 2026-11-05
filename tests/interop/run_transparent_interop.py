@@ -506,52 +506,12 @@ def run_test(xray: Path, client: Path, work_dir: Path) -> int:
         )
         private_key, public_key = interop.generate_x25519_key_pair(xray)
 
-        decoy_log_path = work_dir / "transparent-decoy.log"
-        decoy_process = launch(
-            proxy_namespace,
-            [
-                "openssl",
-                "s_server",
-                "-accept",
-                f"127.0.0.1:{decoy_port}",
-                "-cert",
-                str(cert_path),
-                "-key",
-                str(key_path),
-                "-www",
-                "-tls1_3",
-            ],
-            decoy_log_path,
-        )
-        wait_for_namespace_listener(
-            proxy_namespace, "127.0.0.1", decoy_port, decoy_process, script
-        )
-
         xray_config_path = work_dir / "transparent-xray.json"
         xray_config = {
             "log": {"loglevel": "debug"},
             "inbounds": [
-                {
-                    "listen": "127.0.0.1",
-                    "port": xray_port,
-                    "protocol": "vless",
-                    "settings": {
-                        "clients": [
-                            {"id": interop.USER_ID, "flow": "xtls-rprx-vision"}
-                        ],
-                        "decryption": "none",
-                    },
-                    "streamSettings": {
-                        "network": "tcp",
-                        "security": "reality",
-                        "realitySettings": {
-                            "dest": f"127.0.0.1:{decoy_port}",
-                            "serverNames": [interop.SERVER_NAME],
-                            "privateKey": private_key,
-                            "shortIds": [interop.SHORT_ID],
-                        },
-                    },
-                }
+                interop.make_reality_inbound(xray_port, decoy_port, private_key),
+                interop.make_tls_decoy_inbound(decoy_port, cert_path, key_path, None),
             ],
             "outbounds": [
                 {
