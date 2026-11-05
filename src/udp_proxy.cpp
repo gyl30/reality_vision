@@ -744,6 +744,13 @@ boost::asio::awaitable<void> udp_tproxy::receive_datagrams()
         udp::endpoint client;
         udp::endpoint destination;
         const auto count = transparent::receive_ipv4_original_datagram(socket_, buffer, client, destination, ec);
+        // 这些错误表示单个数据报不可用，内核已消费该数据报，跳过即可。
+        if (ec == boost::system::errc::message_size || ec == boost::system::errc::no_message_available ||
+            ec == boost::system::errc::address_family_not_supported)
+        {
+            spdlog::warn("{} dropped datagram: {}", service_id_, ec.message());
+            continue;
+        }
         if (ec)
         {
             spdlog::error("{} stopped with error: {}", service_id_, ec.message());

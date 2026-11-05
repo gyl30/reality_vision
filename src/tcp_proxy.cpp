@@ -39,6 +39,7 @@ using tcp = boost::asio::ip::tcp;
 
 constexpr std::size_t kRelayBufferSize = 16UL * 1024U;
 constexpr auto kSocksHandshakeTimeout = std::chrono::seconds(60);
+constexpr auto kAcceptRetryDelay = std::chrono::milliseconds(100);
 
 enum class transparent_mode : std::uint8_t
 {
@@ -442,6 +443,23 @@ boost::asio::awaitable<void> run_transparent_session(tcp::socket& client_socket,
     spdlog::info("{} transparent tcp session completed", session_id);
 }
 
+// EMFILE、ENFILE、ENOBUFS、ECONNABORTED 等 accept 错误只影响当前连接或是暂时的资源耗尽，
+// 等待后重试；只有 listener 已关闭时才返回 false。
+boost::asio::awaitable<bool> wait_after_accept_error(tcp::acceptor& acceptor, const boost::system::error_code& ec, const std::string& service_id)
+{
+    if (ec == boost::asio::error::operation_aborted || ec == boost::asio::error::bad_descriptor)
+    {
+        co_return false;
+    }
+
+    spdlog::warn("{} accept failed: {}", service_id, ec.message());
+    boost::asio::steady_timer timer(acceptor.get_executor());
+    timer.expires_after(kAcceptRetryDelay);
+    boost::system::error_code timer_ec;
+    co_await timer.async_wait(boost::asio::redirect_error(boost::asio::use_awaitable, timer_ec));
+    co_return true;
+}
+
 }    // namespace
 
 detail::tcp_session::tcp_session(tcp::socket socket, rv::app::config configuration, std::string session_id)
@@ -496,6 +514,10 @@ boost::asio::awaitable<void> socks_proxy::accept_connections()
     {
         ec.clear();
         auto socket = co_await acceptor_.async_accept(boost::asio::redirect_error(boost::asio::use_awaitable, ec));
+        if (ec && co_await wait_after_accept_error(acceptor_, ec, service_id_))
+        {
+            continue;
+        }
         if (ec)
         {
             spdlog::error("{} stopped with error: {}", service_id_, ec.message());
@@ -523,6 +545,10 @@ boost::asio::awaitable<void> redirect_proxy::accept_connections()
     {
         ec.clear();
         auto socket = co_await acceptor_.async_accept(boost::asio::redirect_error(boost::asio::use_awaitable, ec));
+        if (ec && co_await wait_after_accept_error(acceptor_, ec, service_id_))
+        {
+            continue;
+        }
         if (ec)
         {
             spdlog::error("{} stopped with error: {}", service_id_, ec.message());
@@ -550,6 +576,10 @@ boost::asio::awaitable<void> tcp_tproxy::accept_connections()
     {
         ec.clear();
         auto socket = co_await acceptor_.async_accept(boost::asio::redirect_error(boost::asio::use_awaitable, ec));
+        if (ec && co_await wait_after_accept_error(acceptor_, ec, service_id_))
+        {
+            continue;
+        }
         if (ec)
         {
             spdlog::error("{} stopped with error: {}", service_id_, ec.message());

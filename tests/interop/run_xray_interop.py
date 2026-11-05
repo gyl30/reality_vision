@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from collections.abc import Callable
 import json
+import resource
 from pathlib import Path
 import re
 import socket
@@ -316,6 +317,55 @@ def test_x25519_key_exchange(
     output = run_single_echo_client(client, public_key, xray_port, echo_port, work_dir / "x25519-key-exchange.log")
     if "socks_0_1 reality key exchange X25519\n" not in output:
         raise RuntimeError("REALITY did not fall back to X25519:\n" + output)
+
+
+def test_socks_listener_survives_fd_exhaustion(
+    client: Path,
+    public_key: str,
+    xray_port: int,
+    echo_port: int,
+    work_dir: Path,
+) -> None:
+    log_path = work_dir / "fd-exhaustion.log"
+    fd_limit = 32
+    process: subprocess.Popen[bytes] | None = None
+    idle_connections: list[socket.socket] = []
+    try:
+        with reserve_listener() as socks_reservation:
+            socks_port = int(socks_reservation.getsockname()[1])
+        with log_path.open("wb") as log:
+            process = subprocess.Popen(
+                [
+                    str(client), "--server", "127.0.0.1", "--port", str(xray_port),
+                    "--server_name", SERVER_NAME, "--server_public_key", public_key,
+                    "--short_id", SHORT_ID, "--uuid", USER_ID, "--socks_port", str(socks_port),
+                ],
+                stdout=log,
+                stderr=subprocess.STDOUT,
+                preexec_fn=lambda: resource.setrlimit(resource.RLIMIT_NOFILE, (fd_limit, fd_limit)),
+            )
+            wait_for_text(log_path, "socks5 tcp proxy listening", process)
+            # 空闲连接停在 SOCKS5 协商阶段并占用 fd，超过上限后 accept 返回 EMFILE。
+            for _ in range(fd_limit + 8):
+                idle_connections.append(socket.create_connection(("127.0.0.1", socks_port), timeout=5))
+            wait_for_text(log_path, "accept failed", process)
+            for connection in idle_connections:
+                connection.close()
+            idle_connections.clear()
+
+            socks5_echo_roundtrip(
+                socks_port,
+                echo_port,
+                b"xray-reality-after-fd-exhaustion",
+                username=None,
+                password=None,
+            )
+            if process.poll() is not None:
+                raise RuntimeError("client exited after fd exhaustion:\n" + tail(log_path))
+    finally:
+        for connection in idle_connections:
+            connection.close()
+        stop_process(process)
 
 
 def open_socks5_connection(
@@ -1175,6 +1225,13 @@ def main() -> int:
                         args.client,
                         public_key,
                         xray_x25519_port,
+                        echo_port,
+                        work_dir,
+                    )
+                    test_socks_listener_survives_fd_exhaustion(
+                        args.client,
+                        public_key,
+                        xray_port,
                         echo_port,
                         work_dir,
                     )
