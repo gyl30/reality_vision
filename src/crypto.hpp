@@ -15,6 +15,10 @@ namespace rv::crypto
 
 inline constexpr std::size_t kX25519KeySize = 32;
 inline constexpr std::size_t kP256PublicKeySize = 65;
+inline constexpr std::size_t kMlkem768PublicKeySize = 1184;
+inline constexpr std::size_t kMlkem768CiphertextSize = 1088;
+inline constexpr std::size_t kMlkem768SeedSize = 64;
+inline constexpr std::size_t kMlkemSharedSecretSize = 32;
 inline constexpr std::size_t kEd25519PublicKeySize = 32;
 inline constexpr std::size_t kEd25519SignatureSize = 64;
 inline constexpr std::size_t kAes128GcmKeySize = 16;
@@ -44,6 +48,19 @@ struct x25519_key_pair
     std::array<std::uint8_t, kX25519KeySize> private_key{};
 };
 
+// 私钥以 seed 形式保存，避免在头文件中暴露 BoringSSL 的私钥结构。
+struct mlkem768_key_pair
+{
+    std::array<std::uint8_t, kMlkem768PublicKeySize> public_key{};
+    std::array<std::uint8_t, kMlkem768SeedSize> seed{};
+};
+
+struct mlkem768_encapsulation
+{
+    std::array<std::uint8_t, kMlkem768CiphertextSize> ciphertext{};
+    std::array<std::uint8_t, kMlkemSharedSecretSize> shared_secret{};
+};
+
 struct reality_certificate
 {
     std::array<std::uint8_t, kEd25519PublicKeySize> ed25519_public_key{};
@@ -58,6 +75,13 @@ void cleanse(std::span<std::uint8_t> value) noexcept;
                                                               std::span<const std::uint8_t, kX25519KeySize> peer_public_key,
                                                               boost::system::error_code& ec);
 [[nodiscard]] std::array<std::uint8_t, kP256PublicKeySize> make_p256_public_key(boost::system::error_code& ec);
+
+[[nodiscard]] mlkem768_key_pair make_mlkem768_key_pair() noexcept;
+[[nodiscard]] std::array<std::uint8_t, kMlkemSharedSecretSize> mlkem768_decapsulate(std::span<const std::uint8_t, kMlkem768SeedSize> seed,
+                                                                                    std::span<const std::uint8_t, kMlkem768CiphertextSize> ciphertext,
+                                                                                    boost::system::error_code& ec);
+[[nodiscard]] mlkem768_encapsulation mlkem768_encapsulate(std::span<const std::uint8_t, kMlkem768PublicKeySize> public_key,
+                                                          boost::system::error_code& ec);
 
 [[nodiscard]] std::size_t hash_size(hash_algorithm algorithm) noexcept;
 [[nodiscard]] std::vector<std::uint8_t> digest(hash_algorithm algorithm, std::span<const std::uint8_t> input, boost::system::error_code& ec);

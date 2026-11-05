@@ -12,6 +12,8 @@
 #include <openssl/hkdf.h>
 #include <openssl/hmac.h>
 #include <openssl/rand.h>
+#include <openssl/mlkem.h>
+#include <openssl/bytestring.h>
 #include <openssl/x509.h>
 #include <spdlog/spdlog.h>
 #include <openssl/crypto.h>
@@ -150,6 +152,49 @@ std::array<std::uint8_t, kP256PublicKeySize> make_p256_public_key(boost::system:
         set_crypto_error(ec, boost::system::errc::io_error, "p-256 public key encoding failed");
     }
     return output;
+}
+
+mlkem768_key_pair make_mlkem768_key_pair() noexcept
+{
+    static_assert(kMlkem768PublicKeySize == MLKEM768_PUBLIC_KEY_BYTES && kMlkem768SeedSize == MLKEM_SEED_BYTES);
+    mlkem768_key_pair result;
+    MLKEM768_private_key private_key;
+    MLKEM768_generate_key(result.public_key.data(), result.seed.data(), &private_key);
+    OPENSSL_cleanse(&private_key, sizeof(private_key));
+    return result;
+}
+
+std::array<std::uint8_t, kMlkemSharedSecretSize> mlkem768_decapsulate(std::span<const std::uint8_t, kMlkem768SeedSize> seed,
+                                                                      std::span<const std::uint8_t, kMlkem768CiphertextSize> ciphertext,
+                                                                      boost::system::error_code& ec)
+{
+    static_assert(kMlkem768CiphertextSize == MLKEM768_CIPHERTEXT_BYTES && kMlkemSharedSecretSize == MLKEM_SHARED_SECRET_BYTES);
+    std::array<std::uint8_t, kMlkemSharedSecretSize> result{};
+    MLKEM768_private_key private_key;
+    ERR_clear_error();
+    if (MLKEM768_private_key_from_seed(&private_key, seed.data(), seed.size()) != 1 ||
+        MLKEM768_decap(result.data(), ciphertext.data(), ciphertext.size(), &private_key) != 1)
+    {
+        set_crypto_error(ec, boost::system::errc::bad_message, "ml-kem-768 decapsulation failed");
+    }
+    OPENSSL_cleanse(&private_key, sizeof(private_key));
+    return result;
+}
+
+mlkem768_encapsulation mlkem768_encapsulate(std::span<const std::uint8_t, kMlkem768PublicKeySize> public_key, boost::system::error_code& ec)
+{
+    mlkem768_encapsulation result;
+    MLKEM768_public_key parsed_key;
+    CBS input;
+    CBS_init(&input, public_key.data(), public_key.size());
+    ERR_clear_error();
+    if (MLKEM768_parse_public_key(&parsed_key, &input) != 1)
+    {
+        set_crypto_error(ec, boost::system::errc::bad_message, "ml-kem-768 public key parse failed");
+        return result;
+    }
+    MLKEM768_encap(result.ciphertext.data(), result.shared_secret.data(), &parsed_key);
+    return result;
 }
 
 std::size_t hash_size(hash_algorithm algorithm) noexcept

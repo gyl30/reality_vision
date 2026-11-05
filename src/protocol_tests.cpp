@@ -211,6 +211,27 @@ void test_byte_reader()
     expect(rv::core::read_be32(kInput.data()) == 0x12345678U, "byte_order u32 mismatch");
 }
 
+void test_mlkem768()
+{
+    boost::system::error_code ec;
+    const auto key_pair = rv::crypto::make_mlkem768_key_pair();
+    const auto encapsulation = rv::crypto::mlkem768_encapsulate(key_pair.public_key, ec);
+    expect(!ec, "ML-KEM-768 encapsulation failed");
+
+    auto shared_secret = rv::crypto::mlkem768_decapsulate(key_pair.seed, encapsulation.ciphertext, ec);
+    expect(!ec && shared_secret == encapsulation.shared_secret, "ML-KEM-768 decapsulated secret mismatch");
+
+    auto tampered_ciphertext = encapsulation.ciphertext;
+    tampered_ciphertext[0] ^= 0x01;
+    shared_secret = rv::crypto::mlkem768_decapsulate(key_pair.seed, tampered_ciphertext, ec);
+    expect(!ec && shared_secret != encapsulation.shared_secret, "ML-KEM-768 accepted a tampered ciphertext");
+
+    auto invalid_public_key = key_pair.public_key;
+    std::fill_n(invalid_public_key.begin(), 2, 0xff);
+    static_cast<void>(rv::crypto::mlkem768_encapsulate(invalid_public_key, ec));
+    expect_error(ec, boost::system::errc::bad_message, "ML-KEM-768 accepted an invalid public key");
+}
+
 void test_hkdf_rfc5869()
 {
     boost::system::error_code ec;
@@ -1079,6 +1100,7 @@ int run_protocol_tests()
         std::pair{"byte reader", &test_byte_reader},
         std::pair{"byte writer", &test_byte_writer},
         std::pair{"network address", &test_network_address},
+        std::pair{"ML-KEM-768", &test_mlkem768},
         std::pair{"HKDF", &test_hkdf_rfc5869},
         std::pair{"TLS records", &test_record_roundtrip},
         std::pair{"tls rfc 8448 records", &test_record_rfc8448},
