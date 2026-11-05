@@ -25,6 +25,7 @@
 #include "byte_writer.hpp"
 #include "vision_codec.hpp"
 #include "vless_header.hpp"
+#include "xudp_codec.hpp"
 #include "tls_constants.hpp"
 #include "protocol_tests.hpp"
 #include "reality_record.hpp"
@@ -1098,6 +1099,63 @@ void test_socks5_udp_codec()
     expect_error(ec, boost::system::errc::invalid_argument, "SOCKS5 UDP invalid domain returned wrong encode error");
 }
 
+void test_xudp_codec()
+{
+    boost::system::error_code ec;
+    constexpr rv::xudp::global_id kGlobalId{1, 2, 3, 4, 5, 6, 7, 8};
+    constexpr std::array<std::uint8_t, 3> kPayload{'a', 'b', 'c'};
+
+    // Xray xudp.PacketWriter：首包为 New 帧，带 network、端口在前的地址和 GlobalID。
+    const auto new_frame =
+        rv::xudp::encode_new_frame({.address = rv::net::ipv4_address{{127, 0, 0, 1}}, .port = 53}, kGlobalId, kPayload, ec);
+    const std::vector<std::uint8_t> kExpectedNew{0x00, 0x14, 0x00, 0x00, 0x01, 0x01, 0x02, 0x00, 0x35, 0x01, 127, 0, 0, 1,
+                                                 1, 2, 3, 4, 5, 6, 7, 8, 0x00, 0x03, 'a', 'b', 'c'};
+    expect(!ec && new_frame == kExpectedNew, "XUDP New frame mismatch");
+
+    const auto keep_frame = rv::xudp::encode_keep_frame({.address = rv::net::domain_address{"example.com"}, .port = 443},
+                                                        std::span(kPayload).first(1), ec);
+    std::vector<std::uint8_t> expected_keep{0x00, 0x14, 0x00, 0x00, 0x02, 0x01, 0x02, 0x01, 0xbb, 0x02, 11};
+    expected_keep.insert(expected_keep.end(), {'e', 'x', 'a', 'm', 'p', 'l', 'e', '.', 'c', 'o', 'm', 0x00, 0x01, 'a'});
+    expect(!ec && keep_frame == expected_keep, "XUDP Keep frame mismatch");
+
+    const std::vector<std::uint8_t> oversized(rv::xudp::kMaximumPayloadSize + 1);
+    static_cast<void>(rv::xudp::encode_keep_frame({.address = rv::net::ipv4_address{}, .port = 53}, oversized, ec));
+    expect_error(ec, boost::system::errc::message_size, "XUDP accepted oversized datagram");
+    ec.clear();
+    const std::vector<std::uint8_t> maximum(rv::xudp::kMaximumPayloadSize);
+    static_cast<void>(rv::xudp::encode_keep_frame({.address = rv::net::ipv4_address{}, .port = 53}, maximum, ec));
+    expect(!ec, "XUDP rejected maximum datagram");
+
+    // 下行 Keep 帧携带回包来源地址（full-cone）。
+    constexpr std::array<std::uint8_t, 24> kIpv6Keep{0x00, 0x00, 0x02, 0x01, 0x02, 0x1f, 0x90, 0x03, 0xfd, 0, 0, 0x40,
+                                                     0,    0,    0,    0,    0,    0,    0,    0,    0,    0, 0, 2};
+    auto metadata = rv::xudp::parse_frame_metadata(kIpv6Keep, ec);
+    const auto* source_v6 = metadata.source ? std::get_if<rv::net::ipv6_address>(&metadata.source->address) : nullptr;
+    expect(!ec && metadata.kind == rv::xudp::frame_kind::kData && metadata.has_data && source_v6 != nullptr &&
+               source_v6->bytes[0] == 0xfd && source_v6->bytes[15] == 2 && metadata.source->port == 8080,
+           "XUDP IPv6 Keep metadata mismatch");
+
+    constexpr std::array<std::uint8_t, 4> kKeepWithoutAddress{0x00, 0x00, 0x02, 0x01};
+    metadata = rv::xudp::parse_frame_metadata(kKeepWithoutAddress, ec);
+    expect(!ec && metadata.kind == rv::xudp::frame_kind::kData && metadata.has_data && !metadata.source, "XUDP Keep without address mismatch");
+
+    constexpr std::array<std::uint8_t, 4> kKeepAlive{0x00, 0x00, 0x04, 0x01};
+    metadata = rv::xudp::parse_frame_metadata(kKeepAlive, ec);
+    expect(!ec && metadata.kind == rv::xudp::frame_kind::kDiscard && metadata.has_data, "XUDP KeepAlive metadata mismatch");
+
+    constexpr std::array<std::uint8_t, 4> kEnd{0x00, 0x00, 0x03, 0x00};
+    metadata = rv::xudp::parse_frame_metadata(kEnd, ec);
+    expect(!ec && metadata.kind == rv::xudp::frame_kind::kEnd, "XUDP End metadata mismatch");
+
+    constexpr std::array<std::uint8_t, 3> kShort{0x00, 0x00, 0x02};
+    metadata = rv::xudp::parse_frame_metadata(kShort, ec);
+    expect(!ec && metadata.kind == rv::xudp::frame_kind::kEnd, "XUDP short metadata must end the stream");
+
+    constexpr std::array<std::uint8_t, 9> kTruncatedAddress{0x00, 0x00, 0x02, 0x01, 0x02, 0x00, 0x35, 0x01, 127};
+    static_cast<void>(rv::xudp::parse_frame_metadata(kTruncatedAddress, ec));
+    expect_error(ec, boost::system::errc::bad_message, "XUDP accepted truncated source address");
+}
+
 }    // namespace
 
 int run_protocol_tests()
@@ -1122,6 +1180,7 @@ int run_protocol_tests()
         std::pair{"Vision TLS trackers", &test_vision_tls_trackers},
         std::pair{"SOCKS5 request decode", &test_socks5_request_decode},
         std::pair{"SOCKS5 UDP codec", &test_socks5_udp_codec},
+        std::pair{"XUDP codec", &test_xudp_codec},
     };
 
     try
