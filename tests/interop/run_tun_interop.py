@@ -26,6 +26,7 @@ import run_xray_interop as interop  # noqa: E402
 
 NAMESPACE_MARKER = "RV_TUN_INTEROP_NAMESPACE"
 TUN_NAME = "rv-tun"
+OUTBOUND_MARK = 1
 PROXY_VETH_ADDRESS = "10.30.0.1"
 SERVER_VETH_ADDRESS = "10.30.0.2"
 TARGET_V4 = "10.40.0.2"
@@ -214,7 +215,7 @@ def run_test(xray: Path, client: Path, work_dir: Path) -> int:
                 str(client), "--server", SERVER_VETH_ADDRESS, "--port", str(XRAY_PORT),
                 "--server_name", interop.SERVER_NAME, "--server_public_key", public_key,
                 "--short_id", interop.SHORT_ID, "--uuid", interop.USER_ID,
-                "--tun", "--tun_name", TUN_NAME,
+                "--tun", "--tun_name", TUN_NAME, "--mark", str(OUTBOUND_MARK),
             ],
             proxy_log_path,
             processes,
@@ -224,8 +225,10 @@ def run_test(xray: Path, client: Path, work_dir: Path) -> int:
         run_checked(["ip", "-n", proxy_namespace, "address", "add", "10.50.0.1/24", "dev", TUN_NAME])
         run_checked(["ip", "-n", proxy_namespace, "address", "add", "fd00:50::1/64", "dev", TUN_NAME, "nodad"])
         run_checked(["ip", "-n", proxy_namespace, "link", "set", TUN_NAME, "up"])
-        run_checked(["ip", "-n", proxy_namespace, "route", "add", f"{TARGET_V4}/32", "dev", TUN_NAME])
-        run_checked(["ip", "-n", proxy_namespace, "route", "add", f"{TARGET_V6}/128", "dev", TUN_NAME])
+        # 全局模式：未打标记的流量都进入 TUN，REALITY 服务端地址不做排除，只靠出站 SO_MARK 绕行。
+        for family in ("-4", "-6"):
+            run_checked(["ip", family, "-n", proxy_namespace, "route", "add", "default", "dev", TUN_NAME, "table", "100"])
+            run_checked(["ip", family, "-n", proxy_namespace, "rule", "add", "not", "fwmark", str(OUTBOUND_MARK), "lookup", "100"])
 
         run_client(proxy_namespace, script, "check", work_dir / "tun-check.log")
         if proxy_process.poll() is not None:
@@ -249,7 +252,7 @@ def run_test(xray: Path, client: Path, work_dir: Path) -> int:
         for log_file in log_files:
             log_file.close()
 
-    print("TUN TCP IPv4/IPv6, UDP multi-destination, upstream reset, and device removal tests passed")
+    print("TUN global routing with SO_MARK, TCP IPv4/IPv6, UDP multi-destination, upstream reset, and device removal tests passed")
     return 0
 
 

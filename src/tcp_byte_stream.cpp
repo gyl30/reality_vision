@@ -1,8 +1,11 @@
+#include <cerrno>
+#include <cstdint>
 #include <utility>
+#include <sys/socket.h>
 
 #include <spdlog/spdlog.h>
 #include <boost/asio/write.hpp>
-#include <boost/asio/connect.hpp>
+#include <boost/system/errc.hpp>
 #include <boost/asio/use_awaitable.hpp>
 #include <boost/asio/redirect_error.hpp>
 
@@ -10,6 +13,24 @@
 
 namespace rv::net
 {
+namespace
+{
+
+void set_socket_mark(boost::asio::ip::tcp::socket& socket, const std::uint32_t mark, boost::system::error_code& ec)
+{
+#ifdef SO_MARK
+    if (::setsockopt(socket.native_handle(), SOL_SOCKET, SO_MARK, &mark, sizeof(mark)) != 0)
+    {
+        ec = boost::system::error_code(errno, boost::system::generic_category());
+    }
+#else
+    static_cast<void>(socket);
+    static_cast<void>(mark);
+    ec = boost::system::errc::make_error_code(boost::system::errc::operation_not_supported);
+#endif
+}
+
+}    // namespace
 
 tcp_byte_stream::tcp_byte_stream(boost::asio::ip::tcp::socket socket, std::string session_id)
     : session_id_(std::move(session_id)), socket_(std::move(socket))
@@ -17,7 +38,12 @@ tcp_byte_stream::tcp_byte_stream(boost::asio::ip::tcp::socket socket, std::strin
 }
 
 boost::asio::awaitable<std::optional<tcp_byte_stream>> tcp_byte_stream::connect(
-    boost::asio::any_io_executor executor, std::string host, std::string service, std::string session_id, boost::system::error_code& ec)
+    boost::asio::any_io_executor executor,
+    std::string host,
+    std::string service,
+    const std::uint32_t mark,
+    std::string session_id,
+    boost::system::error_code& ec)
 {
     boost::asio::ip::tcp::resolver resolver(executor);
     const auto endpoints = co_await resolver.async_resolve(host, service, boost::asio::redirect_error(boost::asio::use_awaitable, ec));
@@ -26,15 +52,36 @@ boost::asio::awaitable<std::optional<tcp_byte_stream>> tcp_byte_stream::connect(
         co_return std::nullopt;
     }
 
+    // 逐个尝试解析结果；mark 必须在 connect 之前设置，路由决策发生在 connect 时。
     boost::asio::ip::tcp::socket socket(executor);
-    const auto endpoint = co_await boost::asio::async_connect(socket, endpoints, boost::asio::redirect_error(boost::asio::use_awaitable, ec));
-    if (ec)
+    for (const auto& entry : endpoints)
     {
-        co_return std::nullopt;
-    }
+        const auto endpoint = entry.endpoint();
+        boost::system::error_code ignored;
+        socket.close(ignored);
+        ec.clear();
+        socket.open(endpoint.protocol(), ec);
+        if (!ec && mark != 0)
+        {
+            set_socket_mark(socket, mark, ec);
+        }
+        if (ec)
+        {
+            co_return std::nullopt;
+        }
 
-    spdlog::info("{} tcp connected to {}:{}", session_id, endpoint.address().to_string(), endpoint.port());
-    co_return tcp_byte_stream(std::move(socket), std::move(session_id));
+        co_await socket.async_connect(endpoint, boost::asio::redirect_error(boost::asio::use_awaitable, ec));
+        if (!ec)
+        {
+            spdlog::info("{} tcp connected to {}:{}", session_id, endpoint.address().to_string(), endpoint.port());
+            co_return tcp_byte_stream(std::move(socket), std::move(session_id));
+        }
+    }
+    if (!ec)
+    {
+        ec = boost::asio::error::host_not_found;
+    }
+    co_return std::nullopt;
 }
 
 boost::asio::awaitable<std::size_t> tcp_byte_stream::read(std::span<std::uint8_t> output, boost::system::error_code& ec)

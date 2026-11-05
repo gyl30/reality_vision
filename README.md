@@ -57,7 +57,7 @@ ML-DSA 附加校验和 Xray 的 spider fallback。REALITY 身份校验失败时
 SOCKS5 当前只监听本机回环地址；不支持 `BIND`，支持 `UDP ASSOCIATE` 但不支持 SOCKS5 UDP fragmentation (`FRAG != 0`)。
 透明入站当前支持 Linux IPv4 TCP REDIRECT、TCP TPROXY 和 UDP TPROXY；不实现通用 UDP REDIRECT。IPv6 transparent 和 DNS 专用劫持留到后续阶段。UDP/443 可按普通 UDP 转发，但当前不解析或 sniff QUIC。
 
-TUN 当前是 Linux-only 的最小实现。`--tun` 使用 `/dev/net/tun`，lwIP raw API 负责 TCP/UDP 分流；TUN 目标只能从 IP 包中得到 IP 地址，不做 DNS 劫持、域名恢复或路由规则安装。程序不会替系统配置 TUN 的地址、MTU、路由和 DNS，部署时需要由外部脚本完成，并排除 REALITY 服务端地址避免回环。TUN 与现有 listener 共存时必须使用 `--workers 1`。
+TUN 当前是 Linux-only 的最小实现。`--tun` 使用 `/dev/net/tun`，lwIP raw API 负责 TCP/UDP 分流；TUN 目标只能从 IP 包中得到 IP 地址，不做 DNS 劫持、域名恢复或路由规则安装。程序不会替系统配置 TUN 的地址、MTU、路由和 DNS，部署时需要由外部脚本完成，并通过 `--mark` 策略路由或路由排除 REALITY 服务端地址避免回环。TUN 与现有 listener 共存时必须使用 `--workers 1`。
 
 ## 目录与依赖关系
 
@@ -223,16 +223,22 @@ sudo ./build/reality_vision \
   --server_public_key 'uL4rG3uX_6B359RLXYFNTmSWnrBSLVv1PIG6NUWjMVk' \
   --short_id 01234567 \
   --uuid b831381d-6324-4d53-ad4f-8cda48b30811 \
-  --tun --tun_name rv-tun --tun_mtu 1500
+  --tun --tun_name rv-tun --tun_mtu 1500 --mark 1
 ```
 
-进程需要访问 `/dev/net/tun` 的权限，通常需要 root 或 `CAP_NET_ADMIN`。设备创建后，还需要在另一个终端设置系统侧地址、链路、MTU 和路由；这些参数必须与部署拓扑匹配，且路由必须排除 REALITY 服务端地址。例如：
+进程需要访问 `/dev/net/tun` 的权限，通常需要 root 或 `CAP_NET_ADMIN`；`--mark` 设置出站 REALITY 连接的 `SO_MARK`，
+同样需要 `CAP_NET_ADMIN`。设备创建后，还需要在另一个终端设置系统侧地址、链路、MTU 和路由；这些参数必须与部署拓扑匹配。
+下面的策略路由把未打标记的流量送入 TUN，带 `--mark 1` 的 REALITY 连接仍走主路由表：
 
 ```sh
 sudo ip addr add 198.18.0.1/15 dev rv-tun
 sudo ip link set dev rv-tun mtu 1500 up
-sudo ip route add default dev rv-tun
+sudo ip route add default dev rv-tun table 100
+sudo ip rule add not fwmark 1 lookup 100
 ```
+
+不使用 `--mark` 时，路由必须单独排除 REALITY 服务端地址。`--server` 为域名时，服务端地址的 DNS 查询仍由系统解析器发出，
+同样需要绕开 TUN。
 
 默认路由会把代理自身的 REALITY 连接也送回 TUN，生产配置必须使用策略路由或防火墙规则排除服务端地址。当前 TUN UDP 数据报沿用 VLESS UDP 单报文上限 8190 bytes，较大的 UDP 数据报会丢弃；同一客户端源 IP/端口访问的每个 UDP 目标各使用一条 VLESS UDP flow（每个源最多 256 个，空闲 120 秒回收）；TCP 会按 lwIP 的接收窗口和发送窗口回压。
 
@@ -264,6 +270,8 @@ iptables -t nat -A RV_REDIRECT -p tcp -j REDIRECT --to-ports 12346
 iptables -t nat -A OUTPUT -p tcp -m owner --uid-owner rvproxy -j RETURN
 iptables -t nat -A OUTPUT -p tcp -j RV_REDIRECT
 ```
+
+也可以不依赖运行用户：启动时加 `--mark 1`，把 owner 规则换成 `iptables -t nat -A OUTPUT -p tcp -m mark --mark 1 -j RETURN`。
 
 实际部署还应在进入 `RV_REDIRECT` 前排除 REALITY 服务端地址、内网/Tailscale 等直连目标，否则程序连接 REALITY
 服务端时可能再次进入自身形成回环。Docker/KVM 转发流量通常从 `nat PREROUTING` 按源网段接入，具体网段由宿主机

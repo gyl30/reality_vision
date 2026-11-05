@@ -36,6 +36,8 @@ struct config
     std::string tun_name = "rv-tun";
     std::uint16_t tun_mtu = 1500;
     std::optional<rv::socks5::credentials> socks_credentials;
+    // 出站 REALITY 连接的 SO_MARK，0 表示不设置；用于全局透明代理/TUN 的策略路由绕行。
+    std::uint32_t outbound_mark = 0;
 
     std::size_t worker_count = kDefaultWorkerCount;
 };

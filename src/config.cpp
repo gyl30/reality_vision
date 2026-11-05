@@ -153,6 +153,7 @@ std::expected<config, config_exit_code> parse_config(const int argc, char* argv[
         "tun", "enable Linux TUN inbound")(
         "tun_name", boost::program_options::value<std::string>(&configuration.tun_name)->default_value(configuration.tun_name), "TUN device name")(
         "tun_mtu", boost::program_options::value<std::uint16_t>(&configuration.tun_mtu)->default_value(configuration.tun_mtu), "TUN device MTU")(
+        "mark", boost::program_options::value<std::uint32_t>(&configuration.outbound_mark), "SO_MARK for outbound REALITY connections (Linux)")(
         "socks_username", boost::program_options::value<std::string>(&socks_username), "socks5 username")(
         "socks_password", boost::program_options::value<std::string>(&socks_password), "socks5 password")(
         "workers", boost::program_options::value<std::size_t>(&configuration.worker_count)->default_value(kDefaultWorkerCount), "number of io_context workers");

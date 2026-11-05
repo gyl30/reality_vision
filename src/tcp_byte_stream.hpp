@@ -21,7 +21,12 @@ class tcp_byte_stream
     explicit tcp_byte_stream(boost::asio::ip::tcp::socket socket, std::string session_id);
 
     [[nodiscard]] static boost::asio::awaitable<std::optional<tcp_byte_stream>> connect(
-        boost::asio::any_io_executor executor, std::string host, std::string service, std::string session_id, boost::system::error_code& ec);
+        boost::asio::any_io_executor executor,
+        std::string host,
+        std::string service,
+        std::uint32_t mark,
+        std::string session_id,
+        boost::system::error_code& ec);
 
     [[nodiscard]] boost::asio::awaitable<std::size_t> read(std::span<std::uint8_t> output, boost::system::error_code& ec);
     [[nodiscard]] boost::asio::awaitable<void> write(std::span<const std::uint8_t> input, boost::system::error_code& ec);

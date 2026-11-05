@@ -40,7 +40,12 @@ boost::asio::awaitable<std::optional<reality::reality_stream>> connect_reality(c
 
     auto tcp_outcome =
         co_await (net::tcp_byte_stream::connect(
-                      executor, configuration.reality_server_host, std::to_string(configuration.reality_server_port), session_id, ec) ||
+                      executor,
+                      configuration.reality_server_host,
+                      std::to_string(configuration.reality_server_port),
+                      configuration.outbound_mark,
+                      session_id,
+                      ec) ||
                   timer.async_wait(boost::asio::redirect_error(boost::asio::use_awaitable, timer_ec)));
     if (tcp_outcome.index() == 1)
     {
