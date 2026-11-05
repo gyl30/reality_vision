@@ -38,7 +38,7 @@ class tun_inbound : public std::enable_shared_from_this<tun_inbound>
     void process_packet(const std::uint8_t* data, std::size_t size);
     [[nodiscard]] err_t write_packet(const pbuf* packet);
     void on_tcp_accept(tcp_pcb* pcb);
-    void on_udp_accept(udp_pcb* pcb, const ip_addr_t* address, std::uint16_t port);
+    void on_udp_accept(udp_pcb* pcb);
     void erase_tcp_session(std::uint32_t id);
     void erase_udp_session(std::uint32_t id);
 

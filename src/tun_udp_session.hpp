@@ -1,10 +1,10 @@
 #ifndef REALITY_VISION_TUN_UDP_SESSION_HPP
 #define REALITY_VISION_TUN_UDP_SESSION_HPP
 
-#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -22,6 +22,8 @@
 namespace rv::tun
 {
 
+// 一个会话对应一个客户端源地址（lwIP pretend pcb 只按源地址匹配），
+// 会话内每个目的地址使用独立的 VLESS UDP flow。
 class tun_udp_session : public std::enable_shared_from_this<tun_udp_session>
 {
    public:
@@ -30,9 +32,6 @@ class tun_udp_session : public std::enable_shared_from_this<tun_udp_session>
     tun_udp_session(boost::asio::any_io_executor executor,
                     const app::config& configuration,
                     udp_pcb* pcb,
-                    boost::asio::ip::udp::endpoint client,
-                    boost::asio::ip::udp::endpoint target,
-                    std::uint32_t id,
                     std::string session_id,
                     std::function<void()> on_close);
 
@@ -42,29 +41,36 @@ class tun_udp_session : public std::enable_shared_from_this<tun_udp_session>
     static void on_recv(void* argument, udp_pcb* pcb, pbuf* packet, const ip_addr_t* address, u16_t port);
 
    private:
-    [[nodiscard]] boost::asio::awaitable<void> run();
-    [[nodiscard]] boost::asio::awaitable<void> packets_to_upstream(vless::vless_udp_stream& upstream,
-                                                                   boost::system::error_code& ec);
-    [[nodiscard]] boost::asio::awaitable<void> upstream_to_client(vless::vless_udp_stream& upstream,
-                                                                   boost::system::error_code& ec);
-    [[nodiscard]] boost::asio::awaitable<void> idle_watchdog();
-    void enqueue_packet(pbuf* packet);
-    void close();
-    void notify_closed();
+    struct flow
+    {
+        flow(boost::asio::any_io_executor executor, boost::asio::ip::udp::endpoint target_endpoint, std::string flow_id);
 
+        boost::asio::ip::udp::endpoint target;
+        std::string id;
+        packet_channel packets;
+        std::optional<vless::vless_udp_stream> upstream;
+        std::chrono::steady_clock::time_point last_activity{std::chrono::steady_clock::now()};
+        bool closed = false;
+    };
+
+    [[nodiscard]] boost::asio::awaitable<void> run_flow(std::shared_ptr<flow> current);
+    [[nodiscard]] boost::asio::awaitable<void> packets_to_upstream(flow& current, boost::system::error_code& ec);
+    [[nodiscard]] boost::asio::awaitable<void> upstream_to_client(flow& current, boost::system::error_code& ec);
+    [[nodiscard]] boost::asio::awaitable<void> idle_watchdog();
+    void enqueue_packet(pbuf* packet, const boost::asio::ip::udp::endpoint& target);
+    void close_flow(flow& current);
+    void close();
+
+    boost::asio::any_io_executor executor_;
     const app::config& configuration_;
     udp_pcb* pcb_ = nullptr;
     boost::asio::ip::udp::endpoint client_;
-    boost::asio::ip::udp::endpoint target_endpoint_;
-    proxy::target target_;
-    std::uint32_t id_;
     std::string session_id_;
     std::function<void()> on_close_;
-    packet_channel packets_;
     boost::asio::steady_timer idle_timer_;
-    std::optional<vless::vless_udp_stream> upstream_;
-    std::atomic_bool stopped_{false};
-    std::chrono::steady_clock::time_point last_activity_{std::chrono::steady_clock::now()};
+    std::map<boost::asio::ip::udp::endpoint, std::shared_ptr<flow>> flows_;
+    std::uint64_t next_flow_number_ = 1;
+    bool stopped_ = false;
 };
 
 }    // namespace rv::tun

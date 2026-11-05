@@ -323,24 +323,14 @@ void tun_inbound::on_tcp_accept(tcp_pcb* pcb)
         boost::asio::detached);
 }
 
-void tun_inbound::on_udp_accept(udp_pcb* pcb, const ip_addr_t* address, const std::uint16_t port)
+void tun_inbound::on_udp_accept(udp_pcb* pcb)
 {
-    if (pcb == nullptr || address == nullptr || pcb->remote_port == 0 || port == 0)
-    {
-        return;
-    }
-
-    const auto client = lwip_to_udp_endpoint(pcb->remote_ip, pcb->remote_port);
-    const auto target = lwip_to_udp_endpoint(*address, port);
     const auto id = next_session_id_++;
     std::weak_ptr<tun_inbound> weak_self = shared_from_this();
     auto session = std::make_shared<tun_udp_session>(
         tun_stream_.get_executor(),
         configuration_,
         pcb,
-        client,
-        target,
-        id,
         "tun_udp_" + std::to_string(id),
         [weak_self, id]
         {
@@ -404,16 +394,15 @@ void tun_inbound::udp_recv_handler(void* argument,
                                    const ip_addr_t* address,
                                    const u16_t port)
 {
+    static_cast<void>(address);
+    static_cast<void>(port);
+    // pcb 是 lwIP 为新客户端源地址创建的 connected pcb；packet 由 lwIP 随后重新投递给该 pcb，这里不能释放。
     auto* self = static_cast<tun_inbound*>(argument);
     if (self == nullptr || self->stopping_.load(std::memory_order_relaxed))
     {
-        if (packet != nullptr)
-        {
-            pbuf_free(packet);
-        }
         return;
     }
-    self->on_udp_accept(pcb, address, port);
+    self->on_udp_accept(pcb);
 }
 
 }    // namespace rv::tun

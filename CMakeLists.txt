@@ -121,6 +121,16 @@ if(RV_BUILD_TESTS)
           --client $<TARGET_FILE:reality_vision>
           --work-dir ${CMAKE_CURRENT_BINARY_DIR}/transparent-interop)
       set_tests_properties(rv_transparent_interop PROPERTIES LABELS "interop;privileged" RUN_SERIAL TRUE TIMEOUT 90)
+      add_test(
+        NAME rv_tun_interop
+        COMMAND
+          Python3::Interpreter
+          ${CMAKE_CURRENT_SOURCE_DIR}/tests/interop/run_tun_interop.py
+          run
+          --xray ${RV_XRAY_EXECUTABLE}
+          --client $<TARGET_FILE:reality_vision>
+          --work-dir ${CMAKE_CURRENT_BINARY_DIR}/tun-interop)
+      set_tests_properties(rv_tun_interop PROPERTIES LABELS "interop;privileged" TIMEOUT 90)
     endif()
   endif()
 endif()

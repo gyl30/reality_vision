@@ -146,13 +146,15 @@ CMake 只创建一个 `reality_vision` executable，所有实现源文件直接�
 
 - `RV_BUILD_TESTS=ON|OFF`；
 - `RV_XRAY_EXECUTABLE=/path/to/xray`：启用真实 Xray 互通测试。
-- `RV_ENABLE_PRIVILEGED_TESTS=ON|OFF`：注册需要 root、network namespace 和 netfilter 的 REDIRECT/TPROXY 互通测试。
+- `RV_ENABLE_PRIVILEGED_TESTS=ON|OFF`：注册需要 network namespace 的 REDIRECT/TPROXY 与 TUN 互通测试。
 
 协议自测已经编入同一个二进制，也可以直接运行 `./build/reality_vision --self_test`。
 Xray 互通测试覆盖 SOCKS5 非 TLS、TCP half-close 后继续接收回程数据、TLS 1.2 fallback、TLS 1.3 Direct、IP 目标 TLS SNI sniff、Vision framing，
 并验证 SOCKS5 IPv6 TCP echo、正确/错误密码、`UDP ASSOCIATE -> VLESS UDP -> UDP echo`、SOCKS5 UDP 地址类型 flow 隔离以及 UDP/443 request；还需要 Python 3 和系统的 OpenSSL 命令行工具。
 特权测试额外在隔离 network namespace 中配置真实 TCP REDIRECT 与 TCP/UDP TPROXY；启用后使用
 `sudo ctest --test-dir build -R rv_transparent_interop --output-on-failure` 单独运行。
+`rv_tun_interop` 总是通过 `unshare -Urnm` 进入新的 user/net/mount namespace，宿主允许非特权 user namespace 时无需 root；
+它在 TUN 上验证 IPv4/IPv6 TCP，以及同一 UDP 源端口访问多个目标时各自的回包来源。
 
 ## 作为 SOCKS5 TCP / UDP 代理运行
 
@@ -232,7 +234,7 @@ sudo ip link set dev rv-tun mtu 1500 up
 sudo ip route add default dev rv-tun
 ```
 
-默认路由会把代理自身的 REALITY 连接也送回 TUN，生产配置必须使用策略路由或防火墙规则排除服务端地址。当前 TUN UDP 数据报沿用 VLESS UDP 单报文上限 8190 bytes，较大的 UDP 数据报会丢弃；同一客户端源 IP/端口同时访问多个 UDP 目标的 flow 拆分尚未实现；TCP 会按 lwIP 的接收窗口和发送窗口回压。
+默认路由会把代理自身的 REALITY 连接也送回 TUN，生产配置必须使用策略路由或防火墙规则排除服务端地址。当前 TUN UDP 数据报沿用 VLESS UDP 单报文上限 8190 bytes，较大的 UDP 数据报会丢弃；同一客户端源 IP/端口访问的每个 UDP 目标各使用一条 VLESS UDP flow（每个源最多 256 个，空闲 120 秒回收）；TCP 会按 lwIP 的接收窗口和发送窗口回压。
 
 ## 作为 Linux TCP / UDP 透明代理运行
 
