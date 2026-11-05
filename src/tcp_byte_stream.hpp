@@ -22,8 +22,7 @@ class tcp_byte_stream
 
     [[nodiscard]] static boost::asio::awaitable<std::optional<tcp_byte_stream>> connect(
         boost::asio::any_io_executor executor,
-        std::string host,
-        std::string service,
+        std::span<const boost::asio::ip::tcp::endpoint> endpoints,
         std::uint32_t mark,
         std::string session_id,
         boost::system::error_code& ec);

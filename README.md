@@ -237,8 +237,8 @@ sudo ip route add default dev rv-tun table 100
 sudo ip rule add not fwmark 1 lookup 100
 ```
 
-不使用 `--mark` 时，路由必须单独排除 REALITY 服务端地址。`--server` 为域名时，服务端地址的 DNS 查询仍由系统解析器发出，
-同样需要绕开 TUN。
+不使用 `--mark` 时，路由必须单独排除 REALITY 服务端地址。`--server` 为域名时只在启动时用系统解析器解析一次，之后所有出站连接
+都使用这次解析得到的地址，因此路由切到 TUN 后不会再发出服务端域名的 DNS 查询；启动时解析失败会直接退出，服务端 IP 变化后需要重启。
 
 默认路由会把代理自身的 REALITY 连接也送回 TUN，生产配置必须使用策略路由或防火墙规则排除服务端地址。TUN UDP 同一客户端源 IP/端口访问的所有目标共用一条 XUDP 连接（空闲 120 秒回收），单包上限 7526 bytes；lwIP 最多重组 4 个 IP 分片，MTU 1500 时超过约 5.9 KB 的 UDP 数据报会在重组阶段丢弃；TCP 会按 lwIP 的接收窗口和发送窗口回压。
 

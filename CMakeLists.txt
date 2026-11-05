@@ -100,6 +100,14 @@ if(RV_BUILD_TESTS)
   add_test(NAME rv_help COMMAND reality_vision --help)
   add_test(NAME rv_invalid_config COMMAND reality_vision --server localhost)
   set_tests_properties(rv_invalid_config PROPERTIES WILL_FAIL TRUE)
+  # --server 只在启动时解析一次，解析失败必须立即以非零状态退出，而不是开始监听。
+  add_test(
+    NAME rv_unresolvable_server
+    COMMAND
+      reality_vision --server unresolvable.invalid --port 443 --server_name apple.com
+      --server_public_key AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE --short_id 01234567
+      --uuid b831381d-6324-4d53-ad4f-8cda48b30811 --socks_port 61080)
+  set_tests_properties(rv_unresolvable_server PROPERTIES WILL_FAIL TRUE TIMEOUT 10)
   if(RV_XRAY_EXECUTABLE)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     add_test(

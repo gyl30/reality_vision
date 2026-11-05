@@ -65,12 +65,39 @@ tcp::acceptor create_acceptor(boost::asio::io_context& context,
     return acceptor;
 }
 
+bool resolve_reality_server(config& configuration, boost::system::error_code& ec)
+{
+    boost::asio::io_context context;
+    tcp::resolver resolver(context);
+    const auto results = resolver.resolve(configuration.reality_server_host, std::to_string(configuration.reality_server_port), ec);
+    if (ec)
+    {
+        return false;
+    }
+
+    std::string addresses;
+    for (const auto& entry : results)
+    {
+        configuration.reality_server_endpoints.push_back(entry.endpoint());
+        addresses += (addresses.empty() ? "" : ", ") + entry.endpoint().address().to_string();
+    }
+    spdlog::info("reality server {} resolved to {}", configuration.reality_server_host, addresses);
+    return true;
+}
+
 }    // namespace
 
 service::service(config configuration) : configuration_(std::move(configuration)) {}
 
-void service::startup()
+bool service::startup()
 {
+    boost::system::error_code resolve_ec;
+    if (!resolve_reality_server(configuration_, resolve_ec))
+    {
+        spdlog::error("reality server {} resolution failed: {}", configuration_.reality_server_host, resolve_ec.message());
+        return false;
+    }
+
     contexts_.reserve(configuration_.worker_count);
     for (std::size_t i = 0; i < configuration_.worker_count; ++i)
     {
@@ -92,7 +119,7 @@ void service::startup()
             if (ec)
             {
                 spdlog::error("{} listener creation failed: {}", service_id, ec.message());
-                return;
+                return false;
             }
             proxy_services_.push_back(std::make_shared<tcp_proxy::socks_proxy>(std::move(acceptor), configuration_, service_id));
         }
@@ -104,7 +131,7 @@ void service::startup()
             if (ec)
             {
                 spdlog::error("{} listener creation failed: {}", service_id, ec.message());
-                return;
+                return false;
             }
             proxy_services_.push_back(std::make_shared<tcp_proxy::redirect_proxy>(std::move(acceptor), configuration_, service_id));
         }
@@ -116,7 +143,7 @@ void service::startup()
             if (ec)
             {
                 spdlog::error("{} listener creation failed: {}", tcp_service_id, ec.message());
-                return;
+                return false;
             }
             proxy_services_.push_back(std::make_shared<tcp_proxy::tcp_tproxy>(std::move(acceptor), configuration_, tcp_service_id));
 
@@ -125,7 +152,7 @@ void service::startup()
             if (ec)
             {
                 spdlog::error("{} listener creation failed: {}", udp_service_id, ec.message());
-                return;
+                return false;
             }
             proxy_services_.push_back(std::make_shared<udp_proxy::udp_tproxy>(std::move(socket), configuration_, udp_service_id));
         }
@@ -138,7 +165,7 @@ void service::startup()
         if (!tun_inbound_->start(ec))
         {
             spdlog::error("tun listener creation failed: {}", ec.message());
-            return;
+            return false;
         }
     }
     for (const auto& proxy_service : proxy_services_)
@@ -159,6 +186,7 @@ void service::startup()
     {
         worker.join();
     }
+    return true;
 }
 
 void service::shutdown()

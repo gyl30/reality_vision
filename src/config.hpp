@@ -2,6 +2,7 @@
 #define REALITY_VISION_CONFIG_HPP
 
 #include <array>
+#include <vector>
 #include <chrono>
 #include <string>
 #include <cstddef>
@@ -9,6 +10,8 @@
 #include <optional>
 
 #include <expected>
+
+#include <boost/asio/ip/tcp.hpp>
 
 #include "crypto.hpp"
 #include "vless_header.hpp"
@@ -25,6 +28,8 @@ struct config
     bool self_test{false};
     std::string reality_server_host;
     std::uint16_t reality_server_port = 0;
+    // 由 service 启动时解析一次；之后所有出站连接只使用这些地址，避免全局 TUN 下解析 DNS 再次进入代理形成回环。
+    std::vector<boost::asio::ip::tcp::endpoint> reality_server_endpoints;
     std::string reality_server_name;
     std::array<std::uint8_t, crypto::kX25519KeySize> reality_server_public_key{};
     std::array<std::uint8_t, reality::kShortIdSize> reality_short_id{};

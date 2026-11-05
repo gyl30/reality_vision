@@ -41,8 +41,7 @@ boost::asio::awaitable<std::optional<reality::reality_stream>> connect_reality(c
     auto tcp_outcome =
         co_await (net::tcp_byte_stream::connect(
                       executor,
-                      configuration.reality_server_host,
-                      std::to_string(configuration.reality_server_port),
+                      configuration.reality_server_endpoints,
                       configuration.outbound_mark,
                       session_id,
                       ec) ||

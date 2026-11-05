@@ -39,24 +39,15 @@ tcp_byte_stream::tcp_byte_stream(boost::asio::ip::tcp::socket socket, std::strin
 
 boost::asio::awaitable<std::optional<tcp_byte_stream>> tcp_byte_stream::connect(
     boost::asio::any_io_executor executor,
-    std::string host,
-    std::string service,
+    const std::span<const boost::asio::ip::tcp::endpoint> endpoints,
     const std::uint32_t mark,
     std::string session_id,
     boost::system::error_code& ec)
 {
-    boost::asio::ip::tcp::resolver resolver(executor);
-    const auto endpoints = co_await resolver.async_resolve(host, service, boost::asio::redirect_error(boost::asio::use_awaitable, ec));
-    if (ec)
-    {
-        co_return std::nullopt;
-    }
-
-    // 逐个尝试解析结果；mark 必须在 connect 之前设置，路由决策发生在 connect 时。
+    // 逐个尝试地址；mark 必须在 connect 之前设置，路由决策发生在 connect 时。
     boost::asio::ip::tcp::socket socket(executor);
-    for (const auto& entry : endpoints)
+    for (const auto& endpoint : endpoints)
     {
-        const auto endpoint = entry.endpoint();
         boost::system::error_code ignored;
         socket.close(ignored);
         ec.clear();

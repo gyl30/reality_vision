@@ -31,6 +31,9 @@ OUTBOUND_MARK = 1
 TCP_IDLE_TIMEOUT = 2
 PROXY_VETH_ADDRESS = "10.30.0.1"
 SERVER_VETH_ADDRESS = "10.30.0.2"
+SERVER_HOST = "tun-server.test"
+# veth 网段内无人应答的地址：若代理在启动后重新解析 --server，连接会超时失败。
+UNREACHABLE_SERVER_ADDRESS = "10.30.0.99"
 TARGET_V4 = "10.40.0.2"
 TARGET_V6 = "fd00:40::2"
 TCP_ECHO_PORT = 7001
@@ -176,7 +179,8 @@ def run_test(xray: Path, client: Path, work_dir: Path) -> int:
     work_dir.mkdir(parents=True, exist_ok=True)
 
     hosts_path = work_dir / "tun-hosts"
-    hosts_path.write_text(f"127.0.0.1 localhost\n{TARGET_V4} {SNIFF_DOMAIN}\n", encoding="utf-8")
+    hosts_text = f"127.0.0.1 localhost\n{TARGET_V4} {SNIFF_DOMAIN}\n"
+    hosts_path.write_text(hosts_text + f"{SERVER_VETH_ADDRESS} {SERVER_HOST}\n", encoding="utf-8")
     # 私有 mount namespace 中覆盖 /etc/hosts，供 Xray freedom 解析嗅探得到的域名。
     run_checked(["mount", "--bind", str(hosts_path), "/etc/hosts"])
 
@@ -234,7 +238,7 @@ def run_test(xray: Path, client: Path, work_dir: Path) -> int:
         proxy_process = launch(
             proxy_namespace,
             [
-                str(client), "--server", SERVER_VETH_ADDRESS, "--port", str(XRAY_PORT),
+                str(client), "--server", SERVER_HOST, "--port", str(XRAY_PORT),
                 "--server_name", interop.SERVER_NAME, "--server_public_key", public_key,
                 "--short_id", interop.SHORT_ID, "--uuid", interop.USER_ID,
                 "--tun", "--tun_name", TUN_NAME, "--mark", str(OUTBOUND_MARK),
@@ -245,6 +249,8 @@ def run_test(xray: Path, client: Path, work_dir: Path) -> int:
             log_files,
         )
         interop.wait_for_text(proxy_log_path, f"TUN inbound {TUN_NAME} started", proxy_process)
+        # --server 只在启动时解析：之后改写解析结果（相当于全局 TUN 下解析器已不可用或会回环）不得影响新连接。
+        hosts_path.write_text(hosts_text + f"{UNREACHABLE_SERVER_ADDRESS} {SERVER_HOST}\n", encoding="utf-8")
         run_checked(["ip", "-n", proxy_namespace, "address", "add", "10.50.0.1/24", "dev", TUN_NAME])
         run_checked(["ip", "-n", proxy_namespace, "address", "add", "fd00:50::1/64", "dev", TUN_NAME, "nodad"])
         run_checked(["ip", "-n", proxy_namespace, "link", "set", TUN_NAME, "up"])

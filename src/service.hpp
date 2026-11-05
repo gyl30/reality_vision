@@ -24,7 +24,8 @@ class service
    public:
     explicit service(config configuration);
 
-    void startup();
+    // 启动失败时返回 false；成功时阻塞到所有 worker 退出。
+    [[nodiscard]] bool startup();
 
    private:
     void shutdown();

@@ -17,6 +17,5 @@ int main(int argc, char* argv[])
     {
         return rv::testing::run_protocol_tests();
     }
-    rv::app::service(*configuration).startup();
-    return 0;
+    return rv::app::service(*configuration).startup() ? 0 : 1;
 }
