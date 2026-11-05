@@ -60,6 +60,40 @@ class Ipv6EchoServer(EchoServer):
     address_family = socket.AF_INET6
 
 
+def make_inner_tls13_server_hello() -> bytes:
+    extensions = bytes.fromhex("002b0002030400330024001d0020") + bytes([0x22]) * 32
+    body = (
+        b"\x03\x03"
+        + bytes([0x11]) * 32
+        + b"\x20"
+        + bytes([0x33]) * 32
+        + b"\x13\x01\x00"
+        + len(extensions).to_bytes(2, "big")
+        + extensions
+    )
+    handshake = b"\x02" + len(body).to_bytes(3, "big") + body
+    return b"\x16\x03\x03" + len(handshake).to_bytes(2, "big") + handshake
+
+
+INNER_TLS13_CLIENT_HELLO = b"\x16\x03\x01\x00\x08\x01\x00\x00\x04\x03\x03\x00\x00"
+INNER_TLS13_CLIENT_RECORD = b"\x17\x03\x03\x00\x20" + bytes([0x44]) * 32
+# 只发送半个 record，使 Xray 下行保持 padding（TLS record mode），随后由服务端关闭。
+INNER_TLS13_PARTIAL_SERVER_RECORD = b"\x17\x03\x03\x01\x00" + bytes([0x55]) * 16
+
+
+class PartialTls13Handler(socketserver.BaseRequestHandler):
+    def handle(self) -> None:
+        if recv_exact(self.request, len(INNER_TLS13_CLIENT_HELLO)) != INNER_TLS13_CLIENT_HELLO:
+            raise RuntimeError("inner TLS 1.3 ClientHello mismatch")
+        self.request.sendall(make_inner_tls13_server_hello())
+        if recv_exact(self.request, len(INNER_TLS13_CLIENT_RECORD)) != INNER_TLS13_CLIENT_RECORD:
+            raise RuntimeError("inner TLS 1.3 client record mismatch")
+        self.request.sendall(INNER_TLS13_PARTIAL_SERVER_RECORD)
+        self.request.shutdown(socket.SHUT_WR)
+        while self.request.recv(65536):
+            pass
+
+
 class UdpEchoHandler(socketserver.BaseRequestHandler):
     def handle(self) -> None:
         data, sock = self.request
@@ -252,6 +286,26 @@ def socks5_half_close_roundtrip(
             response.extend(data)
         if response != b"half-close-response:" + payload:
             raise RuntimeError(f"SOCKS5 half-close response mismatch: {response!r}")
+
+
+def socks5_close_after_direct_uplink(proxy_port: int, target_port: int) -> None:
+    with open_socks5_connection(
+        proxy_port,
+        "localhost",
+        target_port,
+        username=None,
+        password=None,
+    ) as sock:
+        sock.sendall(INNER_TLS13_CLIENT_HELLO)
+        server_hello = make_inner_tls13_server_hello()
+        if recv_exact(sock, len(server_hello)) != server_hello:
+            raise RuntimeError("inner TLS 1.3 ServerHello mismatch")
+        sock.sendall(INNER_TLS13_CLIENT_RECORD)
+        if recv_exact(sock, len(INNER_TLS13_PARTIAL_SERVER_RECORD)) != INNER_TLS13_PARTIAL_SERVER_RECORD:
+            raise RuntimeError("inner TLS 1.3 partial server record mismatch")
+        if sock.recv(65536):
+            raise RuntimeError("unexpected data after inner TLS 1.3 partial server record")
+        sock.shutdown(socket.SHUT_WR)
 
 
 def socks5_tls_request(
@@ -820,6 +874,7 @@ def main() -> int:
         EchoServer(("127.0.0.1", 0), EchoHandler) as echo_server,
         Ipv6EchoServer(("::1", 0), EchoHandler) as ipv6_echo_server,
         HalfCloseServer(("127.0.0.1", 0)) as half_close_server,
+        EchoServer(("127.0.0.1", 0), PartialTls13Handler) as partial_tls13_server,
         UdpEchoServer(("127.0.0.1", 0), UdpEchoHandler) as udp_echo_server,
         Ipv6UdpEchoServer(("::1", 0), UdpEchoHandler) as ipv6_udp_echo_server,
         reserve_listener() as decoy_reservation,
@@ -853,6 +908,12 @@ def main() -> int:
             daemon=True,
         )
         half_close_thread.start()
+        partial_tls13_port = int(partial_tls13_server.server_address[1])
+        partial_tls13_thread = threading.Thread(
+            target=partial_tls13_server.serve_forever,
+            daemon=True,
+        )
+        partial_tls13_thread.start()
         udp_echo_port = int(udp_echo_server.server_address[1])
         udp_echo_thread = threading.Thread(target=udp_echo_server.serve_forever, daemon=True)
         udp_echo_thread.start()
@@ -1064,6 +1125,27 @@ def main() -> int:
                             "socks_0_4 socks5 udp association completed",
                             vision_no_auth_socks_process,
                         )
+
+                        # 上行进入 Direct 后 Xray 会抑制外层 close_notify，下行仍处于 TLS record mode 时只收到 TCP FIN。
+                        socks5_close_after_direct_uplink(
+                            vision_no_auth_socks_port,
+                            partial_tls13_port,
+                        )
+                        wait_for_text(
+                            vision_no_auth_socks_log_path,
+                            "socks_0_5 socks5 tcp session completed",
+                            vision_no_auth_socks_process,
+                            timeout=5,
+                        )
+                        no_auth_output = tail(vision_no_auth_socks_log_path)
+                        if (
+                            "socks_0_5 vision send padding ended with command 2" not in no_auth_output
+                            or "socks_0_5 vision receive direction entered direct mode" in no_auth_output
+                        ):
+                            raise RuntimeError(
+                                "Direct uplink close test did not keep downlink in TLS record mode:\n"
+                                + no_auth_output
+                            )
 
                         socks5_echo_roundtrip(
                             vision_socks_port,
@@ -1312,6 +1394,8 @@ def main() -> int:
             ipv6_echo_thread.join(timeout=2)
             half_close_server.shutdown()
             half_close_thread.join(timeout=2)
+            partial_tls13_server.shutdown()
+            partial_tls13_thread.join(timeout=2)
             udp_echo_server.shutdown()
             udp_echo_thread.join(timeout=2)
             ipv6_udp_echo_server.shutdown()

@@ -79,7 +79,20 @@ boost::asio::awaitable<std::size_t> reality_stream::read_raw(std::span<std::uint
 boost::asio::awaitable<std::optional<reality_stream::encrypted_record>> reality_stream::read_tls_record(boost::system::error_code& ec)
 {
     encrypted_record record;
-    co_await net::read_exact(tcp_, record.header, ec);
+    const auto header_prefix_size = co_await tcp_.read(record.header, ec);
+    if (ec == boost::asio::error::eof)
+    {
+        // 与 Go crypto/tls 一致，record 边界上的 EOF 视为对端关闭：
+        // Xray 在 Vision Direct 后关闭连接时会抑制外层 close_notify。
+        ec.clear();
+        co_return std::nullopt;
+    }
+    if (ec)
+    {
+        co_return std::nullopt;
+    }
+
+    co_await net::read_exact(tcp_, std::span(record.header).subspan(header_prefix_size), ec);
     if (ec)
     {
         co_return std::nullopt;
@@ -168,10 +181,11 @@ boost::asio::awaitable<std::size_t> reality_stream::read_tls(std::span<std::uint
         auto record = co_await read_tls_record(ec);
         if (ec)
         {
-            if (ec == boost::asio::error::eof)
-            {
-                receive_mode_ = receive_mode::kClosed;
-            }
+            co_return 0;
+        }
+        if (!record)
+        {
+            receive_mode_ = receive_mode::kClosed;
             co_return 0;
         }
 

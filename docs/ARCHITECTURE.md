@@ -100,8 +100,8 @@ stateDiagram-v2
     state RX {
         [*] --> tls
         tls --> raw: Vision Direct frame 完整消费后
-        tls --> closed: close_notify / shutdown
-        raw --> closed: shutdown
+        tls --> closed: close_notify / record 边界 EOF / shutdown
+        raw --> closed: EOF / shutdown
     }
     state TX {
         [*] --> tls
