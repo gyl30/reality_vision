@@ -100,7 +100,21 @@ boost::asio::awaitable<bool> tun_tcp_session::run()
 
     boost::system::error_code client_ec;
     boost::system::error_code upstream_ec;
-    co_await (client_to_upstream(*upstream_, client_ec) && upstream_to_client(*upstream_, upstream_ec));
+    last_activity_ = std::chrono::steady_clock::now();
+    if (configuration_.tcp_idle_timeout.count() == 0)
+    {
+        co_await (client_to_upstream(*upstream_, client_ec) && upstream_to_client(*upstream_, upstream_ec));
+    }
+    else
+    {
+        const auto outcome = co_await ((client_to_upstream(*upstream_, client_ec) && upstream_to_client(*upstream_, upstream_ec)) ||
+                                       proxy::wait_until_idle(last_activity_, configuration_.tcp_idle_timeout));
+        if (outcome.index() == 1)
+        {
+            spdlog::info("{} TUN TCP idle timeout", session_id_);
+            co_return false;
+        }
+    }
     if (client_ec && client_ec != boost::asio::error::operation_aborted)
     {
         spdlog::debug("{} TUN TCP client relay stopped: {}", session_id_, client_ec.message());
@@ -136,6 +150,7 @@ boost::asio::awaitable<void> tun_tcp_session::client_to_upstream(vision::vision_
             pbuf_free(packet);
             if (!payload.empty())
             {
+                last_activity_ = std::chrono::steady_clock::now();
                 co_await upstream.write(payload, ec);
                 if (ec)
                 {
@@ -183,6 +198,7 @@ boost::asio::awaitable<void> tun_tcp_session::upstream_to_client(vision::vision_
             }
             co_return;
         }
+        last_activity_ = std::chrono::steady_clock::now();
 
         std::size_t offset = 0;
         while (offset < count && pcb_ != nullptr && !stopped_.load(std::memory_order_relaxed))

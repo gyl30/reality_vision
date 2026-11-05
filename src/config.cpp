@@ -138,6 +138,7 @@ std::expected<config, config_exit_code> parse_config(const int argc, char* argv[
     std::string uuid;
     std::string socks_username;
     std::string socks_password;
+    std::uint32_t tcp_idle_timeout_seconds = static_cast<std::uint32_t>(configuration.tcp_idle_timeout.count());
 
     boost::program_options::options_description description("configuration");
     description.add_options()("help,h", "show help")("self_test", "run protocol tests")(
@@ -154,6 +155,9 @@ std::expected<config, config_exit_code> parse_config(const int argc, char* argv[
         "tun_name", boost::program_options::value<std::string>(&configuration.tun_name)->default_value(configuration.tun_name), "TUN device name")(
         "tun_mtu", boost::program_options::value<std::uint16_t>(&configuration.tun_mtu)->default_value(configuration.tun_mtu), "TUN device MTU")(
         "mark", boost::program_options::value<std::uint32_t>(&configuration.outbound_mark), "SO_MARK for outbound REALITY connections (Linux)")(
+        "tcp_idle_timeout",
+        boost::program_options::value<std::uint32_t>(&tcp_idle_timeout_seconds)->default_value(tcp_idle_timeout_seconds),
+        "close TCP relays idle for this many seconds, 0 disables")(
         "socks_username", boost::program_options::value<std::string>(&socks_username), "socks5 username")(
         "socks_password", boost::program_options::value<std::string>(&socks_password), "socks5 password")(
         "workers", boost::program_options::value<std::size_t>(&configuration.worker_count)->default_value(kDefaultWorkerCount), "number of io_context workers");
@@ -186,6 +190,7 @@ std::expected<config, config_exit_code> parse_config(const int argc, char* argv[
         return std::unexpected(config_exit_code::kFailure);
     }
     configuration.tun_enabled = options.contains("tun");
+    configuration.tcp_idle_timeout = std::chrono::seconds(tcp_idle_timeout_seconds);
     if (!validate_listen_and_server_ports(configuration) ||
         !parse_socks_credentials(options, std::move(socks_username), std::move(socks_password), configuration) ||
         !decode_reality_public_key(server_public_key, configuration) || !decode_reality_short_id(short_id, configuration) ||

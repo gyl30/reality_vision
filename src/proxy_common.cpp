@@ -76,6 +76,26 @@ boost::asio::awaitable<std::optional<reality::reality_stream>> connect_reality(c
     co_return std::get<0>(std::move(reality_outcome));
 }
 
+boost::asio::awaitable<void> wait_until_idle(const std::chrono::steady_clock::time_point& last_activity, const std::chrono::seconds timeout)
+{
+    boost::asio::steady_timer timer(co_await boost::asio::this_coro::executor);
+    for (;;)
+    {
+        const auto deadline = last_activity + timeout;
+        if (std::chrono::steady_clock::now() >= deadline)
+        {
+            co_return;
+        }
+        timer.expires_at(deadline);
+        boost::system::error_code ec;
+        co_await timer.async_wait(boost::asio::redirect_error(boost::asio::use_awaitable, ec));
+        if (ec)
+        {
+            co_return;
+        }
+    }
+}
+
 boost::asio::awaitable<std::optional<vision::vision_stream>> connect_vision(reality::reality_stream reality,
                                                                             const app::config& configuration,
                                                                             const target& destination,

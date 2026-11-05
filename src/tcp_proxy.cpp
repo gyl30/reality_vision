@@ -53,7 +53,10 @@ struct initial_client_data
     std::optional<std::string> domain;
 };
 
-boost::asio::awaitable<void> relay_client_to_upstream(tcp::socket& client_socket, rv::vision::vision_stream& upstream, boost::system::error_code& ec)
+boost::asio::awaitable<void> relay_client_to_upstream(tcp::socket& client_socket,
+                                                      rv::vision::vision_stream& upstream,
+                                                      std::chrono::steady_clock::time_point& last_activity,
+                                                      boost::system::error_code& ec)
 {
     std::array<std::uint8_t, kRelayBufferSize> buffer{};
     for (;;)
@@ -76,6 +79,7 @@ boost::asio::awaitable<void> relay_client_to_upstream(tcp::socket& client_socket
             co_return;
         }
 
+        last_activity = std::chrono::steady_clock::now();
         co_await upstream.write(std::span<const std::uint8_t>(buffer.data(), count), ec);
         if (ec)
         {
@@ -85,7 +89,10 @@ boost::asio::awaitable<void> relay_client_to_upstream(tcp::socket& client_socket
     }
 }
 
-boost::asio::awaitable<void> relay_upstream_to_client(rv::vision::vision_stream& upstream, tcp::socket& client_socket, boost::system::error_code& ec)
+boost::asio::awaitable<void> relay_upstream_to_client(rv::vision::vision_stream& upstream,
+                                                      tcp::socket& client_socket,
+                                                      std::chrono::steady_clock::time_point& last_activity,
+                                                      boost::system::error_code& ec)
 {
     std::array<std::uint8_t, kRelayBufferSize> buffer{};
     for (;;)
@@ -104,6 +111,7 @@ boost::asio::awaitable<void> relay_upstream_to_client(rv::vision::vision_stream&
             co_return;
         }
 
+        last_activity = std::chrono::steady_clock::now();
         co_await boost::asio::async_write(
             client_socket, boost::asio::buffer(buffer.data(), count), boost::asio::redirect_error(boost::asio::use_awaitable, ec));
         if (ec)
@@ -114,20 +122,41 @@ boost::asio::awaitable<void> relay_upstream_to_client(rv::vision::vision_stream&
     }
 }
 
-boost::asio::awaitable<void> relay_bidirectional(tcp::socket& client_socket, rv::vision::vision_stream& upstream, boost::system::error_code& ec)
+boost::asio::awaitable<void> relay_bidirectional(tcp::socket& client_socket,
+                                                 rv::vision::vision_stream& upstream,
+                                                 const std::chrono::seconds idle_timeout,
+                                                 boost::system::error_code& ec)
 {
     using namespace boost::asio::experimental::awaitable_operators;    // NOLINT
 
     boost::system::error_code client_to_upstream_ec;
     boost::system::error_code upstream_to_client_ec;
-    co_await (relay_client_to_upstream(client_socket, upstream, client_to_upstream_ec) &&
-              relay_upstream_to_client(upstream, client_socket, upstream_to_client_ec));
+    auto last_activity = std::chrono::steady_clock::now();
+    if (idle_timeout.count() == 0)
+    {
+        co_await (relay_client_to_upstream(client_socket, upstream, last_activity, client_to_upstream_ec) &&
+                  relay_upstream_to_client(upstream, client_socket, last_activity, upstream_to_client_ec));
+    }
+    else
+    {
+        const auto outcome = co_await ((relay_client_to_upstream(client_socket, upstream, last_activity, client_to_upstream_ec) &&
+                                        relay_upstream_to_client(upstream, client_socket, last_activity, upstream_to_client_ec)) ||
+                                       rv::proxy::wait_until_idle(last_activity, idle_timeout));
+        if (outcome.index() == 1)
+        {
+            ec = boost::system::errc::make_error_code(boost::system::errc::timed_out);
+        }
+    }
 
     boost::system::error_code ignored;
     client_socket.shutdown(tcp::socket::shutdown_both, ignored);
     client_socket.close(ignored);
     upstream.shutdown();
 
+    if (ec)
+    {
+        co_return;
+    }
     if (client_to_upstream_ec && client_to_upstream_ec != boost::asio::error::operation_aborted)
     {
         ec = client_to_upstream_ec;
@@ -141,6 +170,7 @@ boost::asio::awaitable<void> relay_bidirectional(tcp::socket& client_socket, rv:
 boost::asio::awaitable<void> relay_with_initial_data(tcp::socket& client_socket,
                                                      rv::vision::vision_stream& upstream,
                                                      const std::span<const std::uint8_t> initial_data,
+                                                     const std::chrono::seconds idle_timeout,
                                                      boost::system::error_code& ec)
 {
     if (!initial_data.empty())
@@ -152,7 +182,7 @@ boost::asio::awaitable<void> relay_with_initial_data(tcp::socket& client_socket,
         }
     }
 
-    co_await relay_bidirectional(client_socket, upstream, ec);
+    co_await relay_bidirectional(client_socket, upstream, idle_timeout, ec);
 }
 
 rv::proxy::target make_proxy_target(const rv::socks5::request& request)
@@ -336,7 +366,7 @@ boost::asio::awaitable<void> run_socks_connect_session(tcp::socket& client_socke
         }
     }
 
-    co_await relay_with_initial_data(client_socket, *upstream, initial_data.bytes, ec);
+    co_await relay_with_initial_data(client_socket, *upstream, initial_data.bytes, configuration.tcp_idle_timeout, ec);
     if (ec)
     {
         spdlog::warn("{} socks5 relay failed: {}", session_id, ec.message());
@@ -433,7 +463,7 @@ boost::asio::awaitable<void> run_transparent_session(tcp::socket& client_socket,
         co_return;
     }
 
-    co_await relay_with_initial_data(client_socket, *upstream, initial_data.bytes, ec);
+    co_await relay_with_initial_data(client_socket, *upstream, initial_data.bytes, configuration.tcp_idle_timeout, ec);
     if (ec)
     {
         spdlog::warn("{} transparent relay failed: {}", session_id, ec.message());

@@ -65,6 +65,7 @@ class tun_tcp_session : public std::enable_shared_from_this<tun_tcp_session>
     std::optional<vision::vision_stream> upstream_;
     std::atomic_bool stopped_{false};
     bool peer_eof_ = false;
+    std::chrono::steady_clock::time_point last_activity_{};
 };
 
 }    // namespace rv::tun

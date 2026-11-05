@@ -175,6 +175,8 @@ Xray 互通测试覆盖 SOCKS5 非 TLS、TCP half-close 后继续接收回程数
 
 `--short_id` 与 Xray 的 REALITY 配置保持一致：允许 0～16 个十六进制字符，非空时必须为偶数长度；不足 8 字节的部分在尾部补 0。
 
+`--tcp_idle_timeout` 为 TCP 中继双向都没有数据时的关闭时间（秒），默认 300，与 Xray `connIdle` 一致，0 表示不限制；适用于 SOCKS5、REDIRECT/TPROXY 与 TUN。
+
 `--workers` 为独立 `io_context` 的数量，默认是 1。设置为大于 1 时，每个 worker 为已配置的 listener 创建独立 socket，Linux 内核通过 `SO_REUSEPORT` 分发连接；各 worker 不共享连接和 flow 容器，也不使用 strand。
 
 这条命令监听 `127.0.0.1:1080`。使用 `socks5h` 时 SOCKS 请求直接携带域名，不需要额外探测：

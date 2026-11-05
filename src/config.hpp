@@ -2,6 +2,7 @@
 #define REALITY_VISION_CONFIG_HPP
 
 #include <array>
+#include <chrono>
 #include <string>
 #include <cstddef>
 #include <cstdint>
@@ -38,6 +39,8 @@ struct config
     std::optional<rv::socks5::credentials> socks_credentials;
     // 出站 REALITY 连接的 SO_MARK，0 表示不设置；用于全局透明代理/TUN 的策略路由绕行。
     std::uint32_t outbound_mark = 0;
+    // TCP 中继双向都没有数据时关闭连接，0 表示不限制；默认值与 Xray connIdle 一致。
+    std::chrono::seconds tcp_idle_timeout{300};
 
     std::size_t worker_count = kDefaultWorkerCount;
 };

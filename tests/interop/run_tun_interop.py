@@ -28,6 +28,7 @@ NAMESPACE_MARKER = "RV_TUN_INTEROP_NAMESPACE"
 TUN_NAME = "rv-tun"
 SNIFF_DOMAIN = "tun-sniff.test"
 OUTBOUND_MARK = 1
+TCP_IDLE_TIMEOUT = 2
 PROXY_VETH_ADDRESS = "10.30.0.1"
 SERVER_VETH_ADDRESS = "10.30.0.2"
 TARGET_V4 = "10.40.0.2"
@@ -97,6 +98,10 @@ def run_client_checks() -> int:
     tcp_roundtrip(TARGET_V4, b"tun-tcp-ipv4")
     tcp_roundtrip(TARGET_V6, b"tun-tcp-ipv6")
     http_host_roundtrip()
+    with socket.create_connection((TARGET_V4, TCP_ECHO_PORT), timeout=5) as connection:
+        connection.sendall(b"tun-tcp-idle")
+        interop.recv_exact(connection, len(b"tun-tcp-idle"))
+        interop.assert_closed_after_idle(connection, TCP_IDLE_TIMEOUT)
 
     for family, host in ((socket.AF_INET, TARGET_V4), (socket.AF_INET6, TARGET_V6)):
         with socket.socket(family, socket.SOCK_DGRAM) as sock:
@@ -233,6 +238,7 @@ def run_test(xray: Path, client: Path, work_dir: Path) -> int:
                 "--server_name", interop.SERVER_NAME, "--server_public_key", public_key,
                 "--short_id", interop.SHORT_ID, "--uuid", interop.USER_ID,
                 "--tun", "--tun_name", TUN_NAME, "--mark", str(OUTBOUND_MARK),
+                "--tcp_idle_timeout", str(TCP_IDLE_TIMEOUT),
             ],
             proxy_log_path,
             processes,
@@ -271,7 +277,7 @@ def run_test(xray: Path, client: Path, work_dir: Path) -> int:
         for log_file in log_files:
             log_file.close()
 
-    print("TUN global routing with SO_MARK, TCP IPv4/IPv6 and Host sniffing, UDP multi-destination, upstream reset, and device removal tests passed")
+    print("TUN global routing with SO_MARK, TCP IPv4/IPv6, Host sniffing and idle timeout, UDP multi-destination, upstream reset, and device removal tests passed")
     return 0
 
 

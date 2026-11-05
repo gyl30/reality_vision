@@ -319,6 +319,53 @@ def test_x25519_key_exchange(
         raise RuntimeError("REALITY did not fall back to X25519:\n" + output)
 
 
+def assert_closed_after_idle(connection: socket.socket, idle_timeout: float) -> None:
+    connection.settimeout(idle_timeout + 4)
+    started = time.monotonic()
+    try:
+        data = connection.recv(1)
+    except ConnectionResetError:
+        data = b""
+    elapsed = time.monotonic() - started
+    if data or elapsed < idle_timeout - 0.5:
+        raise RuntimeError(f"idle connection was not closed by the idle timeout: {data!r} after {elapsed:.1f}s")
+
+
+def test_tcp_idle_timeout(
+    client: Path,
+    public_key: str,
+    xray_port: int,
+    echo_port: int,
+    work_dir: Path,
+) -> None:
+    log_path = work_dir / "tcp-idle-timeout.log"
+    idle_timeout = 2
+    process: subprocess.Popen[bytes] | None = None
+    try:
+        with reserve_listener() as socks_reservation:
+            socks_port = int(socks_reservation.getsockname()[1])
+        with log_path.open("wb") as log:
+            process = subprocess.Popen(
+                [
+                    str(client), "--server", "127.0.0.1", "--port", str(xray_port),
+                    "--server_name", SERVER_NAME, "--server_public_key", public_key,
+                    "--short_id", SHORT_ID, "--uuid", USER_ID, "--socks_port", str(socks_port),
+                    "--tcp_idle_timeout", str(idle_timeout),
+                ],
+                stdout=log,
+                stderr=subprocess.STDOUT,
+            )
+            wait_for_text(log_path, "socks5 tcp proxy listening", process)
+            payload = b"xray-reality-idle-timeout"
+            with open_socks5_connection(socks_port, "localhost", echo_port, username=None, password=None) as connection:
+                connection.sendall(payload)
+                if recv_exact(connection, len(payload)) != payload:
+                    raise RuntimeError("idle timeout echo mismatch")
+                assert_closed_after_idle(connection, idle_timeout)
+    finally:
+        stop_process(process)
+
+
 def test_socks_listener_survives_fd_exhaustion(
     client: Path,
     public_key: str,
@@ -1229,6 +1276,13 @@ def main() -> int:
                         work_dir,
                     )
                     test_socks_listener_survives_fd_exhaustion(
+                        args.client,
+                        public_key,
+                        xray_port,
+                        echo_port,
+                        work_dir,
+                    )
+                    test_tcp_idle_timeout(
                         args.client,
                         public_key,
                         xray_port,
