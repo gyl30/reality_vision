@@ -19,6 +19,7 @@
 #include "config.hpp"
 #include "crypto.hpp"
 #include "sniffer.hpp"
+#include "tun_device.hpp"
 #include "byte_order.hpp"
 #include "byte_queue.hpp"
 #include "byte_reader.hpp"
@@ -113,6 +114,18 @@ rv::app::config parse_short_id_test_config(const std::string& short_id)
     const auto configuration = rv::app::parse_config(static_cast<int>(argv.size()), argv.data());
     expect(configuration.has_value(), "short id configuration parse failed");
     return *configuration;
+}
+
+void test_tun_name_boundary()
+{
+    for (const auto size : std::array<std::size_t, 2>{16, 42})
+    {
+        rv::tun::tun_device device;
+        boost::system::error_code ec;
+        expect(!device.open(std::string(size, 'x'), 8500, ec), "TUN accepted an oversized interface name");
+        expect_error(ec, boost::system::errc::filename_too_long, "TUN name validation did not precede device access");
+        expect(device.native_handle() == -1 && device.name().empty(), "TUN name failure retained a device");
+    }
 }
 
 void test_byte_writer()
@@ -1265,6 +1278,7 @@ int run_protocol_tests()
         std::pair{"ClientHello", &test_client_hello},
         std::pair{"VLESS header", &test_vless_header},
         std::pair{"destination sniffer", &test_destination_sniffer},
+        std::pair{"TUN name boundary", &test_tun_name_boundary},
         std::pair{"Vision frame codec", &test_vision_frame_codec},
         std::pair{"Vision TLS trackers", &test_vision_tls_trackers},
         std::pair{"Vision ServerHello records", &test_vision_server_hello_records},

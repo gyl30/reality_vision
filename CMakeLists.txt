@@ -123,6 +123,22 @@ if(RV_BUILD_TESTS)
         --work-dir ${CMAKE_CURRENT_BINARY_DIR}/xray-interop)
 
     if(RV_ENABLE_PRIVILEGED_TESTS)
+      add_test(NAME rv_tun_names
+        COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/tests/interop/test_tun_names.py
+          --client $<TARGET_FILE:reality_vision> --work-dir ${CMAKE_CURRENT_BINARY_DIR}/tun-names)
+      add_test(NAME rv_socks_connect_semantics
+        COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/tests/interop/run_socks_connect_semantics.py
+          --client $<TARGET_FILE:reality_vision> --xray ${RV_XRAY_EXECUTABLE}
+          --work-dir ${CMAKE_CURRENT_BINARY_DIR}/socks-connect-semantics)
+      set_tests_properties(rv_tun_names rv_socks_connect_semantics PROPERTIES LABELS "interop;privileged" TIMEOUT 60)
+      foreach(workers 1 2 4)
+        add_test(NAME rv_udp_workers_${workers}
+          COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/tests/interop/run_transparent_interop.py run
+            --client $<TARGET_FILE:reality_vision> --xray ${RV_XRAY_EXECUTABLE}
+            --work-dir ${CMAKE_CURRENT_BINARY_DIR}/udp-workers-${workers}
+            --workers ${workers} --udp-worker-check --dual-ingress --idle-seconds 125)
+        set_tests_properties(rv_udp_workers_${workers} PROPERTIES LABELS "interop;privileged" TIMEOUT 210)
+      endforeach()
       add_test(
         NAME rv_transparent_interop
         COMMAND

@@ -185,6 +185,11 @@ Xray 互通测试覆盖 SOCKS5 非 TLS、TCP half-close 后继续接收回程数
 curl --proxy socks5h://test_user:test_password@127.0.0.1:1080 https://apple.com/ -v
 ```
 
+SOCKS `REP=0` 表示本地已完成 REALITY 握手；域名目标还已发送 VLESS/Vision 初始化数据，但不保证 Xray 已连接最终目标。
+VLESS 没有最终目标连接状态字段；域名解析、目标建连或 VLESS 鉴权失败可能在成功回复后以 EOF/RST 表现。
+对于无响应目标，关闭时间还受配置的 TCP 空闲超时影响。不能通过等待 VLESS response header 实现可靠的 CONNECT 确认：
+该头部可能随下行数据才被刷出，而客户端会等待 SOCKS 回复后才发送首包。
+
 如果 SOCKS 请求携带 IPv4/IPv6，代理会在 REALITY 建立后先返回 SOCKS success，再最多缓存客户端首个 16 KiB / 200 ms。
 若从 TLS ClientHello SNI 或 HTTP/1.x `Host` 找到域名，则 VLESS 使用该域名和原端口；
 否则保持原 IP。缓存字节随后原样写入 Vision。
@@ -225,6 +230,8 @@ sudo ./build/reality_vision \
   --uuid b831381d-6324-4d53-ad4f-8cda48b30811 \
   --tun --tun_name rv-tun --mark 1
 ```
+
+`--tun_name` 最多为 15 字节，超长名称明确拒绝；空字符串仍由内核分配设备名，程序保存并记录内核返回的实际名称。
 
 进程需要访问 `/dev/net/tun` 的权限，通常需要 root 或 `CAP_NET_ADMIN`；`--mark` 设置出站 REALITY 连接的 `SO_MARK`，
 同样需要 `CAP_NET_ADMIN`。设备创建后，还需要在另一个终端设置系统侧地址、链路和路由；这些参数必须与部署拓扑匹配。

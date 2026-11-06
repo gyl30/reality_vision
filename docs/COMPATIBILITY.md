@@ -84,6 +84,16 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
+## SOCKS CONNECT 成功语义
+
+固定 Xray/VLESS 不提供独立的最终目标建连确认或错误码。VLESS response header 为版本与 addon，
+不等于 SOCKS CONNECT 的目标连接结果；Xray 在 dispatch 前编码该头部，缓冲刷出依赖后续写入。
+本客户端保持现有首包探测与回复时序：REALITY 初始化失败可返回非零 REP；目标解析失败、拒绝连接、
+无响应及 VLESS UUID 拒绝可能在 REP=0 后以 EOF/RST/空闲超时体现。域名模式也不能简单等待 response header，
+否则 HTTP 等客户端先发言的协议可能双方等待；IP 模式还需要 REP 后的 ClientHello/HTTP 首包完成嗅探。
+`run_socks_connect_semantics.py` 使用私有 namespace、本地 NXDOMAIN 服务及 SYN 丢弃规则固定复现八类场景，
+记录 REP 时间、请求发送状态、服务端结果及本地会话 fd 回收。本轮不新增上游确认协议或隐式重试。
+
 ## 有意差异
 
 - Xray/uTLS 在 REALITY 验证失败后可把连接当作普通站点连接执行 spider；本实现 fail closed。

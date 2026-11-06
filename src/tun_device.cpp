@@ -46,6 +46,11 @@ tun_device::~tun_device() { close(); }
 bool tun_device::open(const std::string& requested_name, const std::uint16_t mtu, boost::system::error_code& ec)
 {
     close();
+    if (requested_name.size() >= IFNAMSIZ)
+    {
+        ec = boost::system::errc::make_error_code(boost::system::errc::filename_too_long);
+        return false;
+    }
 
     const int fd = ::open("/dev/net/tun", O_RDWR | O_NONBLOCK);
     if (fd < 0)
@@ -58,7 +63,7 @@ bool tun_device::open(const std::string& requested_name, const std::uint16_t mtu
     request.ifr_flags = static_cast<short>(IFF_TUN | IFF_NO_PI);
     if (!requested_name.empty())
     {
-        std::strncpy(request.ifr_name, requested_name.c_str(), IFNAMSIZ - 1);
+        std::memcpy(request.ifr_name, requested_name.c_str(), requested_name.size() + 1);
     }
 
     if (::ioctl(fd, TUNSETIFF, &request) != 0)

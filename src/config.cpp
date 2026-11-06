@@ -3,6 +3,7 @@
 #include <utility>
 #include <iostream>
 #include <algorithm>
+#include <net/if.h>
 
 #include <boost/program_options.hpp>
 #include <boost/uuid/string_generator.hpp>
@@ -32,6 +33,11 @@ bool validate_listen_and_server_ports(const config& configuration)
     if (configuration.tun_enabled && configuration.worker_count != 1)
     {
         std::cerr << "--tun requires --workers 1\n";
+        return false;
+    }
+    if (configuration.tun_name.size() >= IFNAMSIZ)
+    {
+        std::cerr << "--tun_name must contain fewer than " << IFNAMSIZ << " bytes\n";
         return false;
     }
     if (configuration.tun_enabled && configuration.tun_mtu < 576)

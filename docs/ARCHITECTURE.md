@@ -45,6 +45,12 @@ original destination 并建立 REALITY，再执行同样的首包探测和第 3�
 ClientHello handshake record；跨 TLS record 的 ClientHello 直接按探测失败处理，不影响原始数据转发。
 SOCKS5 入站协商及上游 TCP 建连与 REALITY 握手均限制为 60 秒。
 
+上述 SOCKS success 不表示最终目标连接成功。固定 Xray 的 VLESS response header 只有版本及 addon，
+在 `DispatchLink` 前编码进缓冲，后续数据写入才可能触发刷出；它没有成功/失败状态字段。
+因此保持现有回复时序：等待 response header 会阻塞依赖客户端首包的协议，IP sniff 也需要先让客户端发送数据。
+最终目标失败在已有 relay 中以 EOF、RST 或空闲超时关闭传播。
+
+
 ## 2. 核心数据结构
 
 | 类型 | 主要状态 | 职责 |

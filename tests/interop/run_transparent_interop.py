@@ -4,6 +4,8 @@ import argparse
 import contextlib
 import json
 import os
+import re
+from concurrent.futures import ThreadPoolExecutor
 import shutil
 import signal
 import socket
@@ -142,6 +144,80 @@ def run_udp_client(
         )
 
 
+def run_udp_worker_client(host: str, idle_seconds: float) -> int:
+    targets = [
+        (address, port)
+        for address in (host, "10.204.0.3")
+        for port in range(7000, 7016)
+    ]
+    report = {"sources": [], "sent": 0, "received": 0, "missing": [], "wrong": []}
+    with contextlib.ExitStack() as stack:
+        sockets = []
+        for port in (41001, 41002):
+            sock = stack.enter_context(socket.socket(socket.AF_INET, socket.SOCK_DGRAM))
+            sock.bind(("10.203.0.2", port))
+            sock.settimeout(3)
+            sockets.append(sock)
+            report["sources"].append(["10.203.0.2", port])
+
+        def exchange(sock, phase):
+            sent, received, missing, wrong = 0, 0, [], []
+            for offset in range(0, len(targets), 8):
+                expected = {}
+                for index, target in enumerate(targets[offset : offset + 8]):
+                    payload = (
+                        f"worker/{sock.getsockname()[1]}/{phase}/{offset + index}".encode()
+                        + bytes(range(256))
+                    )
+                    expected[payload] = target
+                    sock.sendto(payload, target)
+                    sent += 1
+                deadline = time.monotonic() + 3
+                while expected and time.monotonic() < deadline:
+                    try:
+                        payload, source = sock.recvfrom(65535)
+                    except TimeoutError:
+                        break
+                    destination = expected.pop(payload, None)
+                    if destination != source:
+                        wrong.append([payload[:64].hex(), source, destination])
+                    else:
+                        received += 1
+                missing.extend(payload[:64].hex() for payload in expected)
+            return sent, received, missing, wrong
+
+        for phase in range(3):
+            # 先用每个源端口的首包确定会话，再执行两个来源并发、同来源多目标交替。
+            if phase == 0:
+                for sock in sockets:
+                    udp_roundtrip(
+                        sock, host, 7000, f"warmup/{sock.getsockname()[1]}".encode()
+                    )
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                results = list(
+                    executor.map(lambda sock: exchange(sock, phase), sockets)
+                )
+            for sent, received, missing, wrong in results:
+                report["sent"] += sent
+                report["received"] += received
+                report["missing"].extend(missing)
+                report["wrong"].extend(wrong)
+        if idle_seconds:
+            print(json.dumps({"before_idle": report}), flush=True)
+            time.sleep(idle_seconds)
+            for sock in sockets:
+                udp_roundtrip(
+                    sock,
+                    "10.204.0.3",
+                    7015,
+                    f"after-idle/{sock.getsockname()[1]}".encode(),
+                )
+    print(json.dumps(report), flush=True)
+    if report["missing"] or report["wrong"]:
+        raise RuntimeError("UDP worker payload/source mismatch")
+    return 0
+
+
 def wait_for_namespace_listener(
     namespace: str, host: str, port: int, process: subprocess.Popen[bytes], script: Path
 ) -> None:
@@ -197,7 +273,15 @@ def wait_for_process(
         )
 
 
-def run_test(xray: Path, client: Path, work_dir: Path) -> int:
+def run_test(
+    xray: Path,
+    client: Path,
+    work_dir: Path,
+    workers: int = 1,
+    worker_check: bool = False,
+    idle_seconds: float = 0,
+    dual_ingress: bool = False,
+) -> int:
     if os.geteuid() != 0:
         raise RuntimeError("transparent interop test requires root")
     for command in ("ip", "iptables", "openssl"):
@@ -560,6 +644,8 @@ def run_test(xray: Path, client: Path, work_dir: Path) -> int:
                 str(redirect_listener_port),
                 "--tproxy_port",
                 str(tproxy_listener_port),
+                "--workers",
+                str(workers),
             ],
             proxy_log_path,
         )
@@ -588,6 +674,223 @@ def run_test(xray: Path, client: Path, work_dir: Path) -> int:
         )
         wait_for_process(tcp_client, 15, tcp_client_log_path)
 
+        if worker_check:
+            run_checked(
+                [
+                    "ip",
+                    "-n",
+                    target_namespace,
+                    "address",
+                    "add",
+                    "10.204.0.3/32",
+                    "dev",
+                    "lo",
+                ]
+            )
+            run_checked(
+                iptables
+                + [
+                    "-t",
+                    "mangle",
+                    "-A",
+                    "PREROUTING",
+                    "-i",
+                    proxy_client_interface,
+                    "-p",
+                    "udp",
+                    "--dport",
+                    "7000:7015",
+                    "-j",
+                    "TPROXY",
+                    "--on-port",
+                    str(tproxy_listener_port),
+                    "--tproxy-mark",
+                    "1/1",
+                ]
+            )
+            for address in (target_address, "10.204.0.3"):
+                worker_echo_log = work_dir / f"worker-echo-{address}.log"
+                worker_echo = launch(
+                    target_namespace,
+                    [sys.executable, str(script), "echo", "--host", address]
+                    + [
+                        argument
+                        for port in range(7000, 7016)
+                        for argument in ("--udp-port", str(port))
+                    ],
+                    worker_echo_log,
+                )
+                interop.wait_for_text(
+                    worker_echo_log, "transparent echo servers ready", worker_echo
+                )
+            if dual_ingress:
+                # 同一个绑定源 IP:Port 经两个入口接入，第二个目标经另一条 veth 到同一代理。
+                run_checked(
+                    [
+                        "ip",
+                        "-n",
+                        proxy_namespace,
+                        "link",
+                        "add",
+                        "rvp2",
+                        "type",
+                        "veth",
+                        "peer",
+                        "name",
+                        "rvc2",
+                    ]
+                )
+                run_checked(
+                    [
+                        "ip",
+                        "-n",
+                        proxy_namespace,
+                        "link",
+                        "set",
+                        "rvc2",
+                        "netns",
+                        client_namespace,
+                    ]
+                )
+                for namespace, interface, address in (
+                    (proxy_namespace, "rvp2", "10.205.0.1"),
+                    (client_namespace, "rvc2", "10.205.0.2"),
+                ):
+                    run_checked(
+                        [
+                            "ip",
+                            "-n",
+                            namespace,
+                            "address",
+                            "add",
+                            f"{address}/24",
+                            "dev",
+                            interface,
+                        ]
+                    )
+                    run_checked(["ip", "-n", namespace, "link", "set", interface, "up"])
+                run_checked(
+                    [
+                        "ip",
+                        "-n",
+                        client_namespace,
+                        "route",
+                        "add",
+                        "10.204.0.3/32",
+                        "via",
+                        "10.205.0.1",
+                    ]
+                )
+                run_checked(
+                    namespace_command(
+                        proxy_namespace,
+                        ["sysctl", "-q", "-w", "net.ipv4.conf.rvp2.src_valid_mark=0"],
+                    )
+                )
+                run_checked(
+                    iptables
+                    + [
+                        "-t",
+                        "mangle",
+                        "-A",
+                        "PREROUTING",
+                        "-i",
+                        "rvp2",
+                        "-p",
+                        "udp",
+                        "--dport",
+                        "7000:7015",
+                        "-j",
+                        "TPROXY",
+                        "--on-port",
+                        str(tproxy_listener_port),
+                        "--tproxy-mark",
+                        "1/1",
+                    ]
+                )
+            worker_log = work_dir / "worker-client.log"
+            worker_client = launch(
+                client_namespace,
+                [
+                    sys.executable,
+                    str(script),
+                    "udp-worker-client",
+                    "--host",
+                    target_address,
+                    "--idle-seconds",
+                    str(idle_seconds),
+                ],
+                worker_log,
+            )
+            idle_closed = None
+            if idle_seconds:
+                interop.wait_for_text(
+                    worker_log, '"before_idle"', worker_client, timeout=80
+                )
+                before_idle = re.findall(
+                    r"(udp_tproxy_\d+_\d+) transparent udp from (10\.203\.0\.2:4100[12])",
+                    proxy_log_path.read_text(),
+                )
+                if len(before_idle) != 2 or len({peer for _, peer in before_idle}) != 2:
+                    raise RuntimeError(
+                        f"multiple XUDP sessions before idle: {before_idle}"
+                    )
+                deadline = time.monotonic() + 124
+                while time.monotonic() < deadline:
+                    connections = subprocess.check_output(
+                        namespace_command(
+                            proxy_namespace,
+                            [
+                                "ss",
+                                "-Htn",
+                                "state",
+                                "established",
+                                "dport",
+                                "=",
+                                f":{xray_port}",
+                            ],
+                        ),
+                        text=True,
+                    )
+                    if not connections.strip():
+                        idle_closed = True
+                        break
+                    time.sleep(1)
+                if not idle_closed:
+                    raise RuntimeError(
+                        "idle UDP upstream TCP connections remained open"
+                    )
+            result = worker_client.wait(timeout=idle_seconds + 90)
+            output = proxy_log_path.read_text()
+            sessions = re.findall(
+                r"(udp_tproxy_\d+_\d+) transparent udp from (10\.203\.0\.2:4100[12])",
+                output,
+            )
+            ids = re.findall(
+                r"XUDP (?:new|hit) (\[[0-9 ]+\])", xray_log_path.read_text()
+            )
+            summary = {
+                "workers": workers,
+                "sessions": sessions,
+                "global_ids": ids,
+                "client_exit": result,
+                "idle_connections_closed": idle_closed,
+            }
+            (work_dir / "worker-summary.json").write_text(json.dumps(summary, indent=2))
+            print(json.dumps(summary), flush=True)
+            wait_for_process(worker_client, 1, worker_log)
+            expected = 2 if not idle_seconds else 4
+            if len(sessions) != expected or len(set(ids)) != 2:
+                raise RuntimeError(
+                    f"expected {expected} sessions and two GlobalIDs: {summary}"
+                )
+            for source in ("10.203.0.2:41001", "10.203.0.2:41002"):
+                if sum(peer == source for _, peer in sessions) != expected // 2:
+                    raise RuntimeError(
+                        f"unexpected session reuse for {source}: {summary}"
+                    )
+
+        flows_before_empty = proxy_log_path.read_text().count(" transparent udp from ")
         udp_client_log_path = work_dir / "transparent-udp-client.log"
         udp_client = launch(
             client_namespace,
@@ -614,7 +917,10 @@ def run_test(xray: Path, client: Path, work_dir: Path) -> int:
         )
         wait_for_path(marker_paths["empty-sent"])
         time.sleep(1)
-        if "transparent udp" in interop.tail(proxy_log_path):
+        if (
+            proxy_log_path.read_text().count(" transparent udp from ")
+            != flows_before_empty
+        ):
             raise RuntimeError("empty TPROXY UDP datagram created a flow")
         marker_paths["empty-checked"].write_text("checked", encoding="utf-8")
 
@@ -642,11 +948,11 @@ def run_test(xray: Path, client: Path, work_dir: Path) -> int:
 
         proxy_output = interop.tail(proxy_log_path)
         for marker in (
-            "redirect_0_1 transparent connect",
-            "tcp_tproxy_0_1 transparent connect",
-            "transparent udp",
+            r"redirect_\d+_\d+ transparent connect",
+            r"tcp_tproxy_\d+_\d+ transparent connect",
+            r"transparent udp",
         ):
-            if marker not in proxy_output:
+            if not re.search(marker, proxy_output):
                 raise RuntimeError(
                     f"missing transparent marker {marker!r}\n{proxy_output}"
                 )
@@ -682,6 +988,13 @@ def main() -> int:
     run_parser.add_argument("--xray", required=True, type=Path)
     run_parser.add_argument("--client", required=True, type=Path)
     run_parser.add_argument("--work-dir", required=True, type=Path)
+    run_parser.add_argument("--workers", type=int, choices=(1, 2, 4), default=1)
+    run_parser.add_argument("--udp-worker-check", action="store_true")
+    run_parser.add_argument("--dual-ingress", action="store_true")
+    run_parser.add_argument("--idle-seconds", type=float, default=0)
+    worker_parser = subparsers.add_parser("udp-worker-client")
+    worker_parser.add_argument("--host", required=True)
+    worker_parser.add_argument("--idle-seconds", type=float, default=0)
 
     port_parser = subparsers.add_parser("free-port")
     port_parser.add_argument("--protocol", choices=("tcp", "udp"), required=True)
@@ -712,7 +1025,17 @@ def main() -> int:
 
     args = parser.parse_args()
     if args.command == "run":
-        return run_test(args.xray, args.client, args.work_dir)
+        return run_test(
+            args.xray,
+            args.client,
+            args.work_dir,
+            args.workers,
+            args.udp_worker_check,
+            args.idle_seconds,
+            args.dual_ingress,
+        )
+    if args.command == "udp-worker-client":
+        return run_udp_worker_client(args.host, args.idle_seconds)
     if args.command == "free-port":
         print(allocate_port(args.protocol, args.dual))
         return 0
