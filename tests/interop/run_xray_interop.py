@@ -95,6 +95,48 @@ class PartialTls13Handler(socketserver.BaseRequestHandler):
             pass
 
 
+class FragmentedServerHelloHandler(socketserver.BaseRequestHandler):
+    """只重分片首个 ServerHello；TLS Handshake transcript 和后续字节保持原样。"""
+
+    def handle(self) -> None:
+        try:
+            with socket.create_connection(("127.0.0.1", self.server.target_port), timeout=10) as inner:
+                def upload() -> None:
+                    try:
+                        while data := self.request.recv(65536):
+                            inner.sendall(data)
+                        inner.shutdown(socket.SHUT_WR)
+                    except OSError as error:
+                        self.server.errors.append(error)
+
+                uploader = threading.Thread(target=upload, daemon=True)
+                uploader.start()
+                try:
+                    header = recv_exact(inner, 5)
+                    payload = recv_exact(inner, int.from_bytes(header[3:5], "big"))
+                    if header[:3] != b"\x16\x03\x03" or payload[0] != 2:
+                        raise RuntimeError("expected TLS ServerHello from controlled OpenSSL server")
+                    message_size = 4 + int.from_bytes(payload[1:4], "big")
+                    if not 43 < message_size <= len(payload):
+                        raise RuntimeError("incomplete controlled ServerHello")
+                    fragments = (payload[:1], payload[1:3], payload[3:43], payload[43:])
+                    if b"".join(fragments) != payload:
+                        raise RuntimeError("ServerHello fragmentation changed Handshake bytes")
+                    wire = b"".join(header[:3] + len(part).to_bytes(2, "big") + part for part in fragments)
+                    self.request.sendall(wire)
+                    while data := inner.recv(65536):
+                        self.request.sendall(data)
+                    self.request.shutdown(socket.SHUT_WR)
+                finally:
+                    uploader.join(timeout=5)
+                    if uploader.is_alive():
+                        self.server.errors.append(RuntimeError("fragmentation uplink did not finish"))
+        except Exception as error:
+            self.server.errors.append(error)
+        finally:
+            self.server.completed.set()
+
+
 class UdpEchoHandler(socketserver.BaseRequestHandler):
     def handle(self) -> None:
         data, sock = self.request
@@ -1150,6 +1192,13 @@ def main() -> int:
         xray_x25519_port = int(xray_x25519_reservation.getsockname()[1])
         inner_tls_port = int(inner_tls_reservation.getsockname()[1])
         inner_tls12_port = int(inner_tls12_reservation.getsockname()[1])
+        fragmented_hello_server = EchoServer(("127.0.0.1", 0), FragmentedServerHelloHandler)
+        fragmented_hello_port = int(fragmented_hello_server.server_address[1])
+        fragmented_hello_server.target_port = inner_tls_port
+        fragmented_hello_server.errors = []
+        fragmented_hello_server.completed = threading.Event()
+        fragmented_hello_thread = threading.Thread(target=fragmented_hello_server.serve_forever, daemon=True)
+        fragmented_hello_thread.start()
         xray_port = int(xray_reservation.getsockname()[1])
         vision_socks_port = int(vision_socks_reservation.getsockname()[1])
         vision_no_auth_socks_port = int(
@@ -1543,6 +1592,12 @@ def main() -> int:
                             "socks_0_12 socks5 negotiation failed: Bad message",
                             vision_socks_process,
                         )
+                        socks5_tls_request(vision_socks_port, fragmented_hello_port, ssl.TLSVersion.TLSv1_3)
+                        wait_for_text(vision_socks_log_path, "socks_0_13 socks5 tcp session completed", vision_socks_process)
+                        if not fragmented_hello_server.completed.wait(timeout=10):
+                            raise RuntimeError("fragmented ServerHello relay did not finish")
+                        if fragmented_hello_server.errors:
+                            raise RuntimeError(f"fragmented ServerHello relay failed: {fragmented_hello_server.errors}")
                         time.sleep(0.1)
 
                         if vision_socks_process.poll() is not None:
@@ -1558,8 +1613,11 @@ def main() -> int:
                             )
                             return vision_no_auth_socks_process.returncode or 1
 
-                        socks_output = tail(vision_socks_log_path)
+                        socks_output = vision_socks_log_path.read_text(encoding="utf-8")
                         direct_markers = (
+                            "socks_0_13 inner tls 1.3 server hello permits vision direct mode",
+                            "socks_0_13 vision send padding ended with command 2",
+                            "socks_0_13 reality send direction switched to raw",
                             "socks_0_2 vision send padding ended with command 2",
                             "socks_0_2 reality send direction switched to raw",
                             "socks_0_2 vision receive direction entered direct mode",
@@ -1642,6 +1700,9 @@ def main() -> int:
             stop_process(xray_process)
             stop_process(inner_tls12_process)
             stop_process(inner_tls_process)
+            fragmented_hello_server.shutdown()
+            fragmented_hello_thread.join(timeout=2)
+            fragmented_hello_server.server_close()
             echo_server.shutdown()
             echo_thread.join(timeout=2)
             ipv6_echo_server.shutdown()
@@ -1659,7 +1720,7 @@ def main() -> int:
         "Xray REALITY, VLESS Vision, XUDP including IPv6, UDP/443, empty-payload handling, XUDP connection reuse across destinations, "
         "SOCKS5 IPv6 and TCP half-close, no-authentication and username/password authentication, "
         "UDP ASSOCIATE with both authentication modes, destination sniffing, "
-        "TLS 1.2 fallback, and TLS 1.3 Direct tests passed"
+        "TLS 1.2 fallback, TLS 1.3 bidirectional Direct, and four-record ServerHello uplink Direct tests passed"
     )
     return 0
 

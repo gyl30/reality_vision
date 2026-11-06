@@ -94,6 +94,12 @@ ctest --test-dir build --output-on-failure
   payload 长度和 ClientHello 判定状态。TLS record 被 TCP 拆分、多个 record 合并到同一次写入，
   或加密 record 从某次写入中间结束时，都能在准确的 record 边界结束 padding 或切换 Direct。
 
+接收方向的 ServerHello 识别独立重组 Handshake 消息：支持四字节 Handshake 头与消息体跨多条 TLS record、
+TCP 任意分片及同批多 record。识别最多观察 64 KiB，单条 record 与重组消息各限制为 16 KiB（record header 另计）；
+超限、非法续接或不支持的消息保持非 Direct 回退。重组副本只用于识别，原始 TLS 字节仍按原顺序交付。
+真实 Xray 互通测试另用受控中继把 OpenSSL ServerHello 拆为四条 record，验证内层 TLS 握手、HTTP 往返及客户端 uplink Direct。
+固定 Xray 自身对该分片形式仍选择 downlink fallback，因此该用例不宣称双向 Direct；常规 TLS 1.3 用例继续验证双向 Direct。
+
 ## 透明入站兼容范围
 
 透明代理当前实现 Linux IPv4：

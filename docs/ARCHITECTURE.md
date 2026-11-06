@@ -55,7 +55,7 @@ SOCKS5 入站协商及上游 TCP 建连与 REALITY 握手均限制为 60 秒。
 | `reality::reality_stream` | RX/TX mode、receive/send key、两个 byte_queue | TLS application records 与 raw TCP 之间切换 |
 | `vless::vless_stream` | pending request header、response header pending flag | VLESS TCP request/response header 与 stream body |
 | `xudp::xudp_stream` | GlobalID、首个目的地址 | 在 `vision_stream` 上编码 XUDP New/Keep 帧（逐包目的地址），解析下行 Keep 帧的来源地址 |
-| `vision::server_hello_tracker` | bounded buffer、record length、result | 跨读取片段识别内层 TLS 1.3 ServerHello |
+| `vision::server_hello_tracker` | bounded record/Handshake buffers、record length、识别字节计数、result | 跨读取片段与 record 重组内层 TLS 1.3 ServerHello |
 | `vision::vision_stream` | receive phase、frame counters、padding/direct flags | TCP 与 XUDP 共用的 Vision 编解码；Direct 决策只会在内层 TLS 上触发 |
 | `socks5::request` | command + address variant + port | 表示 SOCKS5 CONNECT / UDP ASSOCIATE 请求，不包含远端协议状态 |
 | `socks5::udp_datagram` | destination + port + payload span | 解析/构造 RFC 1928 UDP relay datagram；当前只接受 `FRAG=0` |

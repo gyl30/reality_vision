@@ -21,6 +21,8 @@ namespace
 {
 
 inline constexpr std::size_t kMaximumServerHelloRecordSize = tls::kRecordHeaderSize + tls::kMaximumPlaintextSize;
+// 识别旁路最多观察 64 KiB，重组的 ServerHello 仍限制为原有的 16 KiB。
+inline constexpr std::size_t kMaximumServerHelloWireSize = 4 * tls::kMaximumPlaintextSize;
 inline constexpr std::uint16_t kFirstDirectCipher = 0x1301;
 inline constexpr std::uint16_t kLastDirectCipher = 0x1304;
 inline constexpr std::uint16_t kMinimumRecordVersion = 0x0301;
@@ -203,14 +205,9 @@ bool extensions_support_tls13(const std::span<const std::uint8_t> extensions)
     return supported;
 }
 
-bool server_hello_supports_direct(const std::span<const std::uint8_t> record)
+bool server_hello_supports_direct(const std::span<const std::uint8_t> handshake)
 {
-    if (record.size() < tls::kRecordHeaderSize)
-    {
-        return false;
-    }
-
-    core::byte_reader record_reader(record.subspan(tls::kRecordHeaderSize));
+    core::byte_reader record_reader(handshake);
     std::uint8_t handshake_type = 0;
     std::uint32_t handshake_length = 0;
     if (!record_reader.read_u8(handshake_type) || !record_reader.read_u24(handshake_length) || handshake_type != tls::kHandshakeServerHello)
@@ -363,13 +360,18 @@ client_tls_observation client_tls_record_tracker::observe(const std::span<const 
 
 void server_hello_tracker::observe(std::span<const std::uint8_t> input)
 {
-    // 每次只追加缓冲剩余容量；evaluate 之后缓冲要么完成判定，要么腾出空间，循环总能推进。
+    // 仅复制识别所需的字节；不修改调用方仍要原样转发的 TLS 字节流。
     while (!done_ && !input.empty())
     {
-        const auto count = std::min(input.size(), kMaximumServerHelloRecordSize - buffer_.size());
+        const auto count = std::min({input.size(), kMaximumServerHelloRecordSize - buffer_.size(), kMaximumServerHelloWireSize - inspected_bytes_});
+        inspected_bytes_ += count;
         buffer_.insert(buffer_.end(), input.begin(), input.begin() + static_cast<std::ptrdiff_t>(count));
         input = input.subspan(count);
         evaluate_server_hello();
+        if (inspected_bytes_ == kMaximumServerHelloWireSize)
+        {
+            done_ = true;
+        }
     }
 }
 
@@ -377,27 +379,31 @@ bool server_hello_tracker::prepare_server_hello_record()
 {
     if (!record_length_)
     {
-        const auto offset = find_server_hello_record(buffer_);
-        if (!offset)
+        if (handshake_.empty())
         {
-            if (buffer_.size() > tls::kRecordHeaderSize)
+            const auto offset = find_server_hello_record(buffer_);
+            if (!offset)
             {
-                buffer_.erase(buffer_.begin(), buffer_.end() - static_cast<std::ptrdiff_t>(tls::kRecordHeaderSize));
+                if (buffer_.size() > tls::kRecordHeaderSize)
+                {
+                    buffer_.erase(buffer_.begin(), buffer_.end() - static_cast<std::ptrdiff_t>(tls::kRecordHeaderSize));
+                }
+                return false;
             }
-            return false;
-        }
-
-        if (*offset != 0)
-        {
             buffer_.erase(buffer_.begin(), buffer_.begin() + static_cast<std::ptrdiff_t>(*offset));
         }
         if (buffer_.size() < tls::kRecordHeaderSize)
         {
             return false;
         }
+        if (buffer_[0] != tls::kRecordHandshake || core::read_be16(buffer_.data() + tls::kRecordVersionOffset) != tls::kLegacyVersion)
+        {
+            done_ = true;
+            return false;
+        }
 
         record_length_ = tls::kRecordHeaderSize + static_cast<std::size_t>(core::read_be16(buffer_.data() + tls::kRecordLengthOffset));
-        if (*record_length_ > kMaximumServerHelloRecordSize)
+        if (*record_length_ <= tls::kRecordHeaderSize || *record_length_ > kMaximumServerHelloRecordSize)
         {
             done_ = true;
             return false;
@@ -409,14 +415,36 @@ bool server_hello_tracker::prepare_server_hello_record()
 
 void server_hello_tracker::evaluate_server_hello()
 {
-    if (!prepare_server_hello_record())
+    while (!done_ && prepare_server_hello_record())
     {
-        return;
+        auto payload = std::span<const std::uint8_t>(buffer_).subspan(tls::kRecordHeaderSize, *record_length_ - tls::kRecordHeaderSize);
+        if (handshake_.size() < tls::kHandshakeHeaderSize)
+        {
+            const auto count = std::min(payload.size(), tls::kHandshakeHeaderSize - handshake_.size());
+            handshake_.insert(handshake_.end(), payload.begin(), payload.begin() + static_cast<std::ptrdiff_t>(count));
+            payload = payload.subspan(count);
+        }
+        if (handshake_.size() >= tls::kHandshakeHeaderSize)
+        {
+            const auto message_size =
+                tls::kHandshakeHeaderSize + static_cast<std::size_t>(core::read_be24(handshake_.data() + tls::kHandshakeLengthOffset));
+            if (message_size > tls::kMaximumPlaintextSize)
+            {
+                done_ = true;
+                return;
+            }
+            const auto count = std::min(payload.size(), message_size - handshake_.size());
+            handshake_.insert(handshake_.end(), payload.begin(), payload.begin() + static_cast<std::ptrdiff_t>(count));
+            if (handshake_.size() == message_size)
+            {
+                done_ = true;
+                direct_supported_ = server_hello_supports_direct(handshake_);
+                return;
+            }
+        }
+        buffer_.erase(buffer_.begin(), buffer_.begin() + static_cast<std::ptrdiff_t>(*record_length_));
+        record_length_.reset();
     }
-
-    done_ = true;
-    const auto record = std::span<const std::uint8_t>(buffer_.data(), *record_length_);
-    direct_supported_ = server_hello_supports_direct(record);
 }
 
 }    // namespace rv::vision

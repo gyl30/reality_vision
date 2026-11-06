@@ -111,6 +111,9 @@ if(RV_BUILD_TESTS)
   if(RV_XRAY_EXECUTABLE)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     add_test(
+      NAME rv_tun_reset_tests
+      COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/tests/interop/test_tun_interop.py)
+    add_test(
       NAME rv_xray_interop
       COMMAND
         Python3::Interpreter

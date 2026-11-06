@@ -365,7 +365,13 @@ def run_test(xray: Path, client: Path, work_dir: Path) -> int:
 
         run_checked(
             namespace_command(
-                proxy_namespace, ["sysctl", "-q", "-w", "net.ipv4.conf.all.rp_filter=0"]
+                proxy_namespace,
+                # 此拓扑的 mark 仅用于入站本地投递，不参与反向路径验证。
+                [
+                    "sysctl", "-q", "-w", "net.ipv4.conf.all.rp_filter=0",
+                    "net.ipv4.conf.all.src_valid_mark=0",
+                    f"net.ipv4.conf.{proxy_client_interface}.src_valid_mark=0",
+                ],
             )
         )
         run_checked(

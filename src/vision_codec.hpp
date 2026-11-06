@@ -102,6 +102,8 @@ class server_hello_tracker
 
     std::vector<std::uint8_t> buffer_;
     std::optional<std::size_t> record_length_;
+    std::vector<std::uint8_t> handshake_;
+    std::size_t inspected_bytes_{0};
     bool done_{false};
     bool direct_supported_{false};
 };

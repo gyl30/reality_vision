@@ -948,6 +948,94 @@ void test_vision_tls_trackers()
     expect(large_tail_tracker.direct_supported(), "Vision server tracker gave up on a ServerHello followed by a large input");
 }
 
+void test_vision_server_hello_records()
+{
+    const auto whole = make_test_tls_server_hello(0x1301, true);
+    const auto handshake = std::span(whole).subspan(rv::tls::kRecordHeaderSize);
+    // 每个 Handshake 切点都覆盖一次；TCP 切点独立于 record 切点。
+    for (std::size_t split = 1; split < handshake.size(); ++split)
+    {
+        std::vector<std::uint8_t> wire;
+        for (const auto payload : {handshake.first(split), handshake.subspan(split)})
+        {
+            wire.insert(wire.end(), {0x16, 0x03, 0x03});
+            put_test_u16(payload.size(), wire);
+            wire.insert(wire.end(), payload.begin(), payload.end());
+        }
+        const auto original = wire;
+        for (std::size_t tcp_split = 0; tcp_split <= wire.size(); ++tcp_split)
+        {
+            rv::vision::server_hello_tracker tracker;
+            tracker.observe(std::span(wire).first(tcp_split));
+            tracker.observe(std::span(wire).subspan(tcp_split));
+            expect(tracker.direct_supported(), "Vision missed ServerHello split across TLS records");
+        }
+        expect(wire == original, "Vision tracker modified original TLS records");
+    }
+
+    std::vector<std::uint8_t> wire;
+    for (const auto value : handshake)
+    {
+        wire.insert(wire.end(), {0x16, 0x03, 0x03, 0x00, 0x01, value});
+    }
+    // 同批输入在 ServerHello 完成后还有 TLS 数据，识别不得吞掉或改写这些字节。
+    wire.insert(wire.end(), {0x14, 0x03, 0x03, 0x00, 0x01, 0x01});
+    const auto original = wire;
+    rv::vision::server_hello_tracker bytewise;
+    for (std::size_t i = 0; i < wire.size(); ++i)
+    {
+        bytewise.observe(std::span(wire).subspan(i, 1));
+    }
+    expect(bytewise.direct_supported(), "Vision missed bytewise Handshake header and body across records");
+    rv::vision::server_hello_tracker coalesced;
+    coalesced.observe(wire);
+    expect(coalesced.direct_supported(), "Vision missed coalesced TLS records");
+    expect(wire == original, "Vision tracker changed coalesced TLS data");
+
+    auto malformed = whole;
+    malformed[6] = 0xff;
+    malformed[7] = 0xff;
+    malformed[8] = 0xff;
+    rv::vision::server_hello_tracker oversized;
+    oversized.observe(malformed);
+    oversized.observe(whole);
+    expect(!oversized.direct_supported(), "Vision recovered after oversized Handshake length");
+
+    malformed = whole;
+    malformed[6] = malformed[7] = malformed[8] = 0;
+    rv::vision::server_hello_tracker empty;
+    empty.observe(malformed);
+    expect(!empty.direct_supported(), "Vision accepted empty ServerHello");
+
+    rv::vision::server_hello_tracker truncated;
+    truncated.observe(std::span(whole).first(whole.size() - 1));
+    expect(!truncated.direct_supported(), "Vision accepted truncated ServerHello");
+
+    std::vector<std::uint8_t> partial{0x16, 0x03, 0x03, 0x00, 0x02, 0x02, 0x00};
+    const std::array<std::uint8_t, 6> alert{0x15, 0x03, 0x03, 0x00, 0x01, 0x00};
+    rv::vision::server_hello_tracker interleaved;
+    interleaved.observe(partial);
+    interleaved.observe(alert);
+    interleaved.observe(whole);
+    expect(!interleaved.direct_supported(), "Vision accepted non-handshake record during ServerHello");
+
+    auto unsupported = whole;
+    unsupported[5] = rv::tls::kHandshakeCertificate;
+    rv::vision::server_hello_tracker unsupported_tracker;
+    unsupported_tracker.observe(unsupported);
+    expect(!unsupported_tracker.direct_supported(), "Vision accepted a non-ServerHello Handshake");
+
+    rv::vision::server_hello_tracker truncated_header;
+    truncated_header.observe(std::span(wire).first(7));
+    expect(!truncated_header.direct_supported(), "Vision accepted a truncated cross-record Handshake header");
+
+    rv::vision::server_hello_tracker budget;
+    const std::vector<std::uint8_t> noise(4 * rv::tls::kMaximumPlaintextSize, 0xaa);
+    budget.observe(noise);
+    budget.observe(whole);
+    expect(!budget.direct_supported(), "Vision exceeded cumulative identification budget");
+}
+
 void test_socks5_request_decode()
 {
     boost::system::error_code ec;
@@ -1179,6 +1267,7 @@ int run_protocol_tests()
         std::pair{"destination sniffer", &test_destination_sniffer},
         std::pair{"Vision frame codec", &test_vision_frame_codec},
         std::pair{"Vision TLS trackers", &test_vision_tls_trackers},
+        std::pair{"Vision ServerHello records", &test_vision_server_hello_records},
         std::pair{"SOCKS5 request decode", &test_socks5_request_decode},
         std::pair{"SOCKS5 UDP codec", &test_socks5_udp_codec},
         std::pair{"XUDP codec", &test_xudp_codec},

@@ -9,6 +9,7 @@
 
 import argparse
 import contextlib
+import errno
 import json
 import os
 import shutil
@@ -124,10 +125,19 @@ def run_client_checks() -> int:
 def run_reset_check() -> int:
     # 上游不可用时 lwIP 已完成三次握手，应用必须收到 RST，而不是看似正常结束的 FIN。
     # 不发送数据：lwIP 关闭仍有未读数据的连接时本身就会发 RST，服务端先发言的协议（SSH、SMTP）才会暴露问题。
-    with socket.create_connection((TARGET_V4, TCP_ECHO_PORT), timeout=10) as connection:
+    try:
+        connection = socket.create_connection((TARGET_V4, TCP_ECHO_PORT), timeout=10)
+    except OSError as error:
+        if error.errno not in (errno.ECONNRESET, errno.ECONNREFUSED):
+            raise
+        print(f"tun connection rejected with errno={error.errno}", flush=True)
+        return 0
+    with connection as sock:
         try:
-            data = connection.recv(1)
-        except ConnectionResetError:
+            data = sock.recv(1)
+        except OSError as error:
+            if error.errno != errno.ECONNRESET:
+                raise
             print("tun reset check passed", flush=True)
             return 0
     raise RuntimeError(f"expected connection reset, received {data!r}")
@@ -169,6 +179,23 @@ def run_client(namespace: str, script: Path, command: str, log_path: Path) -> No
         raise RuntimeError(f"{command} failed\n{interop.tail(log_path)}")
 
 
+def assert_tun_absent(namespace: str) -> None:
+    links = json.loads(subprocess.check_output(["ip", "-n", namespace, "-j", "link", "show"], text=True))
+    if any(link["ifname"] == TUN_NAME for link in links):
+        raise RuntimeError(f"test TUN {TUN_NAME} still exists in {namespace}")
+
+
+def remove_test_namespace(namespace: str) -> None:
+    # namespace 仅在本测试成功创建后登记；删除它也会清除其中的路由、地址和链路。
+    try:
+        assert_tun_absent(namespace)
+    finally:
+        run_checked(["ip", "netns", "delete", namespace])
+        names = subprocess.check_output(["ip", "netns", "list"], text=True)
+        if any(line.split()[0] == namespace for line in names.splitlines()):
+            raise RuntimeError(f"test namespace {namespace} was not removed")
+
+
 def run_test(xray: Path, client: Path, work_dir: Path) -> int:
     for command in ("ip", "openssl"):
         if shutil.which(command) is None:
@@ -190,12 +217,15 @@ def run_test(xray: Path, client: Path, work_dir: Path) -> int:
 
     proxy_namespace = "rvtunp"
     server_namespace = "rvtunx"
+    namespaces_created: list[str] = []
     processes: list[subprocess.Popen[bytes]] = []
     log_files: list = []
     proxy_log_path = work_dir / "tun-client.log"
     try:
         run_checked(["ip", "netns", "add", proxy_namespace])
+        namespaces_created.append(proxy_namespace)
         run_checked(["ip", "netns", "add", server_namespace])
+        namespaces_created.append(server_namespace)
         run_checked(["ip", "link", "add", "rvtp", "type", "veth", "peer", "name", "rvtx"])
         run_checked(["ip", "link", "set", "rvtp", "netns", proxy_namespace])
         run_checked(["ip", "link", "set", "rvtx", "netns", server_namespace])
@@ -239,19 +269,15 @@ def run_test(xray: Path, client: Path, work_dir: Path) -> int:
         )
         wait_for_tcp(server_namespace, SERVER_VETH_ADDRESS, XRAY_PORT, xray_process, script)
 
-        proxy_process = launch(
-            proxy_namespace,
-            [
-                str(client), "--server", SERVER_HOST, "--port", str(XRAY_PORT),
-                "--server_name", interop.SERVER_NAME, "--server_public_key", public_key,
-                "--short_id", interop.SHORT_ID, "--uuid", interop.USER_ID,
-                "--tun", "--tun_name", TUN_NAME, "--mark", str(OUTBOUND_MARK),
-                "--tcp_idle_timeout", str(TCP_IDLE_TIMEOUT),
-            ],
-            proxy_log_path,
-            processes,
-            log_files,
-        )
+        assert_tun_absent(proxy_namespace)
+        proxy_command = [
+            str(client), "--server", SERVER_HOST, "--port", str(XRAY_PORT),
+            "--server_name", interop.SERVER_NAME, "--server_public_key", public_key,
+            "--short_id", interop.SHORT_ID, "--uuid", interop.USER_ID,
+            "--tun", "--tun_name", TUN_NAME, "--mark", str(OUTBOUND_MARK),
+            "--tcp_idle_timeout", str(TCP_IDLE_TIMEOUT),
+        ]
+        proxy_process = launch(proxy_namespace, proxy_command, proxy_log_path, processes, log_files)
         interop.wait_for_text(proxy_log_path, f"TUN inbound {TUN_NAME} started", proxy_process)
         link = subprocess.run(
             ["ip", "-n", proxy_namespace, "link", "show", TUN_NAME], check=True, capture_output=True, text=True
@@ -287,14 +313,31 @@ def run_test(xray: Path, client: Path, work_dir: Path) -> int:
             proxy_process.wait(timeout=5)
         except subprocess.TimeoutExpired as error:
             raise RuntimeError("reality_vision kept running after the TUN device was removed") from error
+        assert_tun_absent(proxy_namespace)
+        # 非持久 TUN 在进程正常终止及 SIGKILL 后都必须随最后一个 fd 关闭而消失。
+        for mode in ("terminate", "kill"):
+            lifecycle_log = work_dir / f"tun-{mode}.log"
+            process = launch(proxy_namespace, proxy_command, lifecycle_log, processes, log_files)
+            interop.wait_for_text(lifecycle_log, f"TUN inbound {TUN_NAME} started", process)
+            if mode == "kill":
+                process.kill()
+                process.wait(timeout=5)
+            else:
+                interop.stop_process(process)
+            assert_tun_absent(proxy_namespace)
+            print(f"TUN {mode} device cleanup passed", flush=True)
     except Exception:
         print(interop.tail(proxy_log_path), file=sys.stderr)
         raise
     finally:
-        for process in reversed(processes):
-            interop.stop_process(process)
-        for log_file in log_files:
-            log_file.close()
+        # ExitStack 在某项清理/断言失败后仍继续执行其余清理。
+        with contextlib.ExitStack() as cleanup:
+            for namespace in namespaces_created:
+                cleanup.callback(remove_test_namespace, namespace)
+            for log_file in log_files:
+                cleanup.callback(log_file.close)
+            for process in processes:
+                cleanup.callback(interop.stop_process, process)
 
     print("TUN global routing with SO_MARK, TCP IPv4/IPv6, Host sniffing and idle timeout, UDP multi-destination and 7526-byte datagrams at MTU 8500, upstream reset, and device removal tests passed")
     return 0
